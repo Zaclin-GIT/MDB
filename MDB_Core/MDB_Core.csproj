@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <NoWarn>SYSLIB0011</NoWarn>
+    <AssemblyName>GameSDK.Core</AssemblyName>
+    <RootNamespace>GameSDK</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Core\*.cs" />
+    <Compile Include="ModHost\*.cs" />
+    <Compile Include="Generated\GameSDK.*.cs" />
+  </ItemGroup>
+
+</Project>

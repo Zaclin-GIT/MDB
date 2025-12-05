@@ -1,0 +1,68 @@
+# Build outputs
+bin/
+obj/
+Release/
+Debug/
+x64/
+.vs/
+
+# User-specific files
+*.user
+*.suo
+*.userprefs
+
+# Build artifacts
+*.dll
+*.pdb
+*.exe
+*.exp
+*.lib
+*.ilk
+*.iobj
+*.ipdb
+*.obj
+*.o
+*.log
+*.tlog/
+*.recipe
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE/Editor specific
+.idea/
+*.swp
+*.swo
+*~
+
+# Dumps (generated at runtime)
+dump.cs
+**/dump.cs
+
+# Log files
+@Logs/*.log
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# NuGet
+packages/
+*.nupkg
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# GitHub prompts (local only)
+.github/prompts/
+
+# Local documentation (not for repo)
+CHECKPOINT.md
+TO-DO.md

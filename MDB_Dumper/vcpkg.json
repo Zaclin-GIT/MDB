@@ -1,0 +1,7 @@
+﻿{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg/master/scripts/vcpkg.schema.json",
+  "name": "il2cppruntimedumper",
+  "version": "1.0.0",
+  "dependencies": [
+  ]
+}
