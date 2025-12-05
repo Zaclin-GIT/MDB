@@ -1203,14 +1203,6 @@ This project is for educational purposes. Use responsibly and respect game devel
 - **Generic methods are tricky** - IL2CPP erases generics, so `List<Player>` becomes `List<object>`
 - **Some games may detect injection** - Anti-cheat protected games will likely block this
 
-## Tested Games
-
-The framework has been successfully tested on:
-- ✅ Realm of the Mad God (RotMG)
-- ✅ Banana Shooter
-
-If you successfully use MDB Framework on another game, let us know!
-
 ## Contributing
 
 Found a bug? Have an improvement? PRs welcome! If the parser fails on a new game, please include the error log - it helps improve universal compatibility.
