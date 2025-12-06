@@ -139,6 +139,27 @@ namespace GameSDK
         public static extern IntPtr mdb_invoke_method(IntPtr method, IntPtr instance, IntPtr[] args, out IntPtr exception);
 
         // ==============================
+        // RVA-based Method Access
+        // ==============================
+
+        /// <summary>
+        /// Get the base address of GameAssembly.dll.
+        /// </summary>
+        /// <returns>Base address, or IntPtr.Zero if not loaded</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr mdb_get_gameassembly_base();
+
+        /// <summary>
+        /// Get a function pointer directly from an RVA offset.
+        /// This allows calling methods by their RVA when the method name contains
+        /// invalid characters (e.g., obfuscated Unicode names).
+        /// </summary>
+        /// <param name="rva">The RVA offset from the dump (e.g., 0x52f1e0)</param>
+        /// <returns>Function pointer at base + RVA</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr mdb_get_method_pointer_from_rva(ulong rva);
+
+        // ==============================
         // Field Access
         // ==============================
 

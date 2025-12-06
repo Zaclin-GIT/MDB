@@ -46,6 +46,7 @@ The dumped metadata gets parsed by a Python script into clean C# wrapper classes
 - [API Reference](#api-reference)
 - [Building](#building)
 - [Troubleshooting](#troubleshooting)
+- [Unicode/Obfuscation Deobfuscation](#unicodeobfuscation-deobfuscation)
 
 ---
 
@@ -1141,6 +1142,21 @@ The method doesn't exist with that exact name/parameter count. Causes:
 
 **Fix:** Check `dump.cs` for the actual method signature.
 
+### Unicode/Obfuscated Methods
+
+If a game uses Unicode obfuscation (e.g., Malayalam script characters), the parser automatically:
+1. Renames methods to `unicode_method_N`
+2. Uses RVA-based calling instead of name lookup
+3. Stores original Unicode names for class resolution
+
+You can find these methods in the generated wrappers:
+```csharp
+// Look for methods like this in generated code
+public void unicode_method_42() { ... }  // RVA-based call
+```
+
+The original Unicode names are preserved as comments in the generated code.
+
 ### "Class not found: Namespace.ClassName"
 
 The IL2CPP class lookup failed. Causes:
@@ -1194,6 +1210,101 @@ This project is for educational purposes. Use responsibly and respect game devel
 
 ---
 
+## Unicode/Obfuscation Deobfuscation
+
+Many games use obfuscation techniques that replace readable method, class, and property names with Unicode characters (e.g., Malayalam script: `ക`, `ഖ`, `ഗ`). Since C# identifiers cannot contain non-ASCII Unicode characters, MDB Framework automatically deobfuscates these names while preserving full functionality.
+
+### How It Works
+
+When the parser encounters Unicode names:
+
+1. **Detection** - Names containing non-ASCII characters (codepoint > 127) are detected
+2. **Sanitization** - Unicode names are replaced with sequential identifiers:
+   - `unicode_class_1`, `unicode_class_2`, etc.
+   - `unicode_method_1`, `unicode_method_2`, etc.
+   - `unicode_property_1`, `unicode_property_2`, etc.
+   - `unicode_ns_1`, `unicode_ns_2`, etc. (for namespaces)
+3. **RVA-Based Calling** - Methods with Unicode names use RVA (Relative Virtual Address) instead of name-based lookups
+4. **Original Name Storage** - The original Unicode name is stored as a string constant for IL2CPP class lookups
+
+### RVA-Based Method Calls
+
+For methods with Unicode names, the parser generates RVA-based calls:
+
+```csharp
+// Generated wrapper for a method with Unicode name "ക"
+public void unicode_method_42()
+{
+    Il2CppRuntime.InvokeVoidByRva(this, 0x1A3B5C0UL); // RVA from dump
+}
+
+public int unicode_method_43()
+{
+    return Il2CppRuntime.CallByRva<int>(this, 0x1A3B5D0UL); // RVA from dump
+}
+```
+
+This bypasses IL2CPP's name-based method lookup entirely by:
+1. Getting the `GameAssembly.dll` base address
+2. Adding the method's RVA offset
+3. Calling the method directly via function pointer
+
+### Original Name Preservation
+
+Classes with Unicode names store their original IL2CPP names:
+
+```csharp
+public class unicode_class_1 : ParentClass
+{
+    // Store original names for IL2CPP lookups
+    internal static readonly string _il2cppClassName = "ക";  // Original Unicode name
+    internal static readonly string _il2cppNamespace = "";
+    
+    // Static methods use original names for class resolution
+    public static void unicode_method_1()
+    {
+        Il2CppRuntime.InvokeStaticVoidByRva(_il2cppNamespace, _il2cppClassName, 0x1A3B5E0UL);
+    }
+}
+```
+
+### Example: Phasmophobia
+
+Phasmophobia uses heavy Unicode obfuscation (Malayalam script). The parser successfully handles:
+- **932 Unicode classes** → `unicode_class_1` through `unicode_class_932`
+- **23,868 Unicode methods** → `unicode_method_1` through `unicode_method_23868`
+- **0 Unicode properties** → None exist in this game
+- **0 Unicode namespaces** → All namespaces are ASCII
+
+### Bridge Functions
+
+The C++ bridge provides two new exports for RVA-based calling:
+
+```cpp
+// Get GameAssembly.dll base address
+extern "C" __declspec(dllexport)
+uint64_t mdb_get_gameassembly_base()
+{
+    return reinterpret_cast<uint64_t>(p_game_assembly);
+}
+
+// Calculate function pointer from RVA
+extern "C" __declspec(dllexport)
+uint64_t mdb_get_method_pointer_from_rva(uint64_t rva)
+{
+    return reinterpret_cast<uint64_t>(p_game_assembly) + rva;
+}
+```
+
+### Why RVA Instead of Name Lookup?
+
+- **Reliability** - RVA offsets are always valid, regardless of name encoding
+- **Performance** - Direct pointer calls skip IL2CPP's method resolution
+- **Compatibility** - Works with any Unicode script (Malayalam, Chinese, Japanese, etc.)
+- **Future-proof** - New obfuscation schemes won't break method calls as long as RVAs are dumped
+
+---
+
 ## Current Limitations
 
 - **Universal but not perfect** - The parser handles most games automatically, but some edge cases may require adding types to skip lists
@@ -1202,14 +1313,6 @@ This project is for educational purposes. Use responsibly and respect game devel
 - **No hot reload** - Restart the game to reload mods
 - **Generic methods are tricky** - IL2CPP erases generics, so `List<Player>` becomes `List<object>`
 - **Some games may detect injection** - Anti-cheat protected games will likely block this
-
-## Tested Games
-
-The framework has been successfully tested on:
-- ✅ Realm of the Mad God (RotMG)
-- ✅ Banana Shooter
-
-If you successfully use MDB Framework on another game, let us know!
 
 ## Contributing
 

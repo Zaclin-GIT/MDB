@@ -129,6 +129,25 @@ extern "C" {
     MDB_API void* mdb_invoke_method(void* method, void* instance, void** args, void** exception);
     
     // ==============================
+    // RVA-based Method Access
+    // ==============================
+    
+    /// <summary>
+    /// Get the base address of GameAssembly.dll.
+    /// </summary>
+    /// <returns>Base address, or nullptr if not loaded</returns>
+    MDB_API void* mdb_get_gameassembly_base();
+    
+    /// <summary>
+    /// Get a function pointer directly from an RVA offset.
+    /// This allows calling methods by their RVA when the method name contains
+    /// invalid characters (e.g., obfuscated Unicode names).
+    /// </summary>
+    /// <param name="rva">The RVA offset from the dump (e.g., 0x52f1e0)</param>
+    /// <returns>Function pointer at base + RVA</returns>
+    MDB_API void* mdb_get_method_pointer_from_rva(uint64_t rva);
+    
+    // ==============================
     // Field Access
     // ==============================
     

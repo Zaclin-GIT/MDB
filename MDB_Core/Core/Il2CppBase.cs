@@ -509,5 +509,163 @@ namespace GameSDK
                 return method;
             }
         }
+
+        // ==============================
+        // RVA-based Method Invocation
+        // ==============================
+        // These methods use RVA (Relative Virtual Address) to call methods directly
+        // by their offset in GameAssembly.dll. This is useful for obfuscated methods
+        // with Unicode names that cannot be looked up by name.
+
+        // Cache for RVA-based function pointers
+        private static readonly Dictionary<ulong, IntPtr> _rvaCache = new Dictionary<ulong, IntPtr>();
+
+        /// <summary>
+        /// Get or cache a function pointer from RVA.
+        /// </summary>
+        private static IntPtr GetOrCacheRvaPointer(ulong rva)
+        {
+            lock (_rvaCache)
+            {
+                if (_rvaCache.TryGetValue(rva, out IntPtr cached))
+                {
+                    return cached;
+                }
+
+                IntPtr ptr = Il2CppBridge.mdb_get_method_pointer_from_rva(rva);
+                if (ptr != IntPtr.Zero)
+                {
+                    _rvaCache[rva] = ptr;
+                }
+
+                return ptr;
+            }
+        }
+
+        /// <summary>
+        /// Call an instance method by RVA and return the result.
+        /// Used for obfuscated methods with Unicode names.
+        /// </summary>
+        /// <param name="instance">The object instance</param>
+        /// <param name="rva">The RVA offset of the method</param>
+        /// <param name="paramTypes">Parameter types for the call</param>
+        /// <param name="args">Arguments to pass</param>
+        public static T CallByRva<T>(Il2CppObject instance, ulong rva, Type[] paramTypes, params object[] args)
+        {
+            EnsureInitialized();
+            
+            LogDebug($"CallByRva: RVA=0x{rva:X} with {args?.Length ?? 0} args");
+
+            try
+            {
+                IntPtr methodPtr = GetOrCacheRvaPointer(rva);
+                if (methodPtr == IntPtr.Zero)
+                {
+                    LogError($"Failed to get method pointer for RVA 0x{rva:X}");
+                    return default(T);
+                }
+                LogTrace($"  Method pointer: 0x{methodPtr.ToInt64():X}");
+
+                // For RVA-based calls, we call the function pointer directly
+                // This requires proper ABI handling based on calling convention
+                // For now, we log a warning - full implementation requires delegate marshaling
+                LogError($"RVA-based calls require native delegate invocation (not yet implemented)");
+                return default(T);
+            }
+            catch (Exception ex)
+            {
+                LogError($"CallByRva(0x{rva:X}): {ex.Message}");
+                return default(T);
+            }
+        }
+
+        /// <summary>
+        /// Call a static method by RVA and return the result.
+        /// Used for obfuscated methods with Unicode names.
+        /// </summary>
+        public static T CallStaticByRva<T>(ulong rva, Type[] paramTypes, params object[] args)
+        {
+            EnsureInitialized();
+            
+            LogDebug($"CallStaticByRva: RVA=0x{rva:X} with {args?.Length ?? 0} args");
+
+            try
+            {
+                IntPtr methodPtr = GetOrCacheRvaPointer(rva);
+                if (methodPtr == IntPtr.Zero)
+                {
+                    LogError($"Failed to get method pointer for RVA 0x{rva:X}");
+                    return default(T);
+                }
+                LogTrace($"  Method pointer: 0x{methodPtr.ToInt64():X}");
+
+                // For RVA-based calls, we call the function pointer directly
+                LogError($"RVA-based calls require native delegate invocation (not yet implemented)");
+                return default(T);
+            }
+            catch (Exception ex)
+            {
+                LogError($"CallStaticByRva(0x{rva:X}): {ex.Message}");
+                return default(T);
+            }
+        }
+
+        /// <summary>
+        /// Invoke a void instance method by RVA.
+        /// Used for obfuscated methods with Unicode names.
+        /// </summary>
+        public static void InvokeVoidByRva(Il2CppObject instance, ulong rva, Type[] paramTypes, params object[] args)
+        {
+            EnsureInitialized();
+            
+            LogDebug($"InvokeVoidByRva: RVA=0x{rva:X} with {args?.Length ?? 0} args");
+
+            try
+            {
+                IntPtr methodPtr = GetOrCacheRvaPointer(rva);
+                if (methodPtr == IntPtr.Zero)
+                {
+                    LogError($"Failed to get method pointer for RVA 0x{rva:X}");
+                    return;
+                }
+                LogTrace($"  Method pointer: 0x{methodPtr.ToInt64():X}");
+
+                // For RVA-based calls, we call the function pointer directly
+                LogError($"RVA-based calls require native delegate invocation (not yet implemented)");
+            }
+            catch (Exception ex)
+            {
+                LogError($"InvokeVoidByRva(0x{rva:X}): {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Invoke a void static method by RVA.
+        /// Used for obfuscated methods with Unicode names.
+        /// </summary>
+        public static void InvokeStaticVoidByRva(ulong rva, Type[] paramTypes, params object[] args)
+        {
+            EnsureInitialized();
+            
+            LogDebug($"InvokeStaticVoidByRva: RVA=0x{rva:X} with {args?.Length ?? 0} args");
+
+            try
+            {
+                IntPtr methodPtr = GetOrCacheRvaPointer(rva);
+                if (methodPtr == IntPtr.Zero)
+                {
+                    LogError($"Failed to get method pointer for RVA 0x{rva:X}");
+                    return;
+                }
+                LogTrace($"  Method pointer: 0x{methodPtr.ToInt64():X}");
+
+                // For RVA-based calls, we call the function pointer directly
+                LogError($"RVA-based calls require native delegate invocation (not yet implemented)");
+            }
+            catch (Exception ex)
+            {
+                LogError($"InvokeStaticVoidByRva(0x{rva:X}): {ex.Message}");
+            }
+        }
     }
 }

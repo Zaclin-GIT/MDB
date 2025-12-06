@@ -31,6 +31,8 @@ SKIP_BASE_TYPES = {
     "SynchronizationContext",
     # Abstract classes that require implementing members
     "PropertyDescriptor", "MemberDescriptor", "TypeConverter", "SerializationBinder",
+    # Stream base class (abstract, requires implementing members)
+    "Stream", "MemoryStream",
     # Unity attribute base classes (derived from Attribute)
     "PropertyAttribute", "PreserveAttribute", "UnityException",
     # Ambiguous base types that conflict between namespaces
@@ -52,6 +54,8 @@ SKIP_BASE_TYPES = {
     "CaptureResultType",
     # Addressables/AssetBundle types
     "AssetReferenceUIRestriction",
+    # Sealed types that cannot be base classes
+    "Space",  # OpenXR sealed type
 }
 
 # Skip enums that are commonly nested types (generic names that cause conflicts)
@@ -80,6 +84,7 @@ class MethodDef:
     is_static: bool
     visibility: str
     parameters: List[ParameterDef] = field(default_factory=list)
+    rva: Optional[str] = None  # RVA address like "0x52f1e0" for direct method calls
 
 @dataclass
 class PropertyDef:
@@ -239,6 +244,7 @@ def _parse_type(lines, start_index, dll, ns, header_match):
     in_properties = False
     in_methods = False
     in_fields = False
+    pending_rva = None  # Stores RVA from comment line for next method
 
     while i < n:
         raw = lines[i]
@@ -313,7 +319,14 @@ def _parse_type(lines, start_index, dll, ns, header_match):
                 continue
 
         if in_methods:
+            # Parse RVA comment line and store for next method
             if trimmed.startswith("// RVA:"):
+                # Extract RVA value, e.g., "// RVA: 0x52f1e0 VA: 0x7ffb2a8cf1e0" -> "0x52f1e0"
+                rva_match = re.search(r'RVA:\s*(0x[0-9A-Fa-f]+)', trimmed)
+                if rva_match:
+                    pending_rva = rva_match.group(1)
+                else:
+                    pending_rva = None
                 i += 1
                 continue
 
@@ -330,7 +343,9 @@ def _parse_type(lines, start_index, dll, ns, header_match):
                     return_type=ret,
                     is_static=is_static,
                     visibility=vis,
+                    rva=pending_rva,  # Assign captured RVA
                 )
+                pending_rva = None  # Clear for next method
 
                 if param_block:
                     parts = [p.strip() for p in param_block.split(',') if p.strip()]
@@ -915,6 +930,12 @@ SKIP_TYPES = {
     "UnitySynchronizationContext",  # Constructor parameter mismatch CS1729
     # Ambiguous types that conflict with System.Reflection types
     "Pointer",  # Conflicts with System.Reflection.Pointer
+    # SDK types with complex field dependencies that may not be fully generated
+    "SDKTexture",  # LIV SDK struct with unresolved field types
+    # Types from VR/recording namespaces that aren't being generated
+    "VisualRecordingIndicators",  # Recording indicator type not generated
+    # Types that cause Map.Map circular resolution issues
+    "Map",  # Multiple Map classes in Global namespace cause resolution issues
 }
 
 # Property names that conflict with C# keywords or System types
@@ -937,24 +958,28 @@ AMBIGUOUS_TYPES = {
     # Riptide types that conflict with namespaces (Multiplayer.Client, Multiplayer.Server)
     "Client": "Riptide.Client",
     "Server": "Riptide.Server",
-    # Game types that conflict with namespaces
-    "Map": "Map.Map",  # Map class is in Map namespace
-    # InputSystem types - these have complex conflicts so we'll skip them
-    # "InputDevice": "UnityEngine.InputSystem.InputDevice",
-    # "Pointer": "UnityEngine.InputSystem.Pointer",
     # System types
     "ErrorEventArgs": "System.IO.ErrorEventArgs",
     "IFormatter": "System.Runtime.Serialization.IFormatter",
     # Additional ambiguous types from remaining errors
     "SocketManager": "DecaGames.RotMG.Managers.Net.SocketManager",  # vs Steamworks.SocketManager
     "Random": "UnityEngine.Random",  # vs System.Random
+    # Photon vs System.Collections conflict
+    "Hashtable": "System.Collections.Hashtable",  # Prefer System.Collections.Hashtable
+    # Version conflict between VisualDesignCafe.Packages and System
+    "Version": "System.Version",  # Prefer System.Version
     # Note: Path is NOT added here because DG.Tweening.Plugins.Core.PathCore.Path is a valid game type
 }
 
 def is_obfuscated_type(type_name: str) -> bool:
-    """Check if a type name looks like an obfuscated IL2CPP type (e.g., BNHDCIPKPDL)"""
+    """Check if a type name looks like an obfuscated IL2CPP type (e.g., BNHDCIPKPDL or ಠ_ಠ)"""
     # Get the base type name without generics or arrays
     base = type_name.split("<")[0].split("[")[0].split("`")[0]
+    
+    # Check for non-ASCII characters (Malayalam, Greek, etc. obfuscation)
+    if not has_valid_csharp_identifier_chars(base):
+        return True
+    
     # Check if it's all uppercase letters and >= 8 chars (obfuscated types are usually long)
     if len(base) >= 8 and base.isupper() and base.isalpha():
         return True
@@ -1037,13 +1062,85 @@ CSHARP_KEYWORDS = {
     "void", "volatile", "while"
 }
 
-def sanitize_name(name: str) -> str:
-    """Sanitize method/parameter names to be valid C# identifiers"""
+def has_valid_csharp_identifier_chars(name: str) -> bool:
+    """
+    Check if a name contains only valid C# identifier characters.
+    C# allows: letters (a-z, A-Z), digits (0-9), underscores, and certain Unicode categories.
+    For safety, we only allow ASCII letters, digits, and underscores.
+    """
+    if not name:
+        return False
+    for char in name:
+        # Allow ASCII letters, digits, and underscores
+        if char.isascii() and (char.isalnum() or char == '_'):
+            continue
+        # Reject all other characters including non-ASCII Unicode, $, etc.
+        return False
+    return True
+
+
+def is_unicode_name(name: str) -> bool:
+    """
+    Check if a name contains non-ASCII Unicode characters (obfuscated names).
+    """
+    if not name:
+        return False
+    # Strip common generic markers before checking
+    clean_name = name.replace("<", "").replace(">", "").replace(".", "").replace("|", "")
+    return not has_valid_csharp_identifier_chars(clean_name)
+
+
+def sanitize_unicode_namespace(ns: str) -> str:
+    """
+    Sanitize a namespace that may contain Unicode characters.
+    Returns a valid C# namespace name.
+    """
+    if not ns or ns == "Global":
+        return ns
+    
+    # Split by dots and check each part
+    parts = ns.split(".")
+    sanitized_parts = []
+    unicode_ns_counter = 0
+    
+    for part in parts:
+        if is_unicode_name(part):
+            unicode_ns_counter += 1
+            sanitized_parts.append(f"unicode_ns_{unicode_ns_counter}")
+        else:
+            sanitized_parts.append(part)
+    
+    return ".".join(sanitized_parts)
+
+
+def sanitize_name(name: str, return_original: bool = False) -> str:
+    """
+    Sanitize method/parameter names to be valid C# identifiers.
+    
+    Args:
+        name: The original name from IL2CPP dump
+        return_original: If True, returns tuple (sanitized_name, original_name) for method calls
+    
+    Returns:
+        Sanitized name as valid C# identifier, or None if should be skipped.
+        If return_original=True, returns tuple (sanitized, original) or (None, None).
+    """
+    if not name:
+        return (None, None) if return_original else None
+        
     # Handle .ctor -> ctor (will be handled specially)
     if name == ".ctor":
-        return None  # Skip constructors, we generate our own
+        return (None, None) if return_original else None  # Skip constructors, we generate our own
     if name == ".cctor":
-        return None  # Skip static constructors
+        return (None, None) if return_original else None  # Skip static constructors
+    
+    original_name = name
+    
+    # Check for non-ASCII characters (obfuscated names like Malayalam script)
+    if not has_valid_csharp_identifier_chars(name.replace("<", "").replace(">", "").replace(".", "").replace("|", "")):
+        # Name contains invalid characters - skip it
+        # TODO: In future, could generate sanitized name like "Method_0x1234" using hash
+        return (None, None) if return_original else None
     
     # Replace invalid characters
     name = name.replace("<", "_").replace(">", "_").replace(".", "_").replace("|", "_")
@@ -1056,6 +1153,8 @@ def sanitize_name(name: str) -> str:
     if name in CSHARP_KEYWORDS:
         name = "@" + name
     
+    if return_original:
+        return (name, original_name)
     return name
 
 # Generic type parameters - common patterns. We also use heuristic detection below.
@@ -1298,11 +1397,22 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
     all_types_list = types  # Keep reference for smart usings
     
     for ns, ns_types in namespaces.items():
+        original_ns = ns  # Store original namespace for IL2CPP calls
+        
+        # Check if namespace has Unicode characters and sanitize
+        is_unicode_ns = is_unicode_name(ns) if ns != "Global" else False
+        if is_unicode_ns:
+            ns = sanitize_unicode_namespace(ns)
+        
         # Compute which namespaces will be imported for this file
         imported_ns = compute_imported_namespaces(ns, valid_namespaces_for_using)
         
         # PHASE 1: Generate the code body first (without using statements)
         body_lines = []
+        
+        # Add comment for unicode namespaces
+        if is_unicode_ns:
+            body_lines.append(f"// Original namespace: {original_ns}")
         
         body_lines.append(f"namespace {ns}")
         body_lines.append("{")
@@ -1320,6 +1430,9 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
             if t.base_type != "MulticastDelegate":
                 continue
             if "`" in t.name or "<" in t.name or ">" in t.name:
+                continue
+            # Skip delegate types with invalid characters in their names ($ etc.)
+            if not has_valid_csharp_identifier_chars(t.name):
                 continue
             if t.name in seen_delegate_names:
                 continue
@@ -1392,6 +1505,9 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
                 continue
             if "`" in t.name or "<" in t.name or ">" in t.name:
                 continue
+            # Skip types with Unicode/non-ASCII characters in their names (obfuscated types)
+            if not has_valid_csharp_identifier_chars(t.name):
+                continue
             # Skip generic nested enum names that cause conflicts
             if t.name in SKIP_NESTED_ENUM_NAMES:
                 continue
@@ -1443,6 +1559,9 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
                 continue
             if "`" in t.name or "<" in t.name or ">" in t.name:
                 continue
+            # Skip types with Unicode/non-ASCII characters in their names (obfuscated types)
+            if not has_valid_csharp_identifier_chars(t.name):
+                continue
             # Skip types that are already defined elsewhere
             if t.name in SKIP_TYPES:
                 continue
@@ -1465,6 +1584,9 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
             if t.visibility not in ("public",):
                 continue
             if "`" in t.name or "<" in t.name or ">" in t.name:
+                continue
+            # Skip types with Unicode/non-ASCII characters in their names (obfuscated types)
+            if not has_valid_csharp_identifier_chars(t.name):
                 continue
             # Skip types that are already defined elsewhere (UnityValueTypes.cs)
             if t.name in SKIP_TYPES:
@@ -1511,6 +1633,8 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
             body_lines.append("")
 
         # Then, generate classes
+        unicode_class_counter = 0  # Counter for unicode classes in this namespace
+        
         for t in ns_types:
             if t.kind != "class":
                 continue
@@ -1527,6 +1651,16 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
             if "<" in t.name or ">" in t.name:
                 continue
 
+            # Check if this is a Unicode class name
+            is_unicode_class = is_unicode_name(t.name)
+            original_class_name = t.name  # Store original for IL2CPP calls
+            
+            if is_unicode_class:
+                unicode_class_counter += 1
+                class_name = f"unicode_class_{unicode_class_counter}"
+            else:
+                class_name = t.name
+
             # Skip types that derive from special .NET types
             # Clean base type first (remove trailing comma from multi-inheritance)
             clean_base = t.base_type.rstrip(",").strip() if t.base_type else None
@@ -1537,10 +1671,10 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
             if t.name in SKIP_TYPES:
                 continue
             
-            # Skip if already seen in this namespace
-            if t.name in seen_type_names:
+            # Skip if already seen in this namespace (use sanitized name)
+            if class_name in seen_type_names:
                 continue
-            seen_type_names.add(t.name)
+            seen_type_names.add(class_name)
 
             type_count += 1
 
@@ -1581,11 +1715,23 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
 
             # Class declaration
             base_part = f" : {base_type}" if base_type else " : Il2CppObject"
-            body_lines.append(f"    {t.visibility} partial class {t.name}{base_part}")
+            
+            # Add XML doc for unicode classes
+            if is_unicode_class:
+                body_lines.append(f"    /// <summary>Obfuscated class. Original name: '{original_class_name}'</summary>")
+            
+            body_lines.append(f"    {t.visibility} partial class {class_name}{base_part}")
             body_lines.append("    {")
 
+            # For unicode classes or unicode namespaces, store original name and namespace for IL2CPP lookups
+            if is_unicode_class or is_unicode_ns:
+                body_lines.append(f"        /// <summary>Original IL2CPP class name for runtime lookups</summary>")
+                body_lines.append(f"        private const string _il2cppClassName = \"{original_class_name}\";")
+                body_lines.append(f"        private const string _il2cppNamespace = \"{original_ns}\";")
+                body_lines.append("")
+
             # Constructor - always call base(nativePtr) since we inherit from Il2CppObject at minimum
-            body_lines.append(f"        public {t.name}(IntPtr nativePtr) : base(nativePtr) {{ }}")
+            body_lines.append(f"        public {class_name}(IntPtr nativePtr) : base(nativePtr) {{ }}")
             body_lines.append("")
 
             # Build a set of method names to avoid property conflicts
@@ -1621,9 +1767,21 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
                     methods_used_as_properties.add(m.name)
             
             # Generate properties from consolidated get_/set_ methods
+            unicode_property_counter = 0  # Counter for unicode properties in this class
+            
             if property_methods:
                 body_lines.append("        // Properties")
                 for prop_name, prop_info in sorted(property_methods.items()):
+                    original_prop_name = prop_name  # Store original for IL2CPP calls
+                    
+                    # Check if property name has Unicode characters
+                    is_unicode_prop = is_unicode_name(prop_name)
+                    if is_unicode_prop:
+                        unicode_property_counter += 1
+                        display_prop_name = f"unicode_property_{unicode_property_counter}"
+                    else:
+                        display_prop_name = prop_name
+                    
                     # Skip properties with names that conflict with System types
                     # These will be generated as regular get_X/set_X methods instead
                     if prop_name in SKIP_PROPERTY_NAMES:
@@ -1663,20 +1821,44 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
                     
                     static_keyword = "static " if is_static else ""
                     
-                    body_lines.append(f"        {visibility} {static_keyword}{prop_type} {prop_name}")
+                    # Get RVA for unicode properties
+                    getter_rva = prop_info["get"].rva if prop_info["get"] else None
+                    setter_rva = prop_info["set"].rva if prop_info["set"] else None
+                    
+                    # Add XML doc for unicode properties
+                    if is_unicode_prop:
+                        body_lines.append(f"        /// <summary>Obfuscated property. Original name: '{original_prop_name}'</summary>")
+                    
+                    body_lines.append(f"        {visibility} {static_keyword}{prop_type} {display_prop_name}")
                     body_lines.append("        {")
                     
                     if prop_info["get"]:
-                        if is_static:
-                            body_lines.append(f"            get => Il2CppRuntime.CallStatic<{prop_type}>(\"{ns}\", \"{t.name}\", \"get_{prop_name}\", System.Type.EmptyTypes);")
+                        if is_unicode_prop and getter_rva:
+                            # Use RVA-based call for unicode property getter
+                            if is_static:
+                                body_lines.append(f"            get => Il2CppRuntime.CallStaticByRva<{prop_type}>({getter_rva}, global::System.Type.EmptyTypes);")
+                            else:
+                                body_lines.append(f"            get => Il2CppRuntime.CallByRva<{prop_type}>(this, {getter_rva}, global::System.Type.EmptyTypes);")
                         else:
-                            body_lines.append(f"            get => Il2CppRuntime.Call<{prop_type}>(this, \"get_{prop_name}\", System.Type.EmptyTypes);")
+                            # Use original property name and namespace for IL2CPP lookup
+                            if is_static:
+                                body_lines.append(f"            get => Il2CppRuntime.CallStatic<{prop_type}>(\"{original_ns}\", \"{original_class_name}\", \"get_{original_prop_name}\", global::System.Type.EmptyTypes);")
+                            else:
+                                body_lines.append(f"            get => Il2CppRuntime.Call<{prop_type}>(this, \"get_{original_prop_name}\", global::System.Type.EmptyTypes);")
                     
                     if prop_info["set"]:
-                        if is_static:
-                            body_lines.append(f"            set => Il2CppRuntime.InvokeStaticVoid(\"{ns}\", \"{t.name}\", \"set_{prop_name}\", new[] {{ typeof({prop_type}) }}, value);")
+                        if is_unicode_prop and setter_rva:
+                            # Use RVA-based call for unicode property setter
+                            if is_static:
+                                body_lines.append(f"            set => Il2CppRuntime.InvokeStaticVoidByRva({setter_rva}, new[] {{ typeof({prop_type}) }}, value);")
+                            else:
+                                body_lines.append(f"            set => Il2CppRuntime.InvokeVoidByRva(this, {setter_rva}, new[] {{ typeof({prop_type}) }}, value);")
                         else:
-                            body_lines.append(f"            set => Il2CppRuntime.InvokeVoid(this, \"set_{prop_name}\", new[] {{ typeof({prop_type}) }}, value);")
+                            # Use original names and namespace for IL2CPP lookup
+                            if is_static:
+                                body_lines.append(f"            set => Il2CppRuntime.InvokeStaticVoid(\"{original_ns}\", \"{original_class_name}\", \"set_{original_prop_name}\", new[] {{ typeof({prop_type}) }}, value);")
+                            else:
+                                body_lines.append(f"            set => Il2CppRuntime.InvokeVoid(this, \"set_{original_prop_name}\", new[] {{ typeof({prop_type}) }}, value);")
                     
                     body_lines.append("        }")
                     body_lines.append("")
@@ -1688,9 +1870,16 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
             seen_signatures = set()
             deduped_methods = []
             for method in valid_methods:
-                method_name = sanitize_name(method.name)
-                if not method_name:
-                    continue
+                # For Unicode methods, use a placeholder name for deduplication
+                if is_unicode_name(method.name):
+                    if method.rva:
+                        method_name = f"__unicode_method_rva_{method.rva}__"
+                    else:
+                        continue  # Skip Unicode methods without RVA
+                else:
+                    method_name = sanitize_name(method.name)
+                    if not method_name:
+                        continue
                 # Create signature key: name + parameter types (map generic params to 'object' for dedup)
                 param_types = tuple(
                     'object' if is_generic_type_param(p.type) else map_type(p.type)
@@ -1703,10 +1892,26 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
             
             if deduped_methods:
                 body_lines.append("        // Methods")
+                unicode_method_counter = 0  # Counter for unicode methods in this class
+                
                 for method in deduped_methods:
-                    method_name = sanitize_name(method.name)
-                    if not method_name:
-                        continue
+                    # Check if method has Unicode name
+                    is_unicode_method = is_unicode_name(method.name)
+                    
+                    if is_unicode_method:
+                        # Generate sanitized name for Unicode methods
+                        if method.rva:
+                            unicode_method_counter += 1
+                            method_name = f"unicode_method_{unicode_method_counter}"
+                            use_rva = True
+                        else:
+                            # No RVA available, skip this method
+                            continue
+                    else:
+                        method_name = sanitize_name(method.name)
+                        if not method_name:
+                            continue
+                        use_rva = False
 
                     # Check if this is a generic method
                     generic_params = get_generic_type_params_from_method(method)
@@ -1726,18 +1931,27 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
 
                     # Build parameter list
                     param_parts = []
-                    for p in method.parameters:
+                    for idx, p in enumerate(method.parameters):
                         mod_prefix = f"{p.modifier} " if p.modifier else ""
                         if is_generic_type_param(p.type):
                             ptype = p.type  # Keep as T, T[], etc.
                         else:
                             ptype = map_type(p.type)
-                        pname = sanitize_name(p.name) or p.name
+                        # Sanitize parameter name, or use fallback arg0, arg1, etc.
+                        pname = sanitize_name(p.name)
+                        if pname is None:
+                            pname = f"arg{idx}"
                         param_parts.append(f"{mod_prefix}{ptype} {pname}")
                     param_list = ", ".join(param_parts)
 
                     # Build parameter names for the call
-                    param_names = ", ".join(sanitize_name(p.name) or p.name for p in method.parameters)
+                    param_names_list = []
+                    for idx, p in enumerate(method.parameters):
+                        pname = sanitize_name(p.name)
+                        if pname is None:
+                            pname = f"arg{idx}"
+                        param_names_list.append(pname)
+                    param_names = ", ".join(param_names_list)
 
                     # Build paramTypes array (for generic params, use typeof(object))
                     if method.parameters:
@@ -1750,9 +1964,13 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
                                 param_types_items.append(f'typeof({map_type(p.type)})')
                         param_types_decl = f"new Type[] {{ {', '.join(param_types_items)} }}"
                     else:
-                        param_types_decl = "System.Type.EmptyTypes"
+                        param_types_decl = "global::System.Type.EmptyTypes"
 
                     static_keyword = "static " if method.is_static else ""
+                    
+                    # Add comment for Unicode methods showing original name and RVA
+                    if use_rva:
+                        body_lines.append(f"        /// <summary>Obfuscated method. Original name: {repr(method.name)}, RVA: {method.rva}</summary>")
                     
                     body_lines.append(f"        {method.visibility} {static_keyword}{return_type} {method_name}{type_params_clause}({param_list})")
                     body_lines.append("        {")
@@ -1763,12 +1981,42 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
                         body_lines.append(f"            // TODO: Generic method - IL2CPP requires specific type instantiation")
                         body_lines.append(f"            // Consider using Il2CppRuntime with a concrete type wrapper")
                         body_lines.append(f"            throw new System.NotImplementedException(\"Generic method {method_name}{type_params_clause} requires IL2CPP generic instantiation\");")
+                    elif use_rva:
+                        # Use RVA-based call for Unicode methods
+                        rva_value = method.rva  # e.g., "0x52f1e0"
+                        if return_type == "void":
+                            if method.is_static:
+                                call_method = "Il2CppRuntime.InvokeStaticVoidByRva"
+                                call_args = f'{rva_value}, {param_types_decl}'
+                                if param_names:
+                                    call_args += f", {param_names}"
+                                body_lines.append(f"            {call_method}({call_args});")
+                            else:
+                                call_method = "Il2CppRuntime.InvokeVoidByRva"
+                                call_args = f'this, {rva_value}, {param_types_decl}'
+                                if param_names:
+                                    call_args += f", {param_names}"
+                                body_lines.append(f"            {call_method}({call_args});")
+                        else:
+                            if method.is_static:
+                                call_method = f"Il2CppRuntime.CallStaticByRva<{return_type}>"
+                                call_args = f'{rva_value}, {param_types_decl}'
+                                if param_names:
+                                    call_args += f", {param_names}"
+                                body_lines.append(f"            return {call_method}({call_args});")
+                            else:
+                                call_method = f"Il2CppRuntime.CallByRva<{return_type}>"
+                                call_args = f'this, {rva_value}, {param_types_decl}'
+                                if param_names:
+                                    call_args += f", {param_names}"
+                                body_lines.append(f"            return {call_method}({call_args});")
                     else:
                         # Determine call type for non-generic methods
+                        # Use original_class_name and original_ns for IL2CPP lookup (handles unicode names)
                         if return_type == "void":
                             if method.is_static:
                                 call_method = "Il2CppRuntime.InvokeStaticVoid"
-                                call_args = f'"{ns}", "{t.name}", "{method.name}", {param_types_decl}'
+                                call_args = f'"{original_ns}", "{original_class_name}", "{method.name}", {param_types_decl}'
                                 if param_names:
                                     call_args += f", {param_names}"
                                 body_lines.append(f"            {call_method}({call_args});")
@@ -1781,7 +2029,7 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
                         else:
                             if method.is_static:
                                 call_method = f"Il2CppRuntime.CallStatic<{return_type}>"
-                                call_args = f'"{ns}", "{t.name}", "{method.name}", {param_types_decl}'
+                                call_args = f'"{original_ns}", "{original_class_name}", "{method.name}", {param_types_decl}'
                                 if param_names:
                                     call_args += f", {param_names}"
                                 body_lines.append(f"            return {call_method}({call_args});")
@@ -2139,9 +2387,26 @@ def main():
         # Use the directory containing dump.cs as the working directory
         dump_dir = os.path.dirname(dump_path)
     else:
-        # Default: look for dump.cs in the script's directory
-        dump_dir = os.path.dirname(os.path.abspath(__file__))
-        dump_path = os.path.join(dump_dir, "dump.cs")
+        # Try to find dump.cs in:
+        # 1. Current working directory
+        # 2. Script's directory
+        cwd = os.getcwd()
+        cwd_dump = os.path.join(cwd, "dump.cs")
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        script_dump = os.path.join(script_dir, "dump.cs")
+        
+        if os.path.exists(cwd_dump):
+            dump_dir = cwd
+            dump_path = cwd_dump
+        elif os.path.exists(script_dump):
+            dump_dir = script_dir
+            dump_path = script_dump
+        else:
+            print(f"[ERROR] Could not find dump.cs in:")
+            print(f"  - Current directory: {cwd}")
+            print(f"  - Script directory: {script_dir}")
+            print("Make sure dump.cs is in the Dump folder (GameDir/MDB/Dump/dump.cs)")
+            return
     
     # Output to MDB_Core/Generated in the dump directory
     output_dir = os.path.join(dump_dir, "MDB_Core", "Generated")

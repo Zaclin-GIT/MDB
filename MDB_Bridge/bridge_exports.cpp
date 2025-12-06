@@ -447,6 +447,41 @@ MDB_API void* mdb_type_get_object(void* il2cpp_type) {
     return il2cpp_type_get_object_fn(il2cpp_type);
 }
 
+// ==============================
+// RVA-based Method Access
+// ==============================
+
+MDB_API void* mdb_get_gameassembly_base() {
+    clear_error();
+    auto status = il2cpp::_internal::ensure_exports();
+    if (status != Il2CppStatus::OK) {
+        set_error(MdbErrorCode::NotInitialized, status);
+        return nullptr;
+    }
+    
+    return reinterpret_cast<void*>(il2cpp::_internal::p_game_assembly);
+}
+
+MDB_API void* mdb_get_method_pointer_from_rva(uint64_t rva) {
+    clear_error();
+    auto status = il2cpp::_internal::ensure_exports();
+    if (status != Il2CppStatus::OK) {
+        set_error(MdbErrorCode::NotInitialized, status);
+        return nullptr;
+    }
+    
+    if (!il2cpp::_internal::p_game_assembly) {
+        set_error(MdbErrorCode::GameAssemblyNotFound, "GameAssembly.dll not loaded");
+        return nullptr;
+    }
+    
+    // Calculate absolute address: base + RVA
+    auto base = reinterpret_cast<uintptr_t>(il2cpp::_internal::p_game_assembly);
+    auto method_ptr = reinterpret_cast<void*>(base + rva);
+    
+    return method_ptr;
+}
+
 MDB_API const char* mdb_get_last_error() {
     return g_last_error.c_str();
 }
