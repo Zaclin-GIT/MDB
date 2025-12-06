@@ -4,6 +4,8 @@
 // ==============================
 // This header defines all exported functions that can be called via P/Invoke from C#
 
+#include <cstdint>
+
 #ifdef MDB_BRIDGE_EXPORTS
 #define MDB_API __declspec(dllexport)
 #else
