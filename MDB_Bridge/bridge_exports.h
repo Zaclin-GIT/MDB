@@ -262,4 +262,40 @@ extern "C" {
     /// </summary>
     /// <returns>MdbErrorCode value</returns>
     MDB_API int mdb_get_last_error_code();
+    
+    // ==============================
+    // OnGUI Hooking
+    // ==============================
+    
+    /// <summary>
+    /// Callback type for OnGUI dispatch.
+    /// </summary>
+    typedef void (*OnGUICallbackFn)();
+    
+    /// <summary>
+    /// Register a callback to be called during Unity's OnGUI phase.
+    /// This hooks into Unity's GUI system and dispatches to the managed callback.
+    /// </summary>
+    /// <param name="callback">The callback function to call during OnGUI</param>
+    /// <returns>0 on success, non-zero on failure</returns>
+    MDB_API int mdb_register_ongui_callback(OnGUICallbackFn callback);
+    
+    /// <summary>
+    /// Manually trigger OnGUI dispatch (for testing or manual hooking).
+    /// Call this from a hooked Unity method during the GUI phase.
+    /// </summary>
+    MDB_API void mdb_dispatch_ongui();
+    
+    /// <summary>
+    /// Install OnGUI hook by hooking GUIUtility.CheckOnGUI or similar.
+    /// This attempts to automatically hook Unity's GUI phase.
+    /// </summary>
+    /// <returns>0 on success, non-zero on failure</returns>
+    MDB_API int mdb_install_ongui_hook();
+    
+    /// <summary>
+    /// Get the name of the method that was hooked for OnGUI.
+    /// </summary>
+    /// <returns>Method name string, or empty if not hooked</returns>
+    MDB_API const char* mdb_get_hooked_method();
 }

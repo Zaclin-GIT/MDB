@@ -314,5 +314,55 @@ namespace GameSDK
 
             return buffer.ToString(0, length);
         }
+
+        // ==============================
+        // OnGUI Hook Support
+        // ==============================
+
+        /// <summary>
+        /// Delegate type for OnGUI callback from native code.
+        /// </summary>
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        public delegate void OnGUICallbackDelegate();
+
+        /// <summary>
+        /// Install the OnGUI hook by hooking a Unity GUI method.
+        /// Requires MinHook to be compiled into MDB_Bridge.
+        /// </summary>
+        /// <returns>0 on success, negative error code on failure</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_install_ongui_hook();
+
+        /// <summary>
+        /// Register a callback function to be called during OnGUI.
+        /// </summary>
+        /// <param name="callback">The callback function pointer</param>
+        /// <returns>0 on success</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_register_ongui_callback(OnGUICallbackDelegate callback);
+
+        /// <summary>
+        /// Manually trigger the OnGUI callback (for testing).
+        /// </summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void mdb_dispatch_ongui();
+        
+        /// <summary>
+        /// Get the name of the method that was hooked for OnGUI.
+        /// </summary>
+        /// <returns>Method name string, or empty if not hooked</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr mdb_get_hooked_method();
+        
+        /// <summary>
+        /// Get the name of the method that was hooked for OnGUI (managed wrapper).
+        /// </summary>
+        public static string GetHookedMethod()
+        {
+            IntPtr ptr = mdb_get_hooked_method();
+            if (ptr == IntPtr.Zero)
+                return string.Empty;
+            return System.Runtime.InteropServices.Marshal.PtrToStringAnsi(ptr) ?? string.Empty;
+        }
     }
 }

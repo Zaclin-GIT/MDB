@@ -9,6 +9,18 @@
 #include <string>
 #include <mutex>
 
+// MinHook for function hooking
+// Include from local minhook folder
+#if __has_include("minhook/include/MinHook.h")
+#include "minhook/include/MinHook.h"
+#define MDB_HAS_MINHOOK 1
+#elif __has_include(<MinHook.h>)
+#include <MinHook.h>
+#define MDB_HAS_MINHOOK 1
+#else
+#define MDB_HAS_MINHOOK 0
+#endif
+
 // Thread-local error storage
 static thread_local std::string g_last_error;
 static thread_local MdbErrorCode g_last_error_code = MdbErrorCode::Success;
@@ -488,4 +500,184 @@ MDB_API const char* mdb_get_last_error() {
 
 MDB_API int mdb_get_last_error_code() {
     return static_cast<int>(g_last_error_code);
+}
+
+// ==============================
+// OnGUI Hook Support
+// ==============================
+
+// Global callback for OnGUI dispatch
+static OnGUICallbackFn g_ongui_callback = nullptr;
+static bool g_minhook_initialized = false;
+static std::string g_hooked_method_name;  // Track which method was hooked
+
+MDB_API const char* mdb_get_hooked_method() {
+    return g_hooked_method_name.c_str();
+}
+
+#if MDB_HAS_MINHOOK
+
+// Original function pointer for GUIUtility.BeginGUI
+typedef void (*GUIUtility_BeginGUI_t)();
+static GUIUtility_BeginGUI_t g_original_BeginGUI = nullptr;
+
+// Hook function that intercepts GUIUtility.BeginGUI
+static void Hooked_GUIUtility_BeginGUI() {
+    // Call original first to set up GUI state
+    if (g_original_BeginGUI) {
+        g_original_BeginGUI();
+    }
+    
+    // Now call our managed OnGUI callback
+    if (g_ongui_callback) {
+        g_ongui_callback();
+    }
+}
+
+// Alternative: Hook GUIUtility.EndGUI for drawing after Unity GUI
+typedef void (*GUIUtility_EndGUI_t)(int32_t layoutType);
+static GUIUtility_EndGUI_t g_original_EndGUI = nullptr;
+
+static void Hooked_GUIUtility_EndGUI(int32_t layoutType) {
+    // Call our managed OnGUI callback before ending
+    if (g_ongui_callback) {
+        g_ongui_callback();
+    }
+    
+    // Then call original to finalize
+    if (g_original_EndGUI) {
+        g_original_EndGUI(layoutType);
+    }
+}
+
+#endif // MDB_HAS_MINHOOK
+
+MDB_API int mdb_register_ongui_callback(OnGUICallbackFn callback) {
+    g_ongui_callback = callback;
+    return 0;
+}
+
+MDB_API void mdb_dispatch_ongui() {
+    // Manually trigger OnGUI callback (for testing)
+    if (g_ongui_callback) {
+        g_ongui_callback();
+    }
+}
+
+MDB_API int mdb_install_ongui_hook() {
+    clear_error();
+    
+#if MDB_HAS_MINHOOK
+    // Initialize MinHook if not done
+    if (!g_minhook_initialized) {
+        if (MH_Initialize() != MH_OK) {
+            set_error(MdbErrorCode::InitFailed, "MinHook initialization failed");
+            return -1;
+        }
+        g_minhook_initialized = true;
+    }
+    
+    // Ensure IL2CPP is initialized
+    auto status = il2cpp::_internal::ensure_exports();
+    if (status != Il2CppStatus::OK) {
+        set_error(MdbErrorCode::NotInitialized, status);
+        return -1;
+    }
+    
+    il2cpp::_internal::unity_structs::il2cppMethodInfo* targetMethod = nullptr;
+    std::string methodDescription;
+    
+    // Strategy 1: Try to hook GUIBrowserUI.OnGUI if it exists (we know this is called)
+    auto browserResult = il2cpp::find_class("ZenFulcrum.EmbeddedBrowser", "GUIBrowserUI", "Assembly-CSharp");
+    if (browserResult.status == Il2CppStatus::OK && browserResult.value) {
+        auto mi = il2cpp::_internal::il2cpp_class_get_method_from_name(browserResult.value, "OnGUI", 0);
+        if (mi && mi->m_pMethodPointer) {
+            targetMethod = mi;
+            methodDescription = "GUIBrowserUI.OnGUI";
+        }
+    }
+    
+    // Strategy 2: Try GUIUtility internal methods
+    if (!targetMethod) {
+        const char* assemblies[] = { "UnityEngine.IMGUIModule", "UnityEngine.CoreModule", "UnityEngine" };
+        il2cpp::_internal::unity_structs::il2cppClass* guiUtilityClass = nullptr;
+        
+        for (const char* assembly : assemblies) {
+            auto result = il2cpp::find_class("UnityEngine", "GUIUtility", assembly);
+            if (result.status == Il2CppStatus::OK && result.value) {
+                guiUtilityClass = result.value;
+                break;
+            }
+        }
+        
+        if (guiUtilityClass) {
+            // Try various hook points
+            const char* methodNames[] = { "BeginGUI", "CheckOnGUI", "ProcessEvent", "DoGUIEvent" };
+            for (const char* methodName : methodNames) {
+                auto mi = il2cpp::_internal::il2cpp_class_get_method_from_name(guiUtilityClass, methodName, -1);
+                if (mi && mi->m_pMethodPointer) {
+                    targetMethod = mi;
+                    methodDescription = std::string("GUIUtility.") + methodName;
+                    break;
+                }
+                mi = il2cpp::_internal::il2cpp_class_get_method_from_name(guiUtilityClass, methodName, 0);
+                if (mi && mi->m_pMethodPointer) {
+                    targetMethod = mi;
+                    methodDescription = std::string("GUIUtility.") + methodName;
+                    break;
+                }
+            }
+        }
+    }
+    
+    // Strategy 3: Try GUI.DoWindow or GUI.Window (commonly called during GUI)
+    if (!targetMethod) {
+        const char* assemblies[] = { "UnityEngine.IMGUIModule", "UnityEngine.CoreModule", "UnityEngine" };
+        for (const char* assembly : assemblies) {
+            auto result = il2cpp::find_class("UnityEngine", "GUI", assembly);
+            if (result.status == Il2CppStatus::OK && result.value) {
+                auto mi = il2cpp::_internal::il2cpp_class_get_method_from_name(result.value, "Label", -1);
+                if (mi && mi->m_pMethodPointer) {
+                    targetMethod = mi;
+                    methodDescription = "GUI.Label";
+                    break;
+                }
+            }
+        }
+    }
+    
+    if (!targetMethod || !targetMethod->m_pMethodPointer) {
+        set_error(MdbErrorCode::MethodNotFound, "No suitable OnGUI hook point found");
+        return -3;
+    }
+    
+    // Store the method name for diagnostics
+    g_hooked_method_name = methodDescription;
+    
+    // Create the hook
+    MH_STATUS mhStatus = MH_CreateHook(
+        targetMethod->m_pMethodPointer,
+        (void*)&Hooked_GUIUtility_BeginGUI,
+        (void**)&g_original_BeginGUI
+    );
+    
+    if (mhStatus != MH_OK) {
+        set_error(MdbErrorCode::InvocationFailed, "MH_CreateHook failed");
+        return -5;
+    }
+    
+    // Enable the hook
+    mhStatus = MH_EnableHook(targetMethod->m_pMethodPointer);
+    if (mhStatus != MH_OK) {
+        set_error(MdbErrorCode::InvocationFailed, "MH_EnableHook failed");
+        return -6;
+    }
+    
+    return 0; // Success
+    
+#else
+    // MinHook not available - OnGUI hook not supported
+    set_error(MdbErrorCode::NotInitialized, "MinHook not available - compile with MinHook for OnGUI support");
+    return -100;
+#endif
 }

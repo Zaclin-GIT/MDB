@@ -59,7 +59,7 @@
       <PreprocessorDefinitions>_DEBUG;MDB_BRIDGE_EXPORTS;_CRT_SECURE_NO_WARNINGS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)minhook\include;$(ProjectDir)minhook\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
     </ClCompile>
     <Link>
@@ -77,7 +77,7 @@
       <PreprocessorDefinitions>NDEBUG;MDB_BRIDGE_EXPORTS;_CRT_SECURE_NO_WARNINGS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)minhook\include;$(ProjectDir)minhook\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
     </ClCompile>
     <Link>
@@ -91,10 +91,17 @@
   <ItemGroup>
     <ClCompile Include="bridge_exports.cpp" />
     <ClCompile Include="dllmain.cpp" />
+    <!-- MinHook source files -->
+    <ClCompile Include="minhook\src\buffer.c" />
+    <ClCompile Include="minhook\src\hook.c" />
+    <ClCompile Include="minhook\src\trampoline.c" />
+    <ClCompile Include="minhook\src\hde\hde64.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="bridge_exports.h" />
     <ClInclude Include="il2cpp_resolver.hpp" />
+    <!-- MinHook headers -->
+    <ClInclude Include="minhook\include\MinHook.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

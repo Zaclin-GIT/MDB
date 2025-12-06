@@ -29,10 +29,6 @@ namespace GameSDK.ModHost
         private static string _logsDirectory;
         private static string _managedDirectory;
 
-        // Delegate type for OnGUI callback (used by native bridge)
-        public delegate void OnGUICallback();
-        private static OnGUICallback _onGUICallback;
-
         /// <summary>
         /// Get all currently loaded mods.
         /// </summary>
@@ -79,6 +75,8 @@ namespace GameSDK.ModHost
                     _logger.Error("Failed to initialize IL2CPP runtime!");
                     return 1;
                 }
+
+                // Note: IMGUI OnGUI hook removed - using console output and Canvas UI instead
 
                 // Create mods directory if it doesn't exist
                 if (!Directory.Exists(_modsDirectory))
@@ -246,6 +244,9 @@ namespace GameSDK.ModHost
 
             return info;
         }
+
+        // Note: IMGUI OnGUI hook code removed - game uses Canvas UI, not IMGUI
+        // The OnGUI method in mods will not be called, use OnUpdate instead
 
         /// <summary>
         /// Start the update loop thread.
