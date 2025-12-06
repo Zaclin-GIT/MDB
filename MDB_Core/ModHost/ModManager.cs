@@ -29,6 +29,10 @@ namespace GameSDK.ModHost
         private static string _logsDirectory;
         private static string _managedDirectory;
 
+        // Delegate type for OnGUI callback (used by native bridge)
+        public delegate void OnGUICallback();
+        private static OnGUICallback _onGUICallback;
+
         /// <summary>
         /// Get all currently loaded mods.
         /// </summary>
@@ -331,6 +335,48 @@ namespace GameSDK.ModHost
                 catch (Exception ex)
                 {
                     _logger.Error($"Update loop exception: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Called during Unity's GUI rendering phase.
+        /// This must be called from Unity's main thread during the OnGUI callback.
+        /// Entry point for native bridge to dispatch GUI rendering to all mods.
+        /// </summary>
+        /// <param name="args">Unused parameter for COM interop compatibility</param>
+        /// <returns>0 on success</returns>
+        public static int DispatchOnGUI(string args)
+        {
+            foreach (ModBase mod in _loadedMods)
+            {
+                try
+                {
+                    mod.OnGUI();
+                }
+                catch (Exception ex)
+                {
+                    mod.Logger?.Error($"OnGUI exception: {ex.Message}");
+                }
+            }
+            return 0;
+        }
+
+        /// <summary>
+        /// Direct OnGUI dispatch method for use from managed code.
+        /// Call this from a MonoBehaviour's OnGUI method.
+        /// </summary>
+        public static void OnGUI()
+        {
+            foreach (ModBase mod in _loadedMods)
+            {
+                try
+                {
+                    mod.OnGUI();
+                }
+                catch (Exception ex)
+                {
+                    mod.Logger?.Error($"OnGUI exception: {ex.Message}");
                 }
             }
         }

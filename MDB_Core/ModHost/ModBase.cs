@@ -46,6 +46,13 @@ namespace GameSDK.ModHost
         /// Use for camera follow logic or other updates that should happen after other updates.
         /// </summary>
         public virtual void OnLateUpdate() { }
+
+        /// <summary>
+        /// Called during Unity's GUI rendering phase.
+        /// Use for drawing IMGUI elements (GUI.*, GUILayout.*).
+        /// Note: This runs on Unity's main thread during the rendering phase.
+        /// </summary>
+        public virtual void OnGUI() { }
     }
 
     /// <summary>
