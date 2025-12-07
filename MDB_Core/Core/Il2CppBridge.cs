@@ -138,6 +138,19 @@ namespace GameSDK
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr mdb_invoke_method(IntPtr method, IntPtr instance, IntPtr[] args, out IntPtr exception);
 
+        /// <summary>
+        /// Invoke a method on an instance with raw pointer to args array.
+        /// Use this when you need precise control over argument passing.
+        /// For il2cpp_runtime_invoke, each arg must be a POINTER TO the value.
+        /// </summary>
+        /// <param name="method">Pointer to MethodInfo</param>
+        /// <param name="instance">Pointer to object instance (IntPtr.Zero for static)</param>
+        /// <param name="args">Pointer to array of argument pointers (void**)</param>
+        /// <param name="exception">Output: exception if thrown</param>
+        /// <returns>Return value pointer</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "mdb_invoke_method")]
+        public static extern IntPtr mdb_invoke_method_ptr(IntPtr method, IntPtr instance, IntPtr args, out IntPtr exception);
+
         // ==============================
         // RVA-based Method Access
         // ==============================
@@ -247,6 +260,22 @@ namespace GameSDK
         public static extern IntPtr mdb_object_get_class(IntPtr instance);
 
         /// <summary>
+        /// Get the name of a class.
+        /// </summary>
+        /// <param name="klass">Pointer to Il2CppClass</param>
+        /// <returns>Class name string</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr mdb_class_get_name(IntPtr klass);
+
+        /// <summary>
+        /// Get the namespace of a class.
+        /// </summary>
+        /// <param name="klass">Pointer to Il2CppClass</param>
+        /// <returns>Namespace string</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr mdb_class_get_namespace(IntPtr klass);
+
+        /// <summary>
         /// Get the Il2CppType* from a class.
         /// </summary>
         /// <param name="klass">Pointer to Il2CppClass</param>
@@ -275,6 +304,57 @@ namespace GameSDK
         /// <returns>MdbErrorCode value</returns>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         public static extern int mdb_get_last_error_code();
+
+        // ==============================
+        // GameObject Component Helpers
+        // ==============================
+
+        /// <summary>
+        /// Get all components on a GameObject.
+        /// This is a specialized function that handles the tricky GetComponents call correctly.
+        /// </summary>
+        /// <param name="gameObject">Pointer to GameObject IL2CPP object</param>
+        /// <returns>Pointer to Component[] array, or IntPtr.Zero on failure</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr mdb_gameobject_get_components(IntPtr gameObject);
+
+        /// <summary>
+        /// Get the number of components on a GameObject (from the returned array).
+        /// </summary>
+        /// <param name="componentsArray">Pointer to Component[] returned by mdb_gameobject_get_components</param>
+        /// <returns>Number of components, or 0 on error</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_components_array_length(IntPtr componentsArray);
+
+        /// <summary>
+        /// Get a component from the array at the specified index.
+        /// </summary>
+        /// <param name="componentsArray">Pointer to Component[] returned by mdb_gameobject_get_components</param>
+        /// <param name="index">Index into the array</param>
+        /// <returns>Pointer to Component, or IntPtr.Zero on error</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr mdb_components_array_get(IntPtr componentsArray, int index);
+
+        // ==============================
+        // Array Helpers
+        // ==============================
+
+        /// <summary>
+        /// Get the length of an IL2CPP array.
+        /// </summary>
+        /// <param name="array">Pointer to the IL2CPP array</param>
+        /// <returns>Length of the array, or -1 if null</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_array_length(IntPtr array);
+
+        /// <summary>
+        /// Get an element from an IL2CPP array.
+        /// </summary>
+        /// <param name="array">Pointer to the IL2CPP array</param>
+        /// <param name="index">Index of the element</param>
+        /// <returns>Pointer to the element, or IntPtr.Zero if out of bounds</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr mdb_array_get_element(IntPtr array, int index);
 
         // ==============================
         // Helper Methods

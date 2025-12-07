@@ -167,9 +167,9 @@ namespace GameSDK.ModHost
         }
         
         /// <summary>
-        /// Static log method for internal framework use.
+        /// Static log method for use by helpers and static classes that don't have a logger instance.
         /// </summary>
-        internal static void LogInternal(string source, string message)
+        public static void LogInternal(string source, string message)
         {
             string timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
             string formatted = $"[{timestamp}] [INFO] [{source}] {message}";

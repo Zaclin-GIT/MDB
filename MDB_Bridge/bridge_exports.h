@@ -238,6 +238,20 @@ extern "C" {
     MDB_API void* mdb_object_get_class(void* instance);
     
     /// <summary>
+    /// Get the name of a class.
+    /// </summary>
+    /// <param name="klass">Pointer to Il2CppClass</param>
+    /// <returns>Class name string, or nullptr on error</returns>
+    MDB_API const char* mdb_class_get_name(void* klass);
+    
+    /// <summary>
+    /// Get the namespace of a class.
+    /// </summary>
+    /// <param name="klass">Pointer to Il2CppClass</param>
+    /// <returns>Namespace string, or nullptr on error</returns>
+    MDB_API const char* mdb_class_get_namespace(void* klass);
+    
+    /// <summary>
     /// Get the Il2CppType* from a class.
     /// </summary>
     /// <param name="klass">Pointer to Il2CppClass</param>
@@ -251,6 +265,25 @@ extern "C" {
     /// <returns>Pointer to Il2CppReflectionType (System.Type), or nullptr on error</returns>
     MDB_API void* mdb_type_get_object(void* il2cpp_type);
     
+    // ==============================
+    // Array Helpers
+    // ==============================
+    
+    /// <summary>
+    /// Get the length of an IL2CPP array.
+    /// </summary>
+    /// <param name="array">Pointer to IL2CPP array</param>
+    /// <returns>Array length, or 0 on error</returns>
+    MDB_API int mdb_array_length(void* array);
+    
+    /// <summary>
+    /// Get an element from an IL2CPP array.
+    /// </summary>
+    /// <param name="array">Pointer to IL2CPP array</param>
+    /// <param name="index">Element index</param>
+    /// <returns>Pointer to element, or nullptr on error</returns>
+    MDB_API void* mdb_array_get_element(void* array, int index);
+    
     /// <summary>
     /// Get the last error message from the bridge.
     /// </summary>
@@ -263,6 +296,33 @@ extern "C" {
     /// <returns>MdbErrorCode value</returns>
     MDB_API int mdb_get_last_error_code();
     
+    // ==============================
+    // GameObject Component Helpers
+    // ==============================
+    
+    /// <summary>
+    /// Get all components on a GameObject.
+    /// This is a specialized function that handles the tricky GetComponents call correctly.
+    /// </summary>
+    /// <param name="gameObject">Pointer to GameObject IL2CPP object</param>
+    /// <returns>Pointer to Component[] array, or nullptr on failure</returns>
+    MDB_API void* mdb_gameobject_get_components(void* gameObject);
+    
+    /// <summary>
+    /// Get the number of components on a GameObject (from the returned array).
+    /// </summary>
+    /// <param name="componentsArray">Pointer to Component[] returned by mdb_gameobject_get_components</param>
+    /// <returns>Number of components, or 0 on error</returns>
+    MDB_API int mdb_components_array_length(void* componentsArray);
+    
+    /// <summary>
+    /// Get a component from the array at the specified index.
+    /// </summary>
+    /// <param name="componentsArray">Pointer to Component[] returned by mdb_gameobject_get_components</param>
+    /// <param name="index">Index into the array</param>
+    /// <returns>Pointer to Component, or nullptr on error</returns>
+    MDB_API void* mdb_components_array_get(void* componentsArray, int index);
+
     // ==============================
     // OnGUI Hooking
     // ==============================
