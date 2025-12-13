@@ -40,6 +40,7 @@ __pycache__/
 # Dumps (generated at runtime)
 dump.cs
 **/dump.cs
+**/generated
 
 # Log files
 @Logs/*.log

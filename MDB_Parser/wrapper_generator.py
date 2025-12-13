@@ -400,8 +400,10 @@ def build_type_registry(types: List[TypeDef]) -> None:
         # Skip non-public types - they can't be referenced from other namespaces
         if t.visibility != "public":
             continue
-        # Skip obfuscated types
-        if is_obfuscated_type(t.name.split("`")[0].split("<")[0]):
+        # Skip Unicode types (non-ASCII characters like Malayalam script)
+        # Note: We only skip true Unicode types, not uppercase-only obfuscated names (e.g., DCBCCBKEIHN)
+        # because those are still generated and should be usable as parameter/return types
+        if is_unicode_name(t.name.split("`")[0].split("<")[0]):
             continue
             
         ns = t.namespace if t.namespace else "Global"
@@ -886,6 +888,7 @@ ALWAYS_IMPORTED_NAMESPACES = {
     "UnityEngine.SceneManagement", "UnityEngine.Audio", "UnityEngine.AI",
     "UnityEngine.Animations", "TMPro",
     "GameSDK",  # Our base namespace
+    "Global",  # Types with no namespace are in the Global namespace and always accessible
 }
 
 
@@ -1254,9 +1257,9 @@ def is_valid_method(method: MethodDef, current_ns: str = None, imported_ns: set 
     # Skip methods with pointer types in return
     if "*" in method.return_type:
         return False
-    # Check if return type is obfuscated
+    # Check if return type is Unicode (non-ASCII) - these can't be used in C#
     return_base = method.return_type.split("<")[0].split("[")[0].split("`")[0]
-    if is_obfuscated_type(return_base):
+    if is_unicode_name(return_base):
         return False
     # Skip methods where return type is not resolvable
     if not is_type_resolvable(method.return_type, current_ns, imported_ns):
@@ -1290,9 +1293,9 @@ def is_valid_method(method: MethodDef, current_ns: str = None, imported_ns: set 
         # Skip methods with pointer types in parameters
         if "*" in p.type:
             return False
-        # Check if param type is obfuscated
+        # Check if param type is Unicode (non-ASCII) - these can't be used in C#
         param_base = p.type.split("<")[0].split("[")[0].split("`")[0]
-        if is_obfuscated_type(param_base):
+        if is_unicode_name(param_base):
             return False
         # Skip methods with param types that aren't resolvable
         if not is_type_resolvable(p.type, current_ns, imported_ns):
@@ -1311,9 +1314,9 @@ def is_valid_property(prop: PropertyDef, current_ns: str = None, imported_ns: se
     mapped_type = map_type(prop.type)
     if mapped_type is None:
         return False
-    # Check if property type is obfuscated
+    # Check if property type is Unicode (non-ASCII) - these can't be used in C#
     prop_base = prop.type.split("<")[0].split("[")[0].split("`")[0]
-    if is_obfuscated_type(prop_base):
+    if is_unicode_name(prop_base):
         return False
     # Skip properties with types that aren't resolvable
     if not is_type_resolvable(prop.type, current_ns, imported_ns):
