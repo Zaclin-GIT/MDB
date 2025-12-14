@@ -9,6 +9,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
+using GameSDK.ModHost.Patching;
 
 namespace GameSDK.ModHost
 {
@@ -140,6 +141,20 @@ namespace GameSDK.ModHost
             // that occurs when loading DLLs from network/untrusted locations
             byte[] assemblyBytes = File.ReadAllBytes(dllPath);
             Assembly assembly = Assembly.Load(assemblyBytes);
+
+            // Process patches from this assembly
+            try
+            {
+                int patchCount = PatchProcessor.ProcessAssembly(assembly);
+                if (patchCount > 0)
+                {
+                    _logger.Info($"  Applied {patchCount} patch(es) from {fileName}");
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.Error($"  Failed to process patches from {fileName}: {ex.Message}");
+            }
 
             // Find all types that inherit from ModBase
             // Use ReflectionTypeLoadException handling to get partial results

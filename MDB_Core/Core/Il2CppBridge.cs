@@ -444,5 +444,125 @@ namespace GameSDK
                 return string.Empty;
             return System.Runtime.InteropServices.Marshal.PtrToStringAnsi(ptr) ?? string.Empty;
         }
+
+        /// <summary>
+        /// Get the name of a class as a managed string.
+        /// </summary>
+        /// <param name="klass">Pointer to Il2CppClass</param>
+        /// <returns>Class name, or null if invalid</returns>
+        public static string GetClassName(IntPtr klass)
+        {
+            if (klass == IntPtr.Zero)
+                return null;
+            IntPtr namePtr = mdb_class_get_name(klass);
+            if (namePtr == IntPtr.Zero)
+                return null;
+            return Marshal.PtrToStringAnsi(namePtr);
+        }
+
+        /// <summary>
+        /// Get the full name (namespace.classname) of a class.
+        /// </summary>
+        /// <param name="klass">Pointer to Il2CppClass</param>
+        /// <returns>Full class name, or null if invalid</returns>
+        public static string GetClassFullName(IntPtr klass)
+        {
+            if (klass == IntPtr.Zero)
+                return null;
+            
+            string ns = null;
+            IntPtr nsPtr = mdb_class_get_namespace(klass);
+            if (nsPtr != IntPtr.Zero)
+                ns = Marshal.PtrToStringAnsi(nsPtr);
+            
+            string name = GetClassName(klass);
+            if (name == null)
+                return null;
+            
+            return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+        }
+
+        // ==============================
+        // Generic Method Hooking
+        // ==============================
+
+        /// <summary>
+        /// Create a hook on an IL2CPP method.
+        /// </summary>
+        /// <param name="method">Pointer to MethodInfo</param>
+        /// <param name="callback">Function pointer to the detour callback</param>
+        /// <param name="original">Output: pointer to trampoline for calling original</param>
+        /// <returns>Hook handle (>0 on success), or negative error code</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern long mdb_create_hook(IntPtr method, IntPtr callback, out IntPtr original);
+
+        /// <summary>
+        /// Create a hook on a method by RVA offset.
+        /// </summary>
+        /// <param name="rva">The RVA offset of the method</param>
+        /// <param name="callback">Function pointer to the detour callback</param>
+        /// <param name="original">Output: pointer to trampoline for calling original</param>
+        /// <returns>Hook handle (>0 on success), or negative error code</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern long mdb_create_hook_rva(ulong rva, IntPtr callback, out IntPtr original);
+
+        /// <summary>
+        /// Create a hook on a direct function pointer.
+        /// </summary>
+        /// <param name="target">Target function pointer to hook</param>
+        /// <param name="detour">Detour function pointer</param>
+        /// <param name="original">Output: pointer to trampoline for calling original</param>
+        /// <returns>Hook handle (>0 on success), or negative error code</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern long mdb_create_hook_ptr(IntPtr target, IntPtr detour, out IntPtr original);
+
+        /// <summary>
+        /// Remove a hook by handle.
+        /// </summary>
+        /// <param name="hookHandle">The hook handle returned by mdb_create_hook*</param>
+        /// <returns>0 on success, non-zero on failure</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_remove_hook(long hookHandle);
+
+        /// <summary>
+        /// Enable or disable a hook.
+        /// </summary>
+        /// <param name="hookHandle">The hook handle</param>
+        /// <param name="enabled">True to enable, false to disable</param>
+        /// <returns>0 on success, non-zero on failure</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_set_hook_enabled(long hookHandle, [MarshalAs(UnmanagedType.I1)] bool enabled);
+
+        /// <summary>
+        /// Get information about an IL2CPP method.
+        /// </summary>
+        /// <param name="method">Pointer to MethodInfo</param>
+        /// <param name="paramCount">Output: number of parameters</param>
+        /// <param name="isStatic">Output: true if static method</param>
+        /// <param name="hasReturn">Output: true if method has return value</param>
+        /// <returns>0 on success, non-zero on failure</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_get_method_info(IntPtr method, out int paramCount, 
+            [MarshalAs(UnmanagedType.I1)] out bool isStatic, 
+            [MarshalAs(UnmanagedType.I1)] out bool hasReturn);
+
+        /// <summary>
+        /// Get the name of a method.
+        /// </summary>
+        /// <param name="method">Pointer to MethodInfo</param>
+        /// <returns>Method name, or IntPtr.Zero on error</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr mdb_method_get_name(IntPtr method);
+
+        /// <summary>
+        /// Get the name of a method (managed wrapper).
+        /// </summary>
+        public static string GetMethodName(IntPtr method)
+        {
+            IntPtr ptr = mdb_method_get_name(method);
+            if (ptr == IntPtr.Zero)
+                return null;
+            return Marshal.PtrToStringAnsi(ptr);
+        }
     }
 }

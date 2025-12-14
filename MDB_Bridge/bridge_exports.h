@@ -358,4 +358,77 @@ extern "C" {
     /// </summary>
     /// <returns>Method name string, or empty if not hooked</returns>
     MDB_API const char* mdb_get_hooked_method();
+
+    // ==============================
+    // Generic Method Hooking
+    // ==============================
+    
+    /// <summary>
+    /// Hook callback function signature.
+    /// Called when a hooked method is invoked.
+    /// </summary>
+    /// <param name="instance">The object instance (nullptr for static methods)</param>
+    /// <param name="args">Array of argument pointers</param>
+    /// <param name="original">Pointer to call the original method</param>
+    /// <returns>The return value, or nullptr for void methods</returns>
+    typedef void* (*HookCallbackFn)(void* instance, void** args, void* original);
+    
+    /// <summary>
+    /// Create a hook on an IL2CPP method.
+    /// </summary>
+    /// <param name="method">Pointer to MethodInfo to hook</param>
+    /// <param name="callback">The callback function to invoke instead</param>
+    /// <param name="out_original">Output: pointer to trampoline for calling original</param>
+    /// <returns>Hook handle (>0 on success), or negative error code</returns>
+    MDB_API int64_t mdb_create_hook(void* method, HookCallbackFn callback, void** out_original);
+    
+    /// <summary>
+    /// Create a hook on a method by its RVA offset.
+    /// </summary>
+    /// <param name="rva">The RVA offset of the method</param>
+    /// <param name="callback">The callback function to invoke instead</param>
+    /// <param name="out_original">Output: pointer to trampoline for calling original</param>
+    /// <returns>Hook handle (>0 on success), or negative error code</returns>
+    MDB_API int64_t mdb_create_hook_rva(uint64_t rva, HookCallbackFn callback, void** out_original);
+    
+    /// <summary>
+    /// Create a hook on a method by direct function pointer.
+    /// </summary>
+    /// <param name="target">The target function pointer to hook</param>
+    /// <param name="detour">The detour function pointer</param>
+    /// <param name="out_original">Output: pointer to trampoline for calling original</param>
+    /// <returns>Hook handle (>0 on success), or negative error code</returns>
+    MDB_API int64_t mdb_create_hook_ptr(void* target, void* detour, void** out_original);
+    
+    /// <summary>
+    /// Remove a hook by its handle.
+    /// </summary>
+    /// <param name="hook_handle">The hook handle returned by mdb_create_hook*</param>
+    /// <returns>0 on success, non-zero on failure</returns>
+    MDB_API int mdb_remove_hook(int64_t hook_handle);
+    
+    /// <summary>
+    /// Enable or disable a hook temporarily.
+    /// </summary>
+    /// <param name="hook_handle">The hook handle</param>
+    /// <param name="enabled">true to enable, false to disable</param>
+    /// <returns>0 on success, non-zero on failure</returns>
+    MDB_API int mdb_set_hook_enabled(int64_t hook_handle, bool enabled);
+    
+    /// <summary>
+    /// Get information about an IL2CPP method.
+    /// </summary>
+    /// <param name="method">Pointer to MethodInfo</param>
+    /// <param name="out_param_count">Output: number of parameters</param>
+    /// <param name="out_is_static">Output: true if static method</param>
+    /// <param name="out_has_return">Output: true if method has return value</param>
+    /// <returns>0 on success, non-zero on failure</returns>
+    MDB_API int mdb_get_method_info(void* method, int* out_param_count, bool* out_is_static, bool* out_has_return);
+    
+    /// <summary>
+    /// Get the method name.
+    /// </summary>
+    /// <param name="method">Pointer to MethodInfo</param>
+    /// <returns>Method name string, or nullptr on error</returns>
+    MDB_API const char* mdb_method_get_name(void* method);
 }

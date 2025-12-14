@@ -664,6 +664,7 @@ def generate_smart_usings(code_body_lines: List[str], current_ns: str,
     using_lines.append("using System.Collections;")
     using_lines.append("using System.Collections.Generic;")
     using_lines.append("using GameSDK;")
+    
     # Global namespace contains types that were in the global/empty namespace in IL2CPP
     # We need to import it for obfuscated types and nested Unity types
     if current_ns != "Global":

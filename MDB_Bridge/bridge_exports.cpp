@@ -911,6 +911,260 @@ MDB_API void mdb_dispatch_ongui() {
     }
 }
 
+// ==============================
+// Generic Method Hooking System
+// ==============================
+
+#include <unordered_map>
+
+// Hook tracking structure
+struct HookInfo {
+    int64_t handle;
+    void* target;
+    void* detour;
+    void* original;
+    bool enabled;
+};
+
+static std::unordered_map<int64_t, HookInfo> g_hooks;
+static int64_t g_next_hook_handle = 1;
+static std::mutex g_hooks_mutex;
+
+static bool ensure_minhook_initialized() {
+#if MDB_HAS_MINHOOK
+    if (!g_minhook_initialized) {
+        if (MH_Initialize() != MH_OK) {
+            return false;
+        }
+        g_minhook_initialized = true;
+    }
+    return true;
+#else
+    return false;
+#endif
+}
+
+MDB_API int64_t mdb_create_hook(void* method, HookCallbackFn callback, void** out_original) {
+    clear_error();
+    
+    if (!method) {
+        set_error(MdbErrorCode::NullPointer, "Invalid argument: method is null");
+        return -1;
+    }
+    
+    // Get method pointer
+    void* methodPtr = mdb_get_method_pointer(method);
+    if (!methodPtr) {
+        set_error(MdbErrorCode::InvalidMethod, "Method has no function pointer");
+        return -2;
+    }
+    
+    return mdb_create_hook_ptr(methodPtr, (void*)callback, out_original);
+}
+
+MDB_API int64_t mdb_create_hook_rva(uint64_t rva, HookCallbackFn callback, void** out_original) {
+    clear_error();
+    
+    void* methodPtr = mdb_get_method_pointer_from_rva(rva);
+    if (!methodPtr) {
+        set_error(MdbErrorCode::InvalidMethod, "Could not resolve RVA to method pointer");
+        return -1;
+    }
+    
+    return mdb_create_hook_ptr(methodPtr, (void*)callback, out_original);
+}
+
+MDB_API int64_t mdb_create_hook_ptr(void* target, void* detour, void** out_original) {
+    clear_error();
+    
+#if MDB_HAS_MINHOOK
+    if (!target || !detour) {
+        set_error(MdbErrorCode::InvalidArgument, "Invalid arguments: target and detour are required");
+        return -1;
+    }
+    
+    if (!ensure_minhook_initialized()) {
+        set_error(MdbErrorCode::InitFailed, "MinHook initialization failed");
+        return -2;
+    }
+    
+    std::lock_guard<std::mutex> lock(g_hooks_mutex);
+    
+    void* original = nullptr;
+    MH_STATUS status = MH_CreateHook(target, detour, &original);
+    if (status != MH_OK) {
+        mdb_debug_log("MH_CreateHook failed: %d", status);
+        set_error(MdbErrorCode::InvocationFailed, "MH_CreateHook failed");
+        return -3;
+    }
+    
+    status = MH_EnableHook(target);
+    if (status != MH_OK) {
+        MH_RemoveHook(target);
+        set_error(MdbErrorCode::InvocationFailed, "MH_EnableHook failed");
+        return -4;
+    }
+    
+    // Store hook info
+    int64_t handle = g_next_hook_handle++;
+    g_hooks[handle] = HookInfo{handle, target, detour, original, true};
+    
+    if (out_original) {
+        *out_original = original;
+    }
+    
+    mdb_debug_log("Created hook %lld: target=%p, detour=%p, original=%p", handle, target, detour, original);
+    return handle;
+    
+#else
+    set_error(MdbErrorCode::NotInitialized, "MinHook not available");
+    return -100;
+#endif
+}
+
+MDB_API int mdb_remove_hook(int64_t hook_handle) {
+    clear_error();
+    
+#if MDB_HAS_MINHOOK
+    std::lock_guard<std::mutex> lock(g_hooks_mutex);
+    
+    auto it = g_hooks.find(hook_handle);
+    if (it == g_hooks.end()) {
+        set_error(MdbErrorCode::InvalidArgument, "Invalid hook handle");
+        return -1;
+    }
+    
+    HookInfo& info = it->second;
+    
+    MH_STATUS status = MH_DisableHook(info.target);
+    if (status != MH_OK && status != MH_ERROR_DISABLED) {
+        set_error(MdbErrorCode::InvocationFailed, "MH_DisableHook failed");
+        return -2;
+    }
+    
+    status = MH_RemoveHook(info.target);
+    if (status != MH_OK) {
+        set_error(MdbErrorCode::InvocationFailed, "MH_RemoveHook failed");
+        return -3;
+    }
+    
+    g_hooks.erase(it);
+    mdb_debug_log("Removed hook %lld", hook_handle);
+    return 0;
+    
+#else
+    set_error(MdbErrorCode::NotInitialized, "MinHook not available");
+    return -100;
+#endif
+}
+
+MDB_API int mdb_set_hook_enabled(int64_t hook_handle, bool enabled) {
+    clear_error();
+    
+#if MDB_HAS_MINHOOK
+    std::lock_guard<std::mutex> lock(g_hooks_mutex);
+    
+    auto it = g_hooks.find(hook_handle);
+    if (it == g_hooks.end()) {
+        set_error(MdbErrorCode::InvalidArgument, "Invalid hook handle");
+        return -1;
+    }
+    
+    HookInfo& info = it->second;
+    
+    MH_STATUS status;
+    if (enabled) {
+        status = MH_EnableHook(info.target);
+    } else {
+        status = MH_DisableHook(info.target);
+    }
+    
+    if (status != MH_OK) {
+        set_error(MdbErrorCode::InvocationFailed, enabled ? "MH_EnableHook failed" : "MH_DisableHook failed");
+        return -2;
+    }
+    
+    info.enabled = enabled;
+    return 0;
+    
+#else
+    set_error(MdbErrorCode::NotInitialized, "MinHook not available");
+    return -100;
+#endif
+}
+
+MDB_API int mdb_get_method_info(void* method, int* out_param_count, bool* out_is_static, bool* out_has_return) {
+    clear_error();
+    
+    if (!method) {
+        set_error(MdbErrorCode::NullPointer, "Invalid argument: method is null");
+        return -1;
+    }
+    
+    auto status = il2cpp::_internal::ensure_exports();
+    if (status != Il2CppStatus::OK) {
+        set_error(MdbErrorCode::NotInitialized, status);
+        return -2;
+    }
+    
+    static auto il2cpp_method_get_param_count_fn = reinterpret_cast<uint32_t(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_method_get_param_count")
+    );
+    static auto il2cpp_method_get_flags_fn = reinterpret_cast<uint32_t(*)(void*, uint32_t*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_method_get_flags")
+    );
+    static auto il2cpp_method_get_return_type_fn = reinterpret_cast<void*(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_method_get_return_type")
+    );
+    static auto il2cpp_type_get_type_fn = reinterpret_cast<int(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_type_get_type")
+    );
+    
+    if (out_param_count && il2cpp_method_get_param_count_fn) {
+        *out_param_count = il2cpp_method_get_param_count_fn(method);
+    }
+    
+    if (out_is_static && il2cpp_method_get_flags_fn) {
+        uint32_t iflags = 0;
+        uint32_t flags = il2cpp_method_get_flags_fn(method, &iflags);
+        // STATIC = 0x0010 in method flags
+        *out_is_static = (flags & 0x0010) != 0;
+    }
+    
+    if (out_has_return && il2cpp_method_get_return_type_fn && il2cpp_type_get_type_fn) {
+        void* returnType = il2cpp_method_get_return_type_fn(method);
+        if (returnType) {
+            int typeEnum = il2cpp_type_get_type_fn(returnType);
+            // IL2CPP_TYPE_VOID = 1
+            *out_has_return = (typeEnum != 1);
+        } else {
+            *out_has_return = false;
+        }
+    }
+    
+    return 0;
+}
+
+MDB_API const char* mdb_method_get_name(void* method) {
+    clear_error();
+    
+    if (!method) {
+        set_error(MdbErrorCode::NullPointer, "Invalid argument: method is null");
+        return nullptr;
+    }
+    
+    static auto il2cpp_method_get_name_fn = reinterpret_cast<const char*(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_method_get_name")
+    );
+    
+    if (!il2cpp_method_get_name_fn) {
+        set_error(MdbErrorCode::ExportNotFound, "il2cpp_method_get_name not available");
+        return nullptr;
+    }
+    
+    return il2cpp_method_get_name_fn(method);
+}
+
 MDB_API int mdb_install_ongui_hook() {
     clear_error();
     

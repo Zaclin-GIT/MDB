@@ -13,6 +13,8 @@
   <ItemGroup>
     <Compile Include="Core\*.cs" />
     <Compile Include="ModHost\*.cs" />
+    <Compile Include="ModHost\Patching\*.cs" />
+    <Compile Include="ModHost\Examples\*.cs" />
     <Compile Include="Generated\GameSDK.*.cs" />
   </ItemGroup>
 

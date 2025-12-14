@@ -24,9 +24,11 @@
     <Compile Include="Core\Il2CppBase.cs" />
     <Compile Include="Core\Il2CppBridge.cs" />
     <Compile Include="Core\Il2CppMarshaler.cs" />
+    <Compile Include="Core\Il2CppStringHelper.cs" />
     <Compile Include="Core\UnityEngineBase.cs" />
     <Compile Include="Core\UnityValueTypes.cs" />
     <Compile Include="ModHost\*.cs" />
+    <Compile Include="ModHost\Patching\*.cs" />
     <Compile Include="Generated\*.cs" />
   </ItemGroup>
 
