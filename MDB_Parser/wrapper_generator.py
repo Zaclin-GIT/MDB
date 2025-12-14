@@ -664,6 +664,10 @@ def generate_smart_usings(code_body_lines: List[str], current_ns: str,
     using_lines.append("using System.Collections;")
     using_lines.append("using System.Collections.Generic;")
     using_lines.append("using GameSDK;")
+    # Global namespace contains types that were in the global/empty namespace in IL2CPP
+    # We need to import it for obfuscated types and nested Unity types
+    if current_ns != "Global":
+        using_lines.append("using Global;")
     using_lines.append("")
     
     # Core Unity namespaces (high priority, always included if not current)
@@ -939,6 +943,11 @@ SKIP_TYPES = {
     "VisualRecordingIndicators",  # Recording indicator type not generated
     # Types that cause Map.Map circular resolution issues
     "Map",  # Multiple Map classes in Global namespace cause resolution issues
+    # System/Unity types shadowed in Global namespace - use the real System/Unity types
+    "DateTime",  # Conflicts with System.DateTime
+    "Uri",  # Conflicts with System.Uri  
+    "Resources",  # Conflicts with UnityEngine.Resources
+    "Hierarchy",  # Conflicts with UnityEngine hierarchy types
 }
 
 # Property names that conflict with C# keywords or System types

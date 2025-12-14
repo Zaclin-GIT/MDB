@@ -1,0 +1,14 @@
+MDB Framework Build Log
+=======================
+Build started: 2025-12-13 18:58:26
+
+Source files: 220
+  - Core: 0
+  - ModHost: 0
+  - Generated: 220
+
+Build method: dotnet CLI (msbuild)
+
+ERROR: Project file not found: A:\Projects\MDB_Framework V2\MDB_Parser\MDB_Core\GameSDK.ModHost.csproj
+
+Build finished: 2025-12-13 18:58:26
