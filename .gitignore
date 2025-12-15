@@ -68,6 +68,7 @@ desktop.ini
 CHECKPOINT.md
 TO-DO.md
 RELEASE.md
+MDB_Parser\build_log.txt
 
 # Mod Development (user mods, not for repo)
 MBD_Explorer/

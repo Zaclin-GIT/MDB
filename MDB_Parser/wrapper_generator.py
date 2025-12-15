@@ -56,6 +56,8 @@ SKIP_BASE_TYPES = {
     "AssetReferenceUIRestriction",
     # Sealed types that cannot be base classes
     "Space",  # OpenXR sealed type
+    # Sealed .NET delegate type - conflicts with game classes named Action (e.g., BehaviorDesigner.Runtime.Tasks.Action)
+    "Action",
 }
 
 # Skip enums that are commonly nested types (generic names that cause conflicts)
@@ -951,6 +953,9 @@ SKIP_TYPES = {
     "Hierarchy",  # Conflicts with UnityEngine hierarchy types
     # Settings - conflicts with Settings namespace (e.g., Settings.Console)
     "Settings",  # Some games have Settings as namespace only, not a type
+    # Types that conflict with System.Threading.Tasks types
+    "Task",  # Conflicts with System.Threading.Tasks.Task
+    "TaskStatus",  # Conflicts with System.Threading.Tasks.TaskStatus
 }
 
 # Property names that conflict with C# keywords or System types
@@ -1382,14 +1387,40 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
         "Microsoft", "Microsoft.Win32", "Microsoft.Win32.SafeHandles",
         # Unity internal namespaces
         "UnityEngine.Internal", "UnityEngineInternal",
+        # BehaviorDesigner namespaces - Task, TaskStatus, Action conflict with System.Threading.Tasks and System.Action
+        "BehaviorDesigner.Runtime.Tasks", "BehaviorDesigner.Runtime.Tasks.Movement",
+        "BehaviorDesigner.Runtime.Tasks.Unity.Math", "BehaviorDesigner.Runtime.Tasks.Unity.Collider",
+        "BehaviorDesigner.Runtime.Tasks.Unity.UnityGameObject", "BehaviorDesigner.Runtime.Tasks.Unity.UnityTransform",
+        "BehaviorDesigner.Runtime.Tasks.Unity.UnityRigidbody", "BehaviorDesigner.Runtime.Tasks.Unity.UnityVector3",
+        "BehaviorDesigner.Runtime.Tasks.Unity.UnityQuaternion", "BehaviorDesigner.Runtime.Tasks.Unity.UnityPhysics",
+        "BehaviorDesigner.Runtime.Tasks.Unity.UnityInput", "BehaviorDesigner.Runtime.Tasks.Unity.UnityTime",
+        "BehaviorDesigner.Runtime.Tasks.Unity.UnityDebug", "BehaviorDesigner.Runtime.Tasks.Unity.UnityAnimation",
+        "BehaviorDesigner.Runtime.Tasks.Unity.SharedVariables", "BehaviorDesigner.Runtime.Tasks.Unity.UnityAudioSource",
+        "BehaviorDesigner.Runtime.Tasks.Unity.UnityAnimator", "BehaviorDesigner.Runtime.Tasks.Unity.UnityCharacterController",
+        "BehaviorDesigner.Runtime.Tasks.Unity.UnityLayerMask", "BehaviorDesigner.Runtime.Tasks.Unity.UnityLight",
+        "BehaviorDesigner.Runtime.Tasks.Unity.UnityNavMeshAgent", "BehaviorDesigner.Runtime.Tasks.Unity.UnityParticleSystem",
+        "BehaviorDesigner.Runtime.Tasks.Unity.UnityPlayerPrefs", "BehaviorDesigner.Runtime.Tasks.Unity.UnityRenderer",
+        "BehaviorDesigner.Runtime.Tasks.Unity.UnityRigidbody2D", "BehaviorDesigner.Runtime.Tasks.Unity.UnitySpriteRenderer",
+        "BehaviorDesigner.Runtime.Tasks.Unity.UnityString", "BehaviorDesigner.Runtime.Tasks.Unity.UnityVector2",
+        # EpicTransport - depends on Riptide namespace which may not be generated
+        "EpicTransport",
+        # Riptide networking - complex internal types
+        "Riptide", "Riptide.Transports", "Riptide.Transports.Tcp", "Riptide.Transports.Udp",
+        "Riptide.Utils",
     }
 
     # Group types by namespace
     namespaces = {}
     for t in types:
         ns = t.namespace if t.namespace else "Global"
-        # Skip types from System namespaces
+        # Skip types from System namespaces and other problematic namespaces
         if ns in SKIP_NAMESPACES or ns.startswith("System.") or ns.startswith("Mono.") or ns.startswith("Internal.") or ns.startswith("Microsoft."):
+            continue
+        # Skip BehaviorDesigner.Runtime.Tasks sub-namespaces (Task/TaskStatus/Action conflicts)
+        if ns.startswith("BehaviorDesigner.Runtime.Tasks"):
+            continue
+        # Skip Riptide sub-namespaces (external networking library)
+        if ns.startswith("Riptide"):
             continue
         if ns not in namespaces:
             namespaces[ns] = []
