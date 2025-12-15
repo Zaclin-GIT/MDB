@@ -2,7 +2,7 @@
 
 > **⚠️ EXTREMELY EARLY DEVELOPMENT WARNING ⚠️**
 > 
-> This framework is in very early stages of development. It has only been tested on a handful of games I'm actively working with. Expect bugs, breaking changes, and incomplete features. If it works for your game, consider yourself lucky. If it doesn't, well... that's expected at this point.
+> This framework is in very early stages of development. It has only been tested on a handful of games I'm actively working with. Expect bugs, breaking changes, and incomplete features. **If it works for your game, consider yourself lucky. If it doesn't, well... that's expected at this point.**
 
 ---
 
