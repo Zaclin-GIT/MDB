@@ -67,6 +67,7 @@ desktop.ini
 # Local documentation (not for repo)
 CHECKPOINT.md
 TO-DO.md
+RELEASE.md
 
 # Mod Development (user mods, not for repo)
 MBD_Explorer/
