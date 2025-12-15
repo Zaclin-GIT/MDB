@@ -1,10 +1,14 @@
-# MDB Modding Framework
+# MDB - IL2CPP Modding Framework
 
 > **⚠️ EXTREMELY EARLY DEVELOPMENT WARNING ⚠️**
 > 
-> This framework is in very early stages of development. It has only been tested on a handful of games I'm actively working with. Expect bugs, breaking changes, and incomplete features. If it works for your game, consider yourself lucky. If it doesn't, well... that's expected at this point.
+> This framework is in very early stages of development. It has only been tested on a handful of games I'm actively working with. Expect bugs, breaking changes, and incomplete features. **If it works for your game, consider yourself lucky. If it doesn't, well... that's expected at this point.**
 
 ---
+
+<a href="https://buymeacoffee.com/winnforge">
+  <img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-%23FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy Me A Coffee">
+</a>
 
 ## Why Does This Exist?
 
