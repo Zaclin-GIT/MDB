@@ -40,14 +40,14 @@ static void mdb_debug_log(const char* fmt, ...) {
     OutputDebugStringA(buffer);
     OutputDebugStringA("\n");
     
-    // Also write to log file
-    if (!g_log_file) {
-        g_log_file = fopen("mdb_bridge_debug.log", "w");
-    }
-    if (g_log_file) {
-        fprintf(g_log_file, "[MDB_Bridge] %s\n", buffer);
-        fflush(g_log_file);
-    }
+    // // Also write to log file
+    // if (!g_log_file) {
+    //     g_log_file = fopen("mdb_bridge_debug.log", "w");
+    // }
+    // if (g_log_file) {
+    //     fprintf(g_log_file, "[MDB_Bridge] %s\n", buffer);
+    //     fflush(g_log_file);
+    // }
 }
 
 // Thread-local error storage
@@ -850,6 +850,815 @@ MDB_API void* mdb_components_array_get(void* componentsArray, int index) {
 }
 
 // ==============================
+// GameObject SetActive helper
+// ==============================
+
+// Cached method for SetActive
+static void* g_cached_setActive_method = nullptr;
+static bool g_setActive_init_attempted = false;
+
+MDB_API bool mdb_gameobject_set_active(void* gameObject, bool active) {
+    mdb_debug_log("=== mdb_gameobject_set_active called ===");
+    mdb_debug_log("gameObject ptr: %p, active: %s", gameObject, active ? "true" : "false");
+    clear_error();
+    
+    if (!gameObject) {
+        set_error(MdbErrorCode::NullPointer, "Invalid argument: gameObject is null");
+        return false;
+    }
+    
+    // Validate the pointer
+    __try {
+        void* vtable = *reinterpret_cast<void**>(gameObject);
+        if (!vtable) {
+            set_error(MdbErrorCode::NullPointer, "GameObject appears to be destroyed (null vtable)");
+            return false;
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        set_error(MdbErrorCode::NullPointer, "GameObject pointer is invalid");
+        return false;
+    }
+    
+    auto status = il2cpp::ensure_thread_attached();
+    if (status != Il2CppStatus::OK) {
+        set_error(MdbErrorCode::ThreadNotAttached, status);
+        return false;
+    }
+    
+    static auto il2cpp_class_get_method_from_name_fn = reinterpret_cast<void*(*)(void*, const char*, int)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_class_get_method_from_name")
+    );
+    static auto il2cpp_runtime_invoke_fn = reinterpret_cast<void*(*)(void*, void*, void**, void**)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_runtime_invoke")
+    );
+    
+    if (!il2cpp_class_get_method_from_name_fn || !il2cpp_runtime_invoke_fn) {
+        set_error(MdbErrorCode::ExportNotFound, "Required IL2CPP exports not found");
+        return false;
+    }
+    
+    // Initialize SetActive method if needed
+    if (!g_setActive_init_attempted) {
+        g_setActive_init_attempted = true;
+        
+        void* gameObjectClass = mdb_find_class("UnityEngine.CoreModule", "UnityEngine", "GameObject");
+        if (gameObjectClass) {
+            g_cached_setActive_method = il2cpp_class_get_method_from_name_fn(gameObjectClass, "SetActive", 1);
+            mdb_debug_log("SetActive method: %p", g_cached_setActive_method);
+        }
+    }
+    
+    if (!g_cached_setActive_method) {
+        set_error(MdbErrorCode::MethodNotFound, "SetActive method not found on GameObject");
+        return false;
+    }
+    
+    // For bool parameters, pass pointer to the bool value
+    bool activeVal = active;
+    void* args[1] = { &activeVal };
+    void* exc = nullptr;
+    
+    __try {
+        il2cpp_runtime_invoke_fn(g_cached_setActive_method, gameObject, args, &exc);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        set_error(MdbErrorCode::ExceptionThrown, "Native exception during SetActive - object may be destroyed");
+        return false;
+    }
+    
+    if (exc) {
+        set_error(MdbErrorCode::ExceptionThrown, "Exception during SetActive call");
+        return false;
+    }
+    
+    mdb_debug_log("SetActive succeeded");
+    return true;
+}
+
+// ==============================
+// GameObject.scene helper - get the scene handle of a GameObject
+// ==============================
+
+static void* g_cached_go_get_scene_method = nullptr;
+static bool g_go_scene_init_attempted = false;
+
+MDB_API int mdb_gameobject_get_scene_handle(void* gameObject) {
+    if (!gameObject) return 0;
+    
+    auto status = il2cpp::ensure_thread_attached();
+    if (status != Il2CppStatus::OK) return 0;
+    
+    static auto il2cpp_class_get_method_from_name_fn = reinterpret_cast<void*(*)(void*, const char*, int)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_class_get_method_from_name")
+    );
+    static auto il2cpp_runtime_invoke_fn = reinterpret_cast<void*(*)(void*, void*, void**, void**)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_runtime_invoke")
+    );
+    static auto il2cpp_object_unbox_fn = reinterpret_cast<void*(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_object_unbox")
+    );
+    
+    if (!il2cpp_class_get_method_from_name_fn || !il2cpp_runtime_invoke_fn || !il2cpp_object_unbox_fn) {
+        return 0;
+    }
+    
+    // Initialize get_scene method if needed
+    if (!g_go_scene_init_attempted) {
+        g_go_scene_init_attempted = true;
+        
+        void* gameObjectClass = mdb_find_class("UnityEngine.CoreModule", "UnityEngine", "GameObject");
+        if (gameObjectClass) {
+            g_cached_go_get_scene_method = il2cpp_class_get_method_from_name_fn(gameObjectClass, "get_scene", 0);
+        }
+    }
+    
+    if (!g_cached_go_get_scene_method) return 0;
+    
+    void* exc = nullptr;
+    void* sceneBoxed = nullptr;
+    
+    __try {
+        sceneBoxed = il2cpp_runtime_invoke_fn(g_cached_go_get_scene_method, gameObject, nullptr, &exc);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+    
+    if (exc || !sceneBoxed) return 0;
+    
+    // Scene is a struct with just an int handle
+    struct UnityScene { int handle; };
+    UnityScene* scene = (UnityScene*)il2cpp_object_unbox_fn(sceneBoxed);
+    if (!scene) return 0;
+    
+    return scene->handle;
+}
+
+// ==============================
+// GameObject.activeSelf helper - get the active state of a GameObject
+// ==============================
+
+static void* g_cached_go_get_activeSelf_method = nullptr;
+static bool g_go_activeSelf_init_attempted = false;
+
+MDB_API bool mdb_gameobject_get_active_self(void* gameObject) {
+    if (!gameObject) return false;
+    
+    auto status = il2cpp::ensure_thread_attached();
+    if (status != Il2CppStatus::OK) return false;
+    
+    static auto il2cpp_class_get_method_from_name_fn = reinterpret_cast<void*(*)(void*, const char*, int)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_class_get_method_from_name")
+    );
+    static auto il2cpp_runtime_invoke_fn = reinterpret_cast<void*(*)(void*, void*, void**, void**)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_runtime_invoke")
+    );
+    static auto il2cpp_object_unbox_fn = reinterpret_cast<void*(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_object_unbox")
+    );
+    
+    if (!il2cpp_class_get_method_from_name_fn || !il2cpp_runtime_invoke_fn || !il2cpp_object_unbox_fn) {
+        return false;
+    }
+    
+    // Initialize get_activeSelf method if needed
+    if (!g_go_activeSelf_init_attempted) {
+        g_go_activeSelf_init_attempted = true;
+        
+        void* gameObjectClass = mdb_find_class("UnityEngine.CoreModule", "UnityEngine", "GameObject");
+        if (gameObjectClass) {
+            g_cached_go_get_activeSelf_method = il2cpp_class_get_method_from_name_fn(gameObjectClass, "get_activeSelf", 0);
+        }
+    }
+    
+    if (!g_cached_go_get_activeSelf_method) return false;
+    
+    void* exc = nullptr;
+    void* resultBoxed = nullptr;
+    
+    __try {
+        resultBoxed = il2cpp_runtime_invoke_fn(g_cached_go_get_activeSelf_method, gameObject, nullptr, &exc);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+    
+    if (exc || !resultBoxed) return false;
+    
+    // Unbox the bool result
+    bool* unboxed = (bool*)il2cpp_object_unbox_fn(resultBoxed);
+    if (!unboxed) return false;
+    
+    return *unboxed;
+}
+
+// ==============================
+// Transform Helper Functions
+// ==============================
+
+// Cached pointers for Transform operations
+static void* g_cached_transform_class = nullptr;
+static void* g_cached_get_childCount_method = nullptr;
+static void* g_cached_getChild_method = nullptr;
+static bool g_transform_init_attempted = false;
+
+static void init_transform_helpers() {
+    if (g_transform_init_attempted) return;
+    g_transform_init_attempted = true;
+    
+    g_cached_transform_class = mdb_find_class("UnityEngine.CoreModule", "UnityEngine", "Transform");
+    if (!g_cached_transform_class) return;
+    
+    static auto il2cpp_class_get_method_from_name_fn = reinterpret_cast<void*(*)(void*, const char*, int)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_class_get_method_from_name")
+    );
+    if (!il2cpp_class_get_method_from_name_fn) return;
+    
+    g_cached_get_childCount_method = il2cpp_class_get_method_from_name_fn(g_cached_transform_class, "get_childCount", 0);
+    g_cached_getChild_method = il2cpp_class_get_method_from_name_fn(g_cached_transform_class, "GetChild", 1);
+    
+    mdb_debug_log("Transform helpers initialized: childCount=%p, GetChild=%p", 
+        g_cached_get_childCount_method, g_cached_getChild_method);
+}
+
+MDB_API int mdb_transform_get_child_count(void* transform) {
+    if (!transform) return 0;
+    
+    auto status = il2cpp::ensure_thread_attached();
+    if (status != Il2CppStatus::OK) return 0;
+    
+    init_transform_helpers();
+    if (!g_cached_get_childCount_method) return 0;
+    
+    static auto il2cpp_runtime_invoke_fn = reinterpret_cast<void*(*)(void*, void*, void**, void**)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_runtime_invoke")
+    );
+    static auto il2cpp_object_unbox_fn = reinterpret_cast<void*(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_object_unbox")
+    );
+    
+    if (!il2cpp_runtime_invoke_fn || !il2cpp_object_unbox_fn) return 0;
+    
+    void* exc = nullptr;
+    void* result = nullptr;
+    
+    __try {
+        result = il2cpp_runtime_invoke_fn(g_cached_get_childCount_method, transform, nullptr, &exc);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+    
+    if (exc || !result) return 0;
+    
+    // Unbox the int result
+    int* unboxed = (int*)il2cpp_object_unbox_fn(result);
+    if (!unboxed) return 0;
+    
+    int count = *unboxed;
+    
+    // Sanity check
+    if (count < 0 || count > 10000) return 0;
+    
+    return count;
+}
+
+MDB_API void* mdb_transform_get_child(void* transform, int index) {
+    if (!transform || index < 0) return nullptr;
+    
+    auto status = il2cpp::ensure_thread_attached();
+    if (status != Il2CppStatus::OK) return nullptr;
+    
+    init_transform_helpers();
+    if (!g_cached_getChild_method) return nullptr;
+    
+    static auto il2cpp_runtime_invoke_fn = reinterpret_cast<void*(*)(void*, void*, void**, void**)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_runtime_invoke")
+    );
+    
+    if (!il2cpp_runtime_invoke_fn) return nullptr;
+    
+    // For int parameter, pass pointer to the value
+    void* args[1] = { &index };
+    void* exc = nullptr;
+    void* result = nullptr;
+    
+    __try {
+        result = il2cpp_runtime_invoke_fn(g_cached_getChild_method, transform, args, &exc);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return nullptr;
+    }
+    
+    if (exc) return nullptr;
+    
+    return result;
+}
+
+// ==============================
+// Transform Property Setters
+// ==============================
+
+// Unity Vector3 struct layout
+struct UnityVector3 {
+    float x, y, z;
+};
+
+// Cached methods for transform property setters
+static void* g_cached_set_localPosition_method = nullptr;
+static void* g_cached_set_localEulerAngles_method = nullptr;
+static void* g_cached_set_localScale_method = nullptr;
+static void* g_cached_get_localPosition_method = nullptr;
+static void* g_cached_get_localEulerAngles_method = nullptr;
+static void* g_cached_get_localScale_method = nullptr;
+static bool g_transform_props_init_attempted = false;
+
+static void init_transform_property_helpers() {
+    if (g_transform_props_init_attempted) return;
+    g_transform_props_init_attempted = true;
+    
+    init_transform_helpers(); // Ensure base transform class is resolved
+    if (!g_cached_transform_class) return;
+    
+    static auto il2cpp_class_get_method_from_name_fn = reinterpret_cast<void*(*)(void*, const char*, int)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_class_get_method_from_name")
+    );
+    if (!il2cpp_class_get_method_from_name_fn) return;
+    
+    // Getters
+    g_cached_get_localPosition_method = il2cpp_class_get_method_from_name_fn(g_cached_transform_class, "get_localPosition", 0);
+    g_cached_get_localEulerAngles_method = il2cpp_class_get_method_from_name_fn(g_cached_transform_class, "get_localEulerAngles", 0);
+    g_cached_get_localScale_method = il2cpp_class_get_method_from_name_fn(g_cached_transform_class, "get_localScale", 0);
+    
+    // Setters
+    g_cached_set_localPosition_method = il2cpp_class_get_method_from_name_fn(g_cached_transform_class, "set_localPosition", 1);
+    g_cached_set_localEulerAngles_method = il2cpp_class_get_method_from_name_fn(g_cached_transform_class, "set_localEulerAngles", 1);
+    g_cached_set_localScale_method = il2cpp_class_get_method_from_name_fn(g_cached_transform_class, "set_localScale", 1);
+    
+    mdb_debug_log("Transform property helpers: getPos=%p, setPos=%p, getEuler=%p, setEuler=%p, getScale=%p, setScale=%p",
+        g_cached_get_localPosition_method, g_cached_set_localPosition_method,
+        g_cached_get_localEulerAngles_method, g_cached_set_localEulerAngles_method,
+        g_cached_get_localScale_method, g_cached_set_localScale_method);
+}
+
+MDB_API bool mdb_transform_get_local_position(void* transform, float* outX, float* outY, float* outZ) {
+    if (!transform || !outX || !outY || !outZ) return false;
+    
+    auto status = il2cpp::ensure_thread_attached();
+    if (status != Il2CppStatus::OK) return false;
+    
+    init_transform_property_helpers();
+    if (!g_cached_get_localPosition_method) return false;
+    
+    static auto il2cpp_runtime_invoke_fn = reinterpret_cast<void*(*)(void*, void*, void**, void**)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_runtime_invoke")
+    );
+    static auto il2cpp_object_unbox_fn = reinterpret_cast<void*(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_object_unbox")
+    );
+    
+    if (!il2cpp_runtime_invoke_fn || !il2cpp_object_unbox_fn) return false;
+    
+    void* exc = nullptr;
+    void* result = nullptr;
+    
+    __try {
+        result = il2cpp_runtime_invoke_fn(g_cached_get_localPosition_method, transform, nullptr, &exc);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+    
+    if (exc || !result) return false;
+    
+    UnityVector3* vec = (UnityVector3*)il2cpp_object_unbox_fn(result);
+    if (!vec) return false;
+    
+    *outX = vec->x;
+    *outY = vec->y;
+    *outZ = vec->z;
+    return true;
+}
+
+MDB_API bool mdb_transform_set_local_position(void* transform, float x, float y, float z) {
+    if (!transform) return false;
+    
+    auto status = il2cpp::ensure_thread_attached();
+    if (status != Il2CppStatus::OK) return false;
+    
+    init_transform_property_helpers();
+    if (!g_cached_set_localPosition_method) return false;
+    
+    static auto il2cpp_runtime_invoke_fn = reinterpret_cast<void*(*)(void*, void*, void**, void**)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_runtime_invoke")
+    );
+    
+    if (!il2cpp_runtime_invoke_fn) return false;
+    
+    // For value type parameters, pass pointer to the struct
+    UnityVector3 vec = { x, y, z };
+    void* args[1] = { &vec };
+    void* exc = nullptr;
+    
+    __try {
+        il2cpp_runtime_invoke_fn(g_cached_set_localPosition_method, transform, args, &exc);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+    
+    return exc == nullptr;
+}
+
+MDB_API bool mdb_transform_get_local_euler_angles(void* transform, float* outX, float* outY, float* outZ) {
+    if (!transform || !outX || !outY || !outZ) return false;
+    
+    auto status = il2cpp::ensure_thread_attached();
+    if (status != Il2CppStatus::OK) return false;
+    
+    init_transform_property_helpers();
+    if (!g_cached_get_localEulerAngles_method) return false;
+    
+    static auto il2cpp_runtime_invoke_fn = reinterpret_cast<void*(*)(void*, void*, void**, void**)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_runtime_invoke")
+    );
+    static auto il2cpp_object_unbox_fn = reinterpret_cast<void*(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_object_unbox")
+    );
+    
+    if (!il2cpp_runtime_invoke_fn || !il2cpp_object_unbox_fn) return false;
+    
+    void* exc = nullptr;
+    void* result = nullptr;
+    
+    __try {
+        result = il2cpp_runtime_invoke_fn(g_cached_get_localEulerAngles_method, transform, nullptr, &exc);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+    
+    if (exc || !result) return false;
+    
+    UnityVector3* vec = (UnityVector3*)il2cpp_object_unbox_fn(result);
+    if (!vec) return false;
+    
+    *outX = vec->x;
+    *outY = vec->y;
+    *outZ = vec->z;
+    return true;
+}
+
+MDB_API bool mdb_transform_set_local_euler_angles(void* transform, float x, float y, float z) {
+    if (!transform) return false;
+    
+    auto status = il2cpp::ensure_thread_attached();
+    if (status != Il2CppStatus::OK) return false;
+    
+    init_transform_property_helpers();
+    if (!g_cached_set_localEulerAngles_method) return false;
+    
+    static auto il2cpp_runtime_invoke_fn = reinterpret_cast<void*(*)(void*, void*, void**, void**)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_runtime_invoke")
+    );
+    
+    if (!il2cpp_runtime_invoke_fn) return false;
+    
+    UnityVector3 vec = { x, y, z };
+    void* args[1] = { &vec };
+    void* exc = nullptr;
+    
+    __try {
+        il2cpp_runtime_invoke_fn(g_cached_set_localEulerAngles_method, transform, args, &exc);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+    
+    return exc == nullptr;
+}
+
+MDB_API bool mdb_transform_get_local_scale(void* transform, float* outX, float* outY, float* outZ) {
+    if (!transform || !outX || !outY || !outZ) return false;
+    
+    auto status = il2cpp::ensure_thread_attached();
+    if (status != Il2CppStatus::OK) return false;
+    
+    init_transform_property_helpers();
+    if (!g_cached_get_localScale_method) return false;
+    
+    static auto il2cpp_runtime_invoke_fn = reinterpret_cast<void*(*)(void*, void*, void**, void**)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_runtime_invoke")
+    );
+    static auto il2cpp_object_unbox_fn = reinterpret_cast<void*(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_object_unbox")
+    );
+    
+    if (!il2cpp_runtime_invoke_fn || !il2cpp_object_unbox_fn) return false;
+    
+    void* exc = nullptr;
+    void* result = nullptr;
+    
+    __try {
+        result = il2cpp_runtime_invoke_fn(g_cached_get_localScale_method, transform, nullptr, &exc);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+    
+    if (exc || !result) return false;
+    
+    UnityVector3* vec = (UnityVector3*)il2cpp_object_unbox_fn(result);
+    if (!vec) return false;
+    
+    *outX = vec->x;
+    *outY = vec->y;
+    *outZ = vec->z;
+    return true;
+}
+
+MDB_API bool mdb_transform_set_local_scale(void* transform, float x, float y, float z) {
+    if (!transform) return false;
+    
+    auto status = il2cpp::ensure_thread_attached();
+    if (status != Il2CppStatus::OK) return false;
+    
+    init_transform_property_helpers();
+    if (!g_cached_set_localScale_method) return false;
+    
+    static auto il2cpp_runtime_invoke_fn = reinterpret_cast<void*(*)(void*, void*, void**, void**)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_runtime_invoke")
+    );
+    
+    if (!il2cpp_runtime_invoke_fn) return false;
+    
+    UnityVector3 vec = { x, y, z };
+    void* args[1] = { &vec };
+    void* exc = nullptr;
+    
+    __try {
+        il2cpp_runtime_invoke_fn(g_cached_set_localScale_method, transform, args, &exc);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+    
+    return exc == nullptr;
+}
+
+// ==============================
+// SceneManager Helper Functions
+// ==============================
+
+static void* g_cached_scenemanager_class = nullptr;
+static void* g_cached_get_sceneCount_method = nullptr;
+static void* g_cached_getSceneAt_method = nullptr;
+static void* g_cached_scene_class = nullptr;
+static void* g_cached_scene_get_name_method = nullptr;
+static void* g_cached_scene_get_rootCount_method = nullptr;
+static bool g_scenemanager_init_attempted = false;
+
+static void init_scenemanager_helpers() {
+    if (g_scenemanager_init_attempted) return;
+    g_scenemanager_init_attempted = true;
+    
+    g_cached_scenemanager_class = mdb_find_class("UnityEngine.CoreModule", "UnityEngine.SceneManagement", "SceneManager");
+    g_cached_scene_class = mdb_find_class("UnityEngine.CoreModule", "UnityEngine.SceneManagement", "Scene");
+    
+    if (!g_cached_scenemanager_class) {
+        mdb_debug_log("SceneManager class not found");
+        return;
+    }
+    
+    static auto il2cpp_class_get_method_from_name_fn = reinterpret_cast<void*(*)(void*, const char*, int)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_class_get_method_from_name")
+    );
+    if (!il2cpp_class_get_method_from_name_fn) return;
+    
+    g_cached_get_sceneCount_method = il2cpp_class_get_method_from_name_fn(g_cached_scenemanager_class, "get_sceneCount", 0);
+    g_cached_getSceneAt_method = il2cpp_class_get_method_from_name_fn(g_cached_scenemanager_class, "GetSceneAt", 1);
+    
+    if (g_cached_scene_class) {
+        g_cached_scene_get_name_method = il2cpp_class_get_method_from_name_fn(g_cached_scene_class, "get_name", 0);
+        g_cached_scene_get_rootCount_method = il2cpp_class_get_method_from_name_fn(g_cached_scene_class, "get_rootCount", 0);
+    }
+    
+    mdb_debug_log("SceneManager helpers initialized: sceneCount=%p, GetSceneAt=%p", 
+        g_cached_get_sceneCount_method, g_cached_getSceneAt_method);
+}
+
+MDB_API int mdb_scenemanager_get_scene_count() {
+    auto status = il2cpp::ensure_thread_attached();
+    if (status != Il2CppStatus::OK) return 0;
+    
+    init_scenemanager_helpers();
+    if (!g_cached_get_sceneCount_method) return 0;
+    
+    static auto il2cpp_runtime_invoke_fn = reinterpret_cast<void*(*)(void*, void*, void**, void**)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_runtime_invoke")
+    );
+    static auto il2cpp_object_unbox_fn = reinterpret_cast<void*(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_object_unbox")
+    );
+    
+    if (!il2cpp_runtime_invoke_fn || !il2cpp_object_unbox_fn) return 0;
+    
+    void* exc = nullptr;
+    void* result = nullptr;
+    
+    __try {
+        result = il2cpp_runtime_invoke_fn(g_cached_get_sceneCount_method, nullptr, nullptr, &exc);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        mdb_debug_log("Exception getting scene count");
+        return 0;
+    }
+    
+    if (exc || !result) {
+        mdb_debug_log("Failed to get scene count: exc=%p, result=%p", exc, result);
+        return 0;
+    }
+    
+    // Unbox the int result
+    int* unboxed = (int*)il2cpp_object_unbox_fn(result);
+    if (!unboxed) return 0;
+    
+    int count = *unboxed;
+    mdb_debug_log("Scene count: %d", count);
+    
+    // Sanity check
+    if (count < 0 || count > 100) return 0;
+    
+    return count;
+}
+
+// Scene struct layout in IL2CPP (Unity's Scene is a struct with just an int handle)
+struct UnityScene {
+    int handle;
+};
+
+MDB_API int mdb_scenemanager_get_scene_name(int sceneIndex, char* buffer, int bufferSize) {
+    if (!buffer || bufferSize <= 0) return 0;
+    buffer[0] = '\0';
+    
+    auto status = il2cpp::ensure_thread_attached();
+    if (status != Il2CppStatus::OK) return 0;
+    
+    init_scenemanager_helpers();
+    if (!g_cached_getSceneAt_method || !g_cached_scene_get_name_method) return 0;
+    
+    static auto il2cpp_runtime_invoke_fn = reinterpret_cast<void*(*)(void*, void*, void**, void**)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_runtime_invoke")
+    );
+    static auto il2cpp_object_unbox_fn = reinterpret_cast<void*(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_object_unbox")
+    );
+    static auto il2cpp_string_chars_fn = reinterpret_cast<const wchar_t*(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_string_chars")
+    );
+    
+    if (!il2cpp_runtime_invoke_fn || !il2cpp_object_unbox_fn || !il2cpp_string_chars_fn) return 0;
+    
+    // Get scene at index
+    void* args[1] = { &sceneIndex };
+    void* exc = nullptr;
+    void* sceneBoxed = nullptr;
+    
+    __try {
+        sceneBoxed = il2cpp_runtime_invoke_fn(g_cached_getSceneAt_method, nullptr, args, &exc);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+    
+    if (exc || !sceneBoxed) return 0;
+    
+    // Unbox to get Scene struct pointer
+    UnityScene* scene = (UnityScene*)il2cpp_object_unbox_fn(sceneBoxed);
+    if (!scene) return 0;
+    
+    // Call get_name on the scene (need to pass the unboxed struct)
+    // For instance methods on value types, we pass the unboxed struct pointer
+    void* nameResult = nullptr;
+    
+    __try {
+        nameResult = il2cpp_runtime_invoke_fn(g_cached_scene_get_name_method, scene, nullptr, &exc);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+    
+    if (exc || !nameResult) return 0;
+    
+    // Convert IL2CPP string to char*
+    const wchar_t* wstr = il2cpp_string_chars_fn(nameResult);
+    if (!wstr) return 0;
+    
+    // Convert wchar_t to char
+    int written = 0;
+    for (int i = 0; i < bufferSize - 1 && wstr[i]; i++) {
+        buffer[i] = (char)wstr[i];
+        written++;
+    }
+    buffer[written] = '\0';
+    
+    return written;
+}
+
+MDB_API int mdb_scenemanager_get_scene_handle(int sceneIndex) {
+    auto status = il2cpp::ensure_thread_attached();
+    if (status != Il2CppStatus::OK) return -1;
+    
+    init_scenemanager_helpers();
+    if (!g_cached_getSceneAt_method) return -1;
+    
+    static auto il2cpp_runtime_invoke_fn = reinterpret_cast<void*(*)(void*, void*, void**, void**)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_runtime_invoke")
+    );
+    static auto il2cpp_object_unbox_fn = reinterpret_cast<void*(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_object_unbox")
+    );
+    
+    if (!il2cpp_runtime_invoke_fn || !il2cpp_object_unbox_fn) return -1;
+    
+    void* args[1] = { &sceneIndex };
+    void* exc = nullptr;
+    void* sceneBoxed = nullptr;
+    
+    __try {
+        sceneBoxed = il2cpp_runtime_invoke_fn(g_cached_getSceneAt_method, nullptr, args, &exc);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return -1;
+    }
+    
+    if (exc || !sceneBoxed) return -1;
+    
+    UnityScene* scene = (UnityScene*)il2cpp_object_unbox_fn(sceneBoxed);
+    if (!scene) return -1;
+    
+    return scene->handle;
+}
+
+MDB_API int mdb_scenemanager_get_scene_root_count(int sceneIndex) {
+    auto status = il2cpp::ensure_thread_attached();
+    if (status != Il2CppStatus::OK) return 0;
+    
+    init_scenemanager_helpers();
+    if (!g_cached_getSceneAt_method || !g_cached_scene_get_rootCount_method) return 0;
+    
+    static auto il2cpp_runtime_invoke_fn = reinterpret_cast<void*(*)(void*, void*, void**, void**)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_runtime_invoke")
+    );
+    static auto il2cpp_object_unbox_fn = reinterpret_cast<void*(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_object_unbox")
+    );
+    
+    if (!il2cpp_runtime_invoke_fn || !il2cpp_object_unbox_fn) return 0;
+    
+    // Get scene at index
+    void* args[1] = { &sceneIndex };
+    void* exc = nullptr;
+    void* sceneBoxed = nullptr;
+    
+    __try {
+        sceneBoxed = il2cpp_runtime_invoke_fn(g_cached_getSceneAt_method, nullptr, args, &exc);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+    
+    if (exc || !sceneBoxed) return 0;
+    
+    UnityScene* scene = (UnityScene*)il2cpp_object_unbox_fn(sceneBoxed);
+    if (!scene) return 0;
+    
+    // Call get_rootCount on the scene
+    void* rootCountResult = nullptr;
+    
+    __try {
+        rootCountResult = il2cpp_runtime_invoke_fn(g_cached_scene_get_rootCount_method, scene, nullptr, &exc);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
+    
+    if (exc || !rootCountResult) return 0;
+    
+    int* unboxed = (int*)il2cpp_object_unbox_fn(rootCountResult);
+    if (!unboxed) return 0;
+    
+    int count = *unboxed;
+    if (count < 0 || count > 100000) return 0;
+    
+    return count;
+}
+
+// Get DontDestroyOnLoad scene by finding a GameObject marked with DontDestroyOnLoad
+// Returns the scene handle, or -1 if not found
+// This works by getting a special scene that Unity uses for DontDestroyOnLoad objects
+MDB_API int mdb_get_dontdestroyonload_scene_handle() {
+    auto status = il2cpp::ensure_thread_attached();
+    if (status != Il2CppStatus::OK) return -1;
+    
+    // The DontDestroyOnLoad scene has a specific name: "DontDestroyOnLoad"
+    // We can find it by checking all root objects and finding one in that scene
+    // However, a simpler approach: Unity's SceneManager.sceneCount doesn't include it
+    // The DDOL scene handle is typically a high number or specific value
+    
+    // Alternative: Use Scene.GetSceneByName which doesn't work for DDOL
+    // Best approach: Find any DDOL object and get its scene
+    
+    // For now, return -1 to indicate we'll handle this differently
+    // The C# code will detect DDOL objects by checking if their scene handle
+    // doesn't match any loaded scene
+    return -1;
+}
+
+// ==============================
 // OnGUI Hook Support
 // ==============================
 
@@ -1282,3 +2091,299 @@ MDB_API int mdb_install_ongui_hook() {
     return -100;
 #endif
 }
+
+// ==============================
+// Reflection Helpers for Component Inspector
+// ==============================
+
+// Get field count for a class
+MDB_API int mdb_class_get_field_count(void* klass) {
+    if (!klass) return 0;
+    
+    static auto il2cpp_class_get_fields_fn = reinterpret_cast<void*(*)(void*, void**)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_class_get_fields")
+    );
+    
+    if (!il2cpp_class_get_fields_fn) return 0;
+    
+    int count = 0;
+    void* iter = nullptr;
+    while (il2cpp_class_get_fields_fn(klass, &iter) != nullptr) {
+        count++;
+    }
+    return count;
+}
+
+// Get field by index (returns FieldInfo pointer)
+MDB_API void* mdb_class_get_field_by_index(void* klass, int index) {
+    if (!klass || index < 0) return nullptr;
+    
+    static auto il2cpp_class_get_fields_fn = reinterpret_cast<void*(*)(void*, void**)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_class_get_fields")
+    );
+    
+    if (!il2cpp_class_get_fields_fn) return nullptr;
+    
+    void* iter = nullptr;
+    void* field = nullptr;
+    int i = 0;
+    while ((field = il2cpp_class_get_fields_fn(klass, &iter)) != nullptr) {
+        if (i == index) return field;
+        i++;
+    }
+    return nullptr;
+}
+
+// Get field name
+MDB_API const char* mdb_field_get_name(void* field) {
+    if (!field) return nullptr;
+    auto* fi = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppFieldInfo*>(field);
+    return fi->m_pName;
+}
+
+// Get field type
+MDB_API void* mdb_field_get_type(void* field) {
+    if (!field) return nullptr;
+    auto* fi = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppFieldInfo*>(field);
+    return fi->m_pType;
+}
+
+// Get type name from Il2CppType
+MDB_API const char* mdb_type_get_name(void* type) {
+    if (!type) return nullptr;
+    
+    static auto il2cpp_type_get_name_fn = reinterpret_cast<char*(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_type_get_name")
+    );
+    
+    if (!il2cpp_type_get_name_fn) return nullptr;
+    return il2cpp_type_get_name_fn(type);
+}
+
+// Get type kind (int, float, string, object, etc.)
+MDB_API int mdb_type_get_type_enum(void* type) {
+    if (!type) return -1;
+    auto* t = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppType*>(type);
+    return t->m_uType;
+}
+
+// Get property count for a class
+MDB_API int mdb_class_get_property_count(void* klass) {
+    if (!klass) return 0;
+    
+    static auto il2cpp_class_get_properties_fn = reinterpret_cast<void*(*)(void*, void**)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_class_get_properties")
+    );
+    
+    if (!il2cpp_class_get_properties_fn) return 0;
+    
+    int count = 0;
+    void* iter = nullptr;
+    while (il2cpp_class_get_properties_fn(klass, &iter) != nullptr) {
+        count++;
+    }
+    return count;
+}
+
+// Get property by index
+MDB_API void* mdb_class_get_property_by_index(void* klass, int index) {
+    if (!klass || index < 0) return nullptr;
+    
+    static auto il2cpp_class_get_properties_fn = reinterpret_cast<void*(*)(void*, void**)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_class_get_properties")
+    );
+    
+    if (!il2cpp_class_get_properties_fn) return nullptr;
+    
+    void* iter = nullptr;
+    void* prop = nullptr;
+    int i = 0;
+    while ((prop = il2cpp_class_get_properties_fn(klass, &iter)) != nullptr) {
+        if (i == index) return prop;
+        i++;
+    }
+    return nullptr;
+}
+
+// Get property name
+MDB_API const char* mdb_property_get_name(void* prop) {
+    if (!prop) return nullptr;
+    auto* pi = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppPropertyInfo*>(prop);
+    return pi->m_pName;
+}
+
+// Get property getter method
+MDB_API void* mdb_property_get_get_method(void* prop) {
+    if (!prop) return nullptr;
+    auto* pi = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppPropertyInfo*>(prop);
+    return pi->m_pGet;
+}
+
+// Get property setter method
+MDB_API void* mdb_property_get_set_method(void* prop) {
+    if (!prop) return nullptr;
+    auto* pi = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppPropertyInfo*>(prop);
+    return pi->m_pSet;
+}
+
+// Get method count for a class
+MDB_API int mdb_class_get_method_count(void* klass) {
+    if (!klass) return 0;
+    
+    static auto il2cpp_class_get_methods_fn = reinterpret_cast<void*(*)(void*, void**)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_class_get_methods")
+    );
+    
+    if (!il2cpp_class_get_methods_fn) return 0;
+    
+    int count = 0;
+    void* iter = nullptr;
+    while (il2cpp_class_get_methods_fn(klass, &iter) != nullptr) {
+        count++;
+    }
+    return count;
+}
+
+// Get method by index
+MDB_API void* mdb_class_get_method_by_index(void* klass, int index) {
+    if (!klass || index < 0) return nullptr;
+    
+    static auto il2cpp_class_get_methods_fn = reinterpret_cast<void*(*)(void*, void**)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_class_get_methods")
+    );
+    
+    if (!il2cpp_class_get_methods_fn) return nullptr;
+    
+    void* iter = nullptr;
+    void* method = nullptr;
+    int i = 0;
+    while ((method = il2cpp_class_get_methods_fn(klass, &iter)) != nullptr) {
+        if (i == index) return method;
+        i++;
+    }
+    return nullptr;
+}
+
+// Get method name (already exists as mdb_method_get_name, but adding for completeness)
+MDB_API const char* mdb_method_get_name_str(void* method) {
+    if (!method) return nullptr;
+    auto* mi = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppMethodInfo*>(method);
+    return mi->m_pName;
+}
+
+// Get method parameter count
+MDB_API int mdb_method_get_param_count(void* method) {
+    if (!method) return 0;
+    auto* mi = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppMethodInfo*>(method);
+    return mi->m_uArgsCount;
+}
+
+// Get method return type
+MDB_API void* mdb_method_get_return_type(void* method) {
+    if (!method) return nullptr;
+    auto* mi = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppMethodInfo*>(method);
+    return mi->m_pReturnType;
+}
+
+// Get method flags (to check if static, public, etc.)
+MDB_API int mdb_method_get_flags(void* method) {
+    if (!method) return 0;
+    auto* mi = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppMethodInfo*>(method);
+    return mi->m_uFlags;
+}
+
+// Check if field is static using proper IL2CPP API
+MDB_API bool mdb_field_is_static(void* field) {
+    if (!field) return false;
+    
+    // Use the proper il2cpp_field_get_flags API
+    static auto il2cpp_field_get_flags_fn = reinterpret_cast<int(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_field_get_flags")
+    );
+    
+    if (!il2cpp_field_get_flags_fn) {
+        // Fallback: check offset (static fields typically have offset -1 or 0)
+        auto* fi = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppFieldInfo*>(field);
+        return fi->m_iOffset == -1;
+    }
+    
+    // FIELD_ATTRIBUTE_STATIC = 0x0010
+    int flags = il2cpp_field_get_flags_fn(field);
+    return (flags & 0x0010) != 0;
+}
+
+// Get class from type
+MDB_API void* mdb_type_get_class(void* type) {
+    if (!type) return nullptr;
+    
+    static auto il2cpp_class_from_type_fn = reinterpret_cast<void*(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_class_from_type")
+    );
+    
+    if (!il2cpp_class_from_type_fn) return nullptr;
+    return il2cpp_class_from_type_fn(type);
+}
+
+// Check if type is value type
+MDB_API bool mdb_type_is_valuetype(void* type) {
+    if (!type) return false;
+    
+    static auto il2cpp_class_is_valuetype_fn = reinterpret_cast<bool(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_class_is_valuetype")
+    );
+    
+    if (!il2cpp_class_is_valuetype_fn) return false;
+    
+    void* klass = mdb_type_get_class(type);
+    if (!klass) return false;
+    
+    return il2cpp_class_is_valuetype_fn(klass);
+}
+
+// Get parent class
+MDB_API void* mdb_class_get_parent(void* klass) {
+    if (!klass) return nullptr;
+    
+    static auto il2cpp_class_get_parent_fn = reinterpret_cast<void*(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_class_get_parent")
+    );
+    
+    if (!il2cpp_class_get_parent_fn) return nullptr;
+    return il2cpp_class_get_parent_fn(klass);
+}
+
+// Get value type data directly from field (for primitive types)
+MDB_API bool mdb_field_get_value_direct(void* instance, void* field, void* outBuffer, int bufferSize) {
+    if (!instance || !field || !outBuffer || bufferSize <= 0) return false;
+    
+    auto status = il2cpp::_internal::ensure_exports();
+    if (status != Il2CppStatus::OK) return false;
+    
+    auto* fi = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppFieldInfo*>(field);
+    
+    // For instance fields, offset is positive
+    if (fi->m_iOffset >= 0) {
+        char* ptr = reinterpret_cast<char*>(instance) + fi->m_iOffset;
+        memcpy(outBuffer, ptr, bufferSize);
+        return true;
+    }
+    
+    return false;
+}
+
+// Set value type data directly to field (for primitive types)
+MDB_API bool mdb_field_set_value_direct(void* instance, void* field, void* value, int valueSize) {
+    if (!instance || !field || !value || valueSize <= 0) return false;
+    
+    auto* fi = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppFieldInfo*>(field);
+    
+    // For instance fields, offset is positive
+    if (fi->m_iOffset >= 0) {
+        char* ptr = reinterpret_cast<char*>(instance) + fi->m_iOffset;
+        memcpy(ptr, value, valueSize);
+        return true;
+    }
+    
+    return false;
+}
+

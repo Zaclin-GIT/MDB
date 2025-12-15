@@ -949,6 +949,8 @@ SKIP_TYPES = {
     "Uri",  # Conflicts with System.Uri  
     "Resources",  # Conflicts with UnityEngine.Resources
     "Hierarchy",  # Conflicts with UnityEngine hierarchy types
+    # Settings - conflicts with Settings namespace (e.g., Settings.Console)
+    "Settings",  # Some games have Settings as namespace only, not a type
 }
 
 # Property names that conflict with C# keywords or System types
@@ -982,6 +984,17 @@ AMBIGUOUS_TYPES = {
     # Version conflict between VisualDesignCafe.Packages and System
     "Version": "System.Version",  # Prefer System.Version
     # Note: Path is NOT added here because DG.Tweening.Plugins.Core.PathCore.Path is a valid game type
+    # Global vs Unity/System conflicts (common in Phasmophobia and other games)
+    "BlendMode": "UnityEngine.Rendering.BlendMode",
+    "Bone": "UnityEngine.XR.Bone",
+    "Constraint": "RootMotion.FinalIK.Constraint",
+    "LOD": "UnityEngine.LOD",
+    "Logger": "UnityEngine.Logger",
+    "Player": "Photon.Realtime.Player",
+    "Pose": "UnityEngine.Pose",
+    "RenderingPath": "UnityEngine.RenderingPath",
+    "Stream": "System.IO.Stream",
+    "UpdateType": "DG.Tweening.UpdateType",
 }
 
 def is_obfuscated_type(type_name: str) -> bool:

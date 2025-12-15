@@ -323,6 +323,125 @@ extern "C" {
     /// <returns>Pointer to Component, or nullptr on error</returns>
     MDB_API void* mdb_components_array_get(void* componentsArray, int index);
 
+    /// <summary>
+    /// Set the active state of a GameObject.
+    /// This properly handles the bool parameter boxing for IL2CPP.
+    /// </summary>
+    /// <param name="gameObject">Pointer to GameObject IL2CPP object</param>
+    /// <param name="active">Whether to activate (true) or deactivate (false)</param>
+    /// <returns>true on success, false on failure</returns>
+    MDB_API bool mdb_gameobject_set_active(void* gameObject, bool active);
+
+    /// <summary>
+    /// Get the scene handle that a GameObject belongs to.
+    /// Can be used to identify DontDestroyOnLoad objects (their scene handle won't match any loaded scene).
+    /// </summary>
+    /// <param name="gameObject">Pointer to GameObject IL2CPP object</param>
+    /// <returns>Scene handle, or 0 on error</returns>
+    MDB_API int mdb_gameobject_get_scene_handle(void* gameObject);
+
+    /// <summary>
+    /// Get the activeSelf state of a GameObject.
+    /// Properly unboxes the bool return value from IL2CPP.
+    /// </summary>
+    /// <param name="gameObject">Pointer to GameObject IL2CPP object</param>
+    /// <returns>true if active, false if inactive or on error</returns>
+    MDB_API bool mdb_gameobject_get_active_self(void* gameObject);
+
+    // ==============================
+    // Transform Helpers
+    // ==============================
+
+    /// <summary>
+    /// Get the child count of a Transform.
+    /// Properly unboxes the int return value from IL2CPP.
+    /// </summary>
+    /// <param name="transform">Pointer to Transform IL2CPP object</param>
+    /// <returns>Number of children, or 0 on error</returns>
+    MDB_API int mdb_transform_get_child_count(void* transform);
+
+    /// <summary>
+    /// Get a child Transform at the specified index.
+    /// </summary>
+    /// <param name="transform">Pointer to Transform IL2CPP object</param>
+    /// <param name="index">Index of the child</param>
+    /// <returns>Pointer to child Transform, or nullptr on error</returns>
+    MDB_API void* mdb_transform_get_child(void* transform, int index);
+
+    // ==============================
+    // Transform Property Accessors
+    // ==============================
+
+    /// <summary>
+    /// Get the local position of a Transform.
+    /// </summary>
+    MDB_API bool mdb_transform_get_local_position(void* transform, float* outX, float* outY, float* outZ);
+
+    /// <summary>
+    /// Set the local position of a Transform.
+    /// </summary>
+    MDB_API bool mdb_transform_set_local_position(void* transform, float x, float y, float z);
+
+    /// <summary>
+    /// Get the local euler angles (rotation) of a Transform.
+    /// </summary>
+    MDB_API bool mdb_transform_get_local_euler_angles(void* transform, float* outX, float* outY, float* outZ);
+
+    /// <summary>
+    /// Set the local euler angles (rotation) of a Transform.
+    /// </summary>
+    MDB_API bool mdb_transform_set_local_euler_angles(void* transform, float x, float y, float z);
+
+    /// <summary>
+    /// Get the local scale of a Transform.
+    /// </summary>
+    MDB_API bool mdb_transform_get_local_scale(void* transform, float* outX, float* outY, float* outZ);
+
+    /// <summary>
+    /// Set the local scale of a Transform.
+    /// </summary>
+    MDB_API bool mdb_transform_set_local_scale(void* transform, float x, float y, float z);
+
+    // ==============================
+    // SceneManager Helpers
+    // ==============================
+
+    /// <summary>
+    /// Get the number of loaded scenes.
+    /// Properly unboxes the int return value from IL2CPP.
+    /// </summary>
+    /// <returns>Number of loaded scenes, or 0 on error</returns>
+    MDB_API int mdb_scenemanager_get_scene_count();
+
+    /// <summary>
+    /// Get the name of a scene at the specified index.
+    /// </summary>
+    /// <param name="sceneIndex">Index of the scene (0 to sceneCount-1)</param>
+    /// <param name="buffer">Buffer to write the scene name to</param>
+    /// <param name="bufferSize">Size of the buffer</param>
+    /// <returns>Length of the name written, or 0 on error</returns>
+    MDB_API int mdb_scenemanager_get_scene_name(int sceneIndex, char* buffer, int bufferSize);
+
+    /// <summary>
+    /// Get the handle of a scene at the specified index.
+    /// </summary>
+    /// <param name="sceneIndex">Index of the scene (0 to sceneCount-1)</param>
+    /// <returns>Scene handle, or -1 on error</returns>
+    MDB_API int mdb_scenemanager_get_scene_handle(int sceneIndex);
+
+    /// <summary>
+    /// Get the root GameObject count of a scene at the specified index.
+    /// </summary>
+    /// <param name="sceneIndex">Index of the scene (0 to sceneCount-1)</param>
+    /// <returns>Number of root GameObjects in the scene, or 0 on error</returns>
+    MDB_API int mdb_scenemanager_get_scene_root_count(int sceneIndex);
+
+    /// <summary>
+    /// Get the DontDestroyOnLoad scene handle.
+    /// </summary>
+    /// <returns>Scene handle for DDOL scene, or -1 if not found</returns>
+    MDB_API int mdb_get_dontdestroyonload_scene_handle();
+
     // ==============================
     // OnGUI Hooking
     // ==============================
@@ -431,4 +550,147 @@ extern "C" {
     /// <param name="method">Pointer to MethodInfo</param>
     /// <returns>Method name string, or nullptr on error</returns>
     MDB_API const char* mdb_method_get_name(void* method);
+    
+    // ==============================
+    // ImGui Integration
+    // ==============================
+    
+    /// <summary>
+    /// DirectX version enumeration.
+    /// </summary>
+    enum MdbDxVersion {
+        MDB_DX_UNKNOWN = 0,
+        MDB_DX_11 = 11,
+        MDB_DX_12 = 12
+    };
+    
+    /// <summary>
+    /// Get the detected DirectX version.
+    /// </summary>
+    /// <returns>MDB_DX_11, MDB_DX_12, or MDB_DX_UNKNOWN</returns>
+    MDB_API MdbDxVersion mdb_imgui_get_dx_version();
+    
+    /// <summary>
+    /// Initialize ImGui with auto-detected DirectX version.
+    /// Hooks the game's Present function and sets up rendering.
+    /// </summary>
+    /// <returns>true on success, false on failure</returns>
+    MDB_API bool mdb_imgui_init();
+    
+    /// <summary>
+    /// Shutdown ImGui and remove all hooks.
+    /// </summary>
+    MDB_API void mdb_imgui_shutdown();
+    
+    /// <summary>
+    /// Check if ImGui is initialized and ready.
+    /// </summary>
+    /// <returns>true if initialized</returns>
+    MDB_API bool mdb_imgui_is_initialized();
+    
+    /// <summary>
+    /// Callback type for custom draw functions.
+    /// Called each frame during Present hook, after ImGui::NewFrame().
+    /// </summary>
+    typedef void (*MdbImGuiDrawCallback)();
+    
+    /// <summary>
+    /// Register a draw callback to be called each frame.
+    /// </summary>
+    /// <param name="callback">Function pointer to call each frame</param>
+    MDB_API void mdb_imgui_register_draw_callback(MdbImGuiDrawCallback callback);
+    
+    /// <summary>
+    /// Enable or disable ImGui input capture.
+    /// When disabled, input passes through to the game.
+    /// </summary>
+    /// <param name="enabled">true to capture input, false to pass through</param>
+    MDB_API void mdb_imgui_set_input_enabled(bool enabled);
+    
+    /// <summary>
+    /// Check if ImGui input capture is enabled.
+    /// </summary>
+    /// <returns>true if input is being captured</returns>
+    MDB_API bool mdb_imgui_is_input_enabled();
+    
+    /// <summary>
+    /// Set the keyboard key used to toggle ImGui visibility/input.
+    /// Default is VK_F2 (0x71).
+    /// </summary>
+    /// <param name="vkCode">Virtual key code</param>
+    MDB_API void mdb_imgui_set_toggle_key(int vkCode);
+
+    // ==============================
+    // Reflection Helpers for Component Inspector
+    // ==============================
+
+    /// <summary>Get the number of fields in a class.</summary>
+    MDB_API int mdb_class_get_field_count(void* klass);
+
+    /// <summary>Get a field by index.</summary>
+    MDB_API void* mdb_class_get_field_by_index(void* klass, int index);
+
+    /// <summary>Get field name.</summary>
+    MDB_API const char* mdb_field_get_name(void* field);
+
+    /// <summary>Get field type.</summary>
+    MDB_API void* mdb_field_get_type(void* field);
+
+    /// <summary>Check if field is static.</summary>
+    MDB_API bool mdb_field_is_static(void* field);
+
+    /// <summary>Get type name from Il2CppType.</summary>
+    MDB_API const char* mdb_type_get_name(void* type);
+
+    /// <summary>Get type enum (IL2CPP_TYPE_*).</summary>
+    MDB_API int mdb_type_get_type_enum(void* type);
+
+    /// <summary>Get class from type.</summary>
+    MDB_API void* mdb_type_get_class(void* type);
+
+    /// <summary>Check if type is value type.</summary>
+    MDB_API bool mdb_type_is_valuetype(void* type);
+
+    /// <summary>Get the number of properties in a class.</summary>
+    MDB_API int mdb_class_get_property_count(void* klass);
+
+    /// <summary>Get a property by index.</summary>
+    MDB_API void* mdb_class_get_property_by_index(void* klass, int index);
+
+    /// <summary>Get property name.</summary>
+    MDB_API const char* mdb_property_get_name(void* prop);
+
+    /// <summary>Get property getter method.</summary>
+    MDB_API void* mdb_property_get_get_method(void* prop);
+
+    /// <summary>Get property setter method.</summary>
+    MDB_API void* mdb_property_get_set_method(void* prop);
+
+    /// <summary>Get the number of methods in a class.</summary>
+    MDB_API int mdb_class_get_method_count(void* klass);
+
+    /// <summary>Get a method by index.</summary>
+    MDB_API void* mdb_class_get_method_by_index(void* klass, int index);
+
+    /// <summary>Get method name.</summary>
+    MDB_API const char* mdb_method_get_name_str(void* method);
+
+    /// <summary>Get method parameter count.</summary>
+    MDB_API int mdb_method_get_param_count(void* method);
+
+    /// <summary>Get method return type.</summary>
+    MDB_API void* mdb_method_get_return_type(void* method);
+
+    /// <summary>Get method flags.</summary>
+    MDB_API int mdb_method_get_flags(void* method);
+
+    /// <summary>Get parent class.</summary>
+    MDB_API void* mdb_class_get_parent(void* klass);
+
+    /// <summary>Get field value directly (for primitives).</summary>
+    MDB_API bool mdb_field_get_value_direct(void* instance, void* field, void* outBuffer, int bufferSize);
+
+    /// <summary>Set field value directly (for primitives).</summary>
+    MDB_API bool mdb_field_set_value_direct(void* instance, void* field, void* value, int valueSize);
 }
+

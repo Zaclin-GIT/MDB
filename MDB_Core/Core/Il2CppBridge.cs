@@ -335,6 +335,156 @@ namespace GameSDK
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr mdb_components_array_get(IntPtr componentsArray, int index);
 
+        /// <summary>
+        /// Set the active state of a GameObject.
+        /// This properly handles the bool parameter boxing for IL2CPP.
+        /// </summary>
+        /// <param name="gameObject">Pointer to GameObject IL2CPP object</param>
+        /// <param name="active">Whether to activate (true) or deactivate (false)</param>
+        /// <returns>true on success, false on failure</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        public static extern bool mdb_gameobject_set_active(IntPtr gameObject, [MarshalAs(UnmanagedType.I1)] bool active);
+
+        /// <summary>
+        /// Get the scene handle that a GameObject belongs to.
+        /// Can be used to identify DontDestroyOnLoad objects (their scene handle won't match any loaded scene).
+        /// </summary>
+        /// <param name="gameObject">Pointer to GameObject IL2CPP object</param>
+        /// <returns>Scene handle, or 0 on error</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_gameobject_get_scene_handle(IntPtr gameObject);
+
+        /// <summary>
+        /// Get the activeSelf state of a GameObject.
+        /// Properly unboxes the bool return value from IL2CPP.
+        /// </summary>
+        /// <param name="gameObject">Pointer to GameObject IL2CPP object</param>
+        /// <returns>true if active, false if inactive or on error</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        public static extern bool mdb_gameobject_get_active_self(IntPtr gameObject);
+
+        // ==============================
+        // Transform Helpers
+        // ==============================
+
+        /// <summary>
+        /// Get the child count of a Transform.
+        /// Properly unboxes the int return value from IL2CPP.
+        /// </summary>
+        /// <param name="transform">Pointer to Transform IL2CPP object</param>
+        /// <returns>Number of children, or 0 on error</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_transform_get_child_count(IntPtr transform);
+
+        /// <summary>
+        /// Get a child Transform at the specified index.
+        /// </summary>
+        /// <param name="transform">Pointer to Transform IL2CPP object</param>
+        /// <param name="index">Index of the child</param>
+        /// <returns>Pointer to child Transform, or IntPtr.Zero on error</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr mdb_transform_get_child(IntPtr transform, int index);
+
+        /// <summary>
+        /// Get the local position of a Transform.
+        /// </summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        public static extern bool mdb_transform_get_local_position(IntPtr transform, out float x, out float y, out float z);
+
+        /// <summary>
+        /// Set the local position of a Transform.
+        /// </summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        public static extern bool mdb_transform_set_local_position(IntPtr transform, float x, float y, float z);
+
+        /// <summary>
+        /// Get the local euler angles of a Transform.
+        /// </summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        public static extern bool mdb_transform_get_local_euler_angles(IntPtr transform, out float x, out float y, out float z);
+
+        /// <summary>
+        /// Set the local euler angles of a Transform.
+        /// </summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        public static extern bool mdb_transform_set_local_euler_angles(IntPtr transform, float x, float y, float z);
+
+        /// <summary>
+        /// Get the local scale of a Transform.
+        /// </summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        public static extern bool mdb_transform_get_local_scale(IntPtr transform, out float x, out float y, out float z);
+
+        /// <summary>
+        /// Set the local scale of a Transform.
+        /// </summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        public static extern bool mdb_transform_set_local_scale(IntPtr transform, float x, float y, float z);
+
+        // ==============================
+        // SceneManager Helpers
+        // ==============================
+
+        /// <summary>
+        /// Get the number of loaded scenes.
+        /// Properly unboxes the int return value from IL2CPP.
+        /// </summary>
+        /// <returns>Number of loaded scenes, or 0 on error</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_scenemanager_get_scene_count();
+
+        /// <summary>
+        /// Get the name of a scene at the specified index.
+        /// </summary>
+        /// <param name="sceneIndex">Index of the scene (0 to sceneCount-1)</param>
+        /// <param name="buffer">Buffer to write the scene name to</param>
+        /// <param name="bufferSize">Size of the buffer</param>
+        /// <returns>Length of the name written, or 0 on error</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_scenemanager_get_scene_name(int sceneIndex, [Out] byte[] buffer, int bufferSize);
+
+        /// <summary>
+        /// Get the handle of a scene at the specified index.
+        /// </summary>
+        /// <param name="sceneIndex">Index of the scene (0 to sceneCount-1)</param>
+        /// <returns>Scene handle, or -1 on error</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_scenemanager_get_scene_handle(int sceneIndex);
+
+        /// <summary>
+        /// Get the root GameObject count of a scene at the specified index.
+        /// </summary>
+        /// <param name="sceneIndex">Index of the scene (0 to sceneCount-1)</param>
+        /// <returns>Number of root GameObjects in the scene, or 0 on error</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_scenemanager_get_scene_root_count(int sceneIndex);
+
+        /// <summary>
+        /// Get the DontDestroyOnLoad scene handle.
+        /// </summary>
+        /// <returns>Scene handle for DDOL scene, or -1 if not found</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_get_dontdestroyonload_scene_handle();
+
+        /// <summary>
+        /// Helper to get scene name as a managed string.
+        /// </summary>
+        public static string GetSceneName(int sceneIndex)
+        {
+            byte[] buffer = new byte[256];
+            int length = mdb_scenemanager_get_scene_name(sceneIndex, buffer, buffer.Length);
+            if (length <= 0) return null;
+            return System.Text.Encoding.UTF8.GetString(buffer, 0, length);
+        }
+
         // ==============================
         // Array Helpers
         // ==============================
@@ -564,5 +714,181 @@ namespace GameSDK
                 return null;
             return Marshal.PtrToStringAnsi(ptr);
         }
+
+        // ==============================
+        // Reflection Helpers for Component Inspector
+        // ==============================
+
+        /// <summary>Get the number of fields in a class.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_class_get_field_count(IntPtr klass);
+
+        /// <summary>Get a field by index.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr mdb_class_get_field_by_index(IntPtr klass, int index);
+
+        /// <summary>Get field name (native).</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr mdb_field_get_name(IntPtr field);
+
+        /// <summary>Get field name (managed wrapper).</summary>
+        public static string GetFieldName(IntPtr field)
+        {
+            IntPtr ptr = mdb_field_get_name(field);
+            if (ptr == IntPtr.Zero) return null;
+            return Marshal.PtrToStringAnsi(ptr);
+        }
+
+        /// <summary>Get field type.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr mdb_field_get_type(IntPtr field);
+
+        /// <summary>Check if field is static.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        public static extern bool mdb_field_is_static(IntPtr field);
+
+        /// <summary>Get type name (native).</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr mdb_type_get_name(IntPtr type);
+
+        /// <summary>Get type name (managed wrapper).</summary>
+        public static string GetTypeName(IntPtr type)
+        {
+            if (type == IntPtr.Zero) return null;
+            try
+            {
+                IntPtr ptr = mdb_type_get_name(type);
+                if (ptr == IntPtr.Zero) return null;
+                return Marshal.PtrToStringAnsi(ptr);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>Get type enum (IL2CPP_TYPE_*).</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_type_get_type_enum(IntPtr type);
+
+        /// <summary>Get class from type.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr mdb_type_get_class(IntPtr type);
+
+        /// <summary>Check if type is value type.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        public static extern bool mdb_type_is_valuetype(IntPtr type);
+
+        /// <summary>Get the number of properties in a class.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_class_get_property_count(IntPtr klass);
+
+        /// <summary>Get a property by index.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr mdb_class_get_property_by_index(IntPtr klass, int index);
+
+        /// <summary>Get property name (native).</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr mdb_property_get_name(IntPtr prop);
+
+        /// <summary>Get property name (managed wrapper).</summary>
+        public static string GetPropertyName(IntPtr prop)
+        {
+            IntPtr ptr = mdb_property_get_name(prop);
+            if (ptr == IntPtr.Zero) return null;
+            return Marshal.PtrToStringAnsi(ptr);
+        }
+
+        /// <summary>Get property getter method.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr mdb_property_get_get_method(IntPtr prop);
+
+        /// <summary>Get property setter method.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr mdb_property_get_set_method(IntPtr prop);
+
+        /// <summary>Get the number of methods in a class.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_class_get_method_count(IntPtr klass);
+
+        /// <summary>Get a method by index.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr mdb_class_get_method_by_index(IntPtr klass, int index);
+
+        /// <summary>Get method name (native).</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr mdb_method_get_name_str(IntPtr method);
+
+        /// <summary>Get method name string (managed wrapper).</summary>
+        public static string GetMethodNameStr(IntPtr method)
+        {
+            IntPtr ptr = mdb_method_get_name_str(method);
+            if (ptr == IntPtr.Zero) return null;
+            return Marshal.PtrToStringAnsi(ptr);
+        }
+
+        /// <summary>Get method parameter count.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_method_get_param_count(IntPtr method);
+
+        /// <summary>Get method return type.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr mdb_method_get_return_type(IntPtr method);
+
+        /// <summary>Get method flags.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_method_get_flags(IntPtr method);
+
+        /// <summary>Get parent class.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr mdb_class_get_parent(IntPtr klass);
+
+        /// <summary>Get field value directly (for primitives).</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        public static extern bool mdb_field_get_value_direct(IntPtr instance, IntPtr field, IntPtr outBuffer, int bufferSize);
+
+        /// <summary>Set field value directly (for primitives).</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        public static extern bool mdb_field_set_value_direct(IntPtr instance, IntPtr field, IntPtr value, int valueSize);
+
+        // IL2CPP Type Enum Constants
+        public static class Il2CppTypeEnum
+        {
+            public const int IL2CPP_TYPE_END = 0x00;
+            public const int IL2CPP_TYPE_VOID = 0x01;
+            public const int IL2CPP_TYPE_BOOLEAN = 0x02;
+            public const int IL2CPP_TYPE_CHAR = 0x03;
+            public const int IL2CPP_TYPE_I1 = 0x04;  // sbyte
+            public const int IL2CPP_TYPE_U1 = 0x05;  // byte
+            public const int IL2CPP_TYPE_I2 = 0x06;  // short
+            public const int IL2CPP_TYPE_U2 = 0x07;  // ushort
+            public const int IL2CPP_TYPE_I4 = 0x08;  // int
+            public const int IL2CPP_TYPE_U4 = 0x09;  // uint
+            public const int IL2CPP_TYPE_I8 = 0x0a;  // long
+            public const int IL2CPP_TYPE_U8 = 0x0b;  // ulong
+            public const int IL2CPP_TYPE_R4 = 0x0c;  // float
+            public const int IL2CPP_TYPE_R8 = 0x0d;  // double
+            public const int IL2CPP_TYPE_STRING = 0x0e;
+            public const int IL2CPP_TYPE_PTR = 0x0f;
+            public const int IL2CPP_TYPE_BYREF = 0x10;
+            public const int IL2CPP_TYPE_VALUETYPE = 0x11;
+            public const int IL2CPP_TYPE_CLASS = 0x12;
+            public const int IL2CPP_TYPE_VAR = 0x13;
+            public const int IL2CPP_TYPE_ARRAY = 0x14;
+            public const int IL2CPP_TYPE_GENERICINST = 0x15;
+            public const int IL2CPP_TYPE_TYPEDBYREF = 0x16;
+            public const int IL2CPP_TYPE_I = 0x18;   // IntPtr
+            public const int IL2CPP_TYPE_U = 0x19;   // UIntPtr
+            public const int IL2CPP_TYPE_FNPTR = 0x1b;
+            public const int IL2CPP_TYPE_OBJECT = 0x1c;
+            public const int IL2CPP_TYPE_SZARRAY = 0x1d;  // Single-dimension array
+            public const int IL2CPP_TYPE_MVAR = 0x1e;
+            public const int IL2CPP_TYPE_ENUM = 0x55;
+        }
     }
 }
+
