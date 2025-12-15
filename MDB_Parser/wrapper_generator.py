@@ -76,6 +76,9 @@ GENERIC_TYPE_REGISTRY: Dict[str, List[str]] = {}
 # This excludes empty classes that pass visibility checks but have no content
 GENERATED_TYPES: Set[Tuple[str, str]] = set()
 
+# Set of type names that are sealed - cannot be inherited from
+SEALED_TYPES: Set[str] = set()
+
 
 # ---------- Skip Lists (Global Constants) ----------
 
@@ -141,6 +144,7 @@ class TypeDef:
     name: str
     base_type: Optional[str]
     visibility: str
+    is_sealed: bool = False  # Track sealed types to prevent inheritance from them
     properties: List[PropertyDef] = field(default_factory=list)
     methods: List[MethodDef] = field(default_factory=list)
     fields: List['FieldDef'] = field(default_factory=list)
@@ -153,7 +157,7 @@ NS_RE = re.compile(r'^//\s*Namespace:\s*(.*)$')
 
 CLASS_HEADER_RE = re.compile(
     r'^(public|internal|private)\s+'
-    r'(?:sealed\s+|abstract\s+|static\s+)*'
+    r'((?:sealed\s+|abstract\s+|static\s+)*)'
     r'(class|interface|enum|struct)\s+'
     r'(\S+)'                         
     r'(?:\s*:\s*(\S+))?'             
@@ -253,9 +257,11 @@ def _parse_type(lines, start_index, dll, ns, header_match):
     """Parse a single type definition. [STEP 2.1: Called per type in dump]"""
     _track_call("_parse_type")
     visibility = header_match.group(1)
-    kind = header_match.group(2)
-    name = header_match.group(3)
-    base_type = header_match.group(4) if header_match.group(4) else None
+    modifiers = header_match.group(2) or ""  # sealed/abstract/static modifiers
+    kind = header_match.group(3)
+    name = header_match.group(4)
+    base_type = header_match.group(5) if header_match.group(5) else None
+    is_sealed = "sealed" in modifiers
 
     type_def = TypeDef(
         dll=dll,
@@ -264,6 +270,7 @@ def _parse_type(lines, start_index, dll, ns, header_match):
         name=name,
         base_type=base_type,
         visibility=visibility,
+        is_sealed=is_sealed,
     )
 
     i = start_index
@@ -434,25 +441,45 @@ def build_type_registry(types: List[TypeDef]) -> None:
     """Build a global registry of type names -> namespaces. [STEP 3: Build lookup tables]"""
     _track_call("build_type_registry")
     _debug(f"STEP 3: Building type registry from {len(types)} types")
-    global TYPE_REGISTRY, GENERIC_TYPE_REGISTRY, GENERATED_TYPES
+    global TYPE_REGISTRY, GENERIC_TYPE_REGISTRY, GENERATED_TYPES, SEALED_TYPES
     TYPE_REGISTRY.clear()
     GENERIC_TYPE_REGISTRY.clear()
     GENERATED_TYPES.clear()
+    SEALED_TYPES.clear()
+    
+    # First pass: identify all sealed types
+    for t in types:
+        if t.is_sealed and t.name:
+            SEALED_TYPES.add(t.name)
     
     for t in types:
         if not t.name or t.visibility != "public": continue
         if is_unicode_name(t.name.split("`")[0].split("<")[0]): continue
         ns = t.namespace or "Global"
         
+        # DEBUG: Track MaterialReference specifically
+        debug_type = t.name == "MaterialReference" and ns == "TMPro"
+        if debug_type:
+            print(f"[DEBUG MaterialReference] Found: name={t.name}, ns={ns}, kind={t.kind}")
+            print(f"[DEBUG MaterialReference] visibility={t.visibility}, base_type={t.base_type}")
+            print(f"[DEBUG MaterialReference] methods={len(t.methods)}, properties={len(t.properties)}, fields={len(t.fields)}")
+        
         # Check if this type will actually be generated (has content or is enum)
         has_content = False
         if t.name in SKIP_TYPES or t.base_type == "MulticastDelegate":
             has_content = False
+            if debug_type: print(f"[DEBUG MaterialReference] Skipped: in SKIP_TYPES or MulticastDelegate")
+        # Skip types that inherit from sealed types (CS0509 error)
+        elif t.base_type and t.base_type.rstrip(",").strip() in SEALED_TYPES:
+            has_content = False
+            if debug_type: print(f"[DEBUG MaterialReference] Skipped: base_type in SEALED_TYPES")
         elif t.kind == "enum":
             has_content = bool(t.fields) and t.name not in SKIP_NESTED_ENUM_NAMES
+            if debug_type: print(f"[DEBUG MaterialReference] Enum check: has_content={has_content}")
         elif t.methods or t.properties or t.fields:
             clean_base = t.base_type.rstrip(",").strip() if t.base_type else None
             has_content = not (clean_base and clean_base in SKIP_BASE_TYPES)
+            if debug_type: print(f"[DEBUG MaterialReference] Content check: clean_base={clean_base}, has_content={has_content}")
         
         if has_content:
             GENERATED_TYPES.add((t.name, ns))
@@ -609,16 +636,10 @@ TYPE_MAP = {
 }
 
 # Types to skip (cause conflicts or have unresolvable dependencies)
-SKIP_TYPES = {
-    "Enumerator", "ConfiguredTaskAwaiter", "ControlBuilder", "Record", "Style", "UxmlFactory",
-    "UxmlTraits", "Recursion", "unitytls_tlsctx_read_callback", "unitytls_tlsctx_write_callback",
-    "unitytls_x509verify_callback", "unitytls_tlsctx_certificate_callback", "CaptureResultType",
-    "MaterialReference", "Match", "OpenVR", "UnitySynchronizationContext", "Pointer", "SDKTexture",
-    "VisualRecordingIndicators", "Map", "DateTime", "Uri", "Resources", "Hierarchy", "Settings",
-    "Task", "TaskStatus",
-    # Types that inherit from sealed types (CS0509 errors)
-    "LookAtBone", "TrigonometricBone",
-}
+# Note: Types inheriting from sealed types are now auto-detected via SEALED_TYPES registry
+# SKIP_TYPES is now empty - the generator handles all types automatically
+# Previous entries were removed after fixing is_generic_type_param to not match underscore types
+SKIP_TYPES = set()
 
 def get_renamed_class_name(type_name: str, namespace: str) -> Tuple[str, str]:
     # DEBUG STATS: ~9,081 calls - Name resolution for type conflicts
@@ -629,7 +650,14 @@ def get_renamed_class_name(type_name: str, namespace: str) -> Tuple[str, str]:
 # Property names that conflict with C# keywords or System types
 SKIP_PROPERTY_NAMES = {"Type", "Object", "String", "Int32", "Boolean", "Array"}
 
-# Types that need full qualification to avoid ambiguity
+# Types that need full qualification for INHERITANCE (base class disambiguation)
+# Only include types where the base class meaning is unambiguous across all games
+BASE_TYPE_DISAMBIGUATION = {
+    "Object": "UnityEngine.Object",  # Classes inheriting Object always mean Unity's Object
+}
+
+# Types that need full qualification for USAGE (method params, return types, etc.)
+# These should NOT be applied to base types as they may conflict with other libraries
 AMBIGUOUS_TYPES = {
     "EventHandler": "System.EventHandler", "Object": "UnityEngine.Object",
     "Image": "UnityEngine.UI.Image", "Button": "UnityEngine.UI.Button",
@@ -769,6 +797,9 @@ def is_generic_type_param(type_name: str) -> bool:
     base = type_name.rstrip("[]").rstrip("?")
     if base in GENERIC_TYPE_PARAMS or (len(base) == 1 and base.isupper()):
         return True
+    # Generic params never contain underscores (e.g., TMP_FontAsset is a real type, not T)
+    if "_" in base:
+        return False
     return len(base) >= 2 and base[0] == 'T' and base[1].isupper() and base not in KNOWN_T_TYPES
 
 def get_generic_type_params_from_method(method) -> set:
@@ -1021,7 +1052,9 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
         for t in ns_types:
             if t.kind != "struct" or _should_skip_type(t, seen_type_names): continue
             # Check if struct has any fields with generic type params - skip those
-            if any(is_generic_type_param(f.type) for f in t.fields if f.visibility == "public" and not f.is_const): continue
+            pub_fields = [f for f in t.fields if f.visibility == "public" and not f.is_const]
+            generic_fields = [f for f in pub_fields if is_generic_type_param(f.type)]
+            if generic_fields: continue
             result = _add_type_with_rename(t, ns, seen_type_names, body_lines, "struct")
             if not result: continue
             struct_name, _ = result
@@ -1054,9 +1087,10 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
             else:
                 class_name, original_class_name = get_renamed_class_name(t.name, ns)
 
-            # Skip types that derive from special .NET types
+            # Skip types that derive from special .NET types or sealed types
             clean_base = t.base_type.rstrip(",").strip() if t.base_type else None
             if clean_base and clean_base in SKIP_BASE_TYPES: continue
+            if clean_base and clean_base in SEALED_TYPES: continue  # CS0509: cannot inherit from sealed
             if t.name in SKIP_TYPES or class_name in seen_type_names: continue
             seen_type_names.add(class_name)
             type_count += 1
@@ -1079,9 +1113,10 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
                             base_type = None
 
             # Class declaration
-            # Apply AMBIGUOUS_TYPES mapping to base type if needed (e.g., Object -> UnityEngine.Object)
-            if base_type and base_type in AMBIGUOUS_TYPES:
-                base_type = AMBIGUOUS_TYPES[base_type]
+            # Apply BASE_TYPE_DISAMBIGUATION for inheritance (not full AMBIGUOUS_TYPES)
+            # This avoids issues like Bone -> UnityEngine.XR.Bone when FinalIK Bone is intended
+            if base_type and base_type in BASE_TYPE_DISAMBIGUATION:
+                base_type = BASE_TYPE_DISAMBIGUATION[base_type]
             base_part = f" : {base_type}" if base_type else " : Il2CppObject"
             
             # Track if class was renamed due to conflicts
