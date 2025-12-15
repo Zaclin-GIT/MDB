@@ -6,6 +6,24 @@
 
 ---
 
+##Sponsor
+If MDB Framework has helped with your modding projects, consider supporting its development!
+
+<img src="https://img.shields.io/badge/Buy Me A Coffee-%23FFDD00?style=for-the-badge&amp;logo=buymeacoffee&amp;logoColor=black" alt="Buy Me A Coffee">
+
+##Why Sponsor?
+**Fuel development** - More coffee = more features
+**Prioritize features** - Sponsors get input on the roadmap
+**Faster bug fixes** - Support means more time to dedicate
+**Keep it free** - Help maintain MDB as an open-source project
+##Other Ways to Support
+**Star the repo** - It helps others discover MDB
+**Report bugs** - Quality feedback improves the framework
+**Contribute PRs** - Code contributions are always welcome
+**Spread the word** - Share with fellow modders
+
+Every bit of support helps keep this project alive. Thank you! 🙏
+
 ## Why Does This Exist?
 
 **One word: Encrypted metadata.**
