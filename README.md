@@ -6,7 +6,9 @@
 
 ---
 
-<img src="https://img.shields.io/badge/Buy Me A Coffee-%23FFDD00?style=for-the-badge&amp;logo=buymeacoffee&amp;logoColor=black" alt="Buy Me A Coffee">
+<a href="https://buymeacoffee.com/winnforge">
+  <img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-%23FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy Me A Coffee">
+</a>
 
 ## Why Does This Exist?
 
