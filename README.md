@@ -43,6 +43,8 @@ The dumped metadata gets parsed by a Python script into clean C# wrapper classes
 - [Deep Dive: The Runtime System](#deep-dive-the-runtime-system)
 - [Type Marshaling](#type-marshaling)
 - [Creating a Mod](#creating-a-mod)
+- [Method Hooking (Harmony-Style)](#method-hooking-harmony-style)
+- [ImGui Integration](#imgui-integration)
 - [API Reference](#api-reference)
 - [Building](#building)
 - [Troubleshooting](#troubleshooting)
@@ -90,21 +92,31 @@ MDB Framework doesn't care about encryption:
 │  │  │ GameAssembly   │  │  P/Invoke  │ GameSDK.ModHost.dll         │ │  │
 │  │  │ .dll (native)  │◄─┼─────────┼──┼─►                           │ │  │
 │  │  └────────────────┘  │         │  │  ┌───────────────────────┐  │ │  │
-│  │                      │         │  │  │ Generated Wrappers    │  │ │  │
-│  │  ┌────────────────┐  │         │  │  │ (GameObject, etc.)    │  │ │  │
-│  │  │ global-        │  │         │  │  └───────────────────────┘  │ │  │
-│  │  │ metadata.dat   │  │         │  │                             │ │  │
-│  │  └────────────────┘  │         │  │  ┌───────────────────────┐  │ │  │
-│  │                      │         │  │  │ Your Mod DLLs         │  │ │  │
-│  └──────────────────────┘         │  │  │ (ExampleMod.dll)      │  │ │  │
-│                                   │  │  └───────────────────────┘  │ │  │
-│  ┌──────────────────────┐         │  └─────────────────────────────┘ │  │
-│  │   MDB_Bridge.dll     │◄────────┤                                  │  │
-│  │   (Native C++)       │         │  Il2CppBridge P/Invoke calls     │  │
-│  │                      │─────────┤                                  │  │
-│  │  - CLR Host          │         └──────────────────────────────────┘  │
-│  │  - IL2CPP Interop    │                                               │
-│  └──────────────────────┘                                               │
+│  │         ▲            │         │  │  │ Generated Wrappers    │  │ │  │
+│  │  ┌──────┴─────────┐  │         │  │  │ (GameObject, etc.)    │  │ │  │
+│  │  │   MinHook      │  │         │  │  └───────────────────────┘  │ │  │
+│  │  │  (Hooking)     │  │         │  │  ┌───────────────────────┐  │ │  │
+│  │  └────────────────┘  │         │  │  │ PatchProcessor        │  │ │  │
+│  │                      │         │  │  │ (Harmony-style)       │  │ │  │
+│  │  ┌────────────────┐  │         │  │  └───────────────────────┘  │ │  │
+│  │  │ global-        │  │         │  │  ┌───────────────────────┐  │ │  │
+│  │  │ metadata.dat   │  │         │  │  │ Your Mod DLLs         │  │ │  │
+│  │  └────────────────┘  │         │  │  │ (ExampleMod.dll)      │  │ │  │
+│  │                      │         │  │  └───────────────────────┘  │ │  │
+│  └──────────────────────┘         │  └─────────────────────────────┘ │  │
+│                                   │                                  │  │
+│  ┌──────────────────────┐         │                                  │  │
+│  │   MDB_Bridge.dll     │◄────────┤  Il2CppBridge P/Invoke calls     │  │
+│  │   (Native C++)       │─────────┤                                  │  │
+│  │                      │         └──────────────────────────────────┘  │
+│  │  - CLR Host          │                                               │
+│  │  - IL2CPP Interop    │         ┌──────────────────────────────────┐  │
+│  │  - MinHook Manager   │         │        DirectX Overlay           │  │
+│  │  - ImGui Integration │────────►│  ┌────────────────────────────┐  │  │
+│  │                      │         │  │  Dear ImGui Rendering      │  │  │
+│  └──────────────────────┘         │  │  (DX11/DX12 auto-detect)   │  │  │
+│                                   │  └────────────────────────────┘  │  │
+│                                   └──────────────────────────────────┘  │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -116,8 +128,10 @@ MDB Framework doesn't care about encryption:
 3. **CLR initialized** → .NET Framework 4.0 runtime started inside game
 4. **ModHost loaded** → `GameSDK.ModHost.dll` loaded into CLR
 5. **Mods discovered** → `ModManager` scans `MDB/Mods/` folder
-6. **Mods initialized** → Each mod's `OnLoad()` called
-7. **Game loop** → `OnUpdate()`, `OnFixedUpdate()`, `OnLateUpdate()` called
+6. **Patches applied** → `PatchProcessor` discovers and installs method hooks
+7. **ImGui initialized** → DirectX Present hook installed for overlay rendering
+8. **Mods initialized** → Each mod's `OnLoad()` called
+9. **Game loop** → `OnUpdate()`, `OnFixedUpdate()`, `OnLateUpdate()`, `OnGUI()` called
 
 ---
 
@@ -320,12 +334,14 @@ dump.cs → Parse Types → Filter Invalid → Resolve Dependencies → Generate
 
 **Output structure:**
 ```
-MDB_Parser/@Dump/
+<GameFolder>/MDB/Dump/MDB_Core/Generated/
 ├── GameSDK.UnityEngine.cs           # UnityEngine namespace
 ├── GameSDK.UnityEngine_UI.cs        # UnityEngine.UI namespace
 ├── GameSDK.Global.cs                # Global namespace (no namespace)
 ├── GameSDK.TMPro.cs                 # TextMeshPro
-└── ... (usually 200-ish files total)
+├── GameSDK.Photon_Pun.cs            # Game-specific (Photon networking)
+├── GameSDK.Steamworks.cs            # Game-specific (Steam integration)
+└── ... (varies by game, 100-300+ files typical)
 ```
 
 ---
@@ -338,6 +354,8 @@ Native C++ DLL that acts as the bridge between IL2CPP and the .NET CLR.
 1. Host a .NET CLR inside the game process
 2. Provide P/Invoke exports for IL2CPP operations
 3. Load and initialize the mod system
+4. Manage native method hooks via MinHook
+5. Provide Dear ImGui overlay rendering
 
 **Key Files:**
 
@@ -345,6 +363,9 @@ Native C++ DLL that acts as the bridge between IL2CPP and the .NET CLR.
 - `bridge_exports.cpp` - P/Invoke function implementations
 - `bridge_exports.h` - Function declarations
 - `il2cpp_resolver.hpp` - IL2CPP API function resolution
+- `imgui_integration.cpp` - Dear ImGui DirectX hooks
+- `imgui_integration.h` - ImGui P/Invoke exports
+- `minhook/` - MinHook library for native hooking
 
 **CLR Hosting:**
 
@@ -473,6 +494,62 @@ auto il2cpp_runtime_invoke = il2cpp::resolve<Il2CppObject*(*)(
     const MethodInfo*, void*, void**, Il2CppException**)>("il2cpp_runtime_invoke");
 ```
 
+**Hook Exports (MinHook):**
+
+Native method hooking is handled through MinHook:
+
+```cpp
+// Create a hook on a method pointer
+extern "C" __declspec(dllexport)
+long mdb_create_hook(void* target, void* detour, void** original);
+
+// Create a hook by RVA offset
+extern "C" __declspec(dllexport)
+long mdb_create_hook_rva(uint64_t rva, void* detour, void** original);
+
+// Create a hook on a raw pointer
+extern "C" __declspec(dllexport)
+long mdb_create_hook_ptr(void* target, void* detour, void** original);
+
+// Enable/disable a hook
+extern "C" __declspec(dllexport)
+int mdb_set_hook_enabled(long handle, bool enabled);
+
+// Remove a hook
+extern "C" __declspec(dllexport)
+int mdb_remove_hook(long handle);
+```
+
+**ImGui Exports:**
+
+DirectX overlay rendering via Dear ImGui:
+
+```cpp
+// Get detected DirectX version (11 or 12)
+extern "C" __declspec(dllexport)
+MdbDxVersion mdb_imgui_get_dx_version();
+
+// Initialize ImGui with auto-detected DirectX
+extern "C" __declspec(dllexport)
+bool mdb_imgui_init();
+
+// Shutdown ImGui
+extern "C" __declspec(dllexport)
+void mdb_imgui_shutdown();
+
+// Register a draw callback (called each frame)
+extern "C" __declspec(dllexport)
+void mdb_imgui_register_draw_callback(MdbImGuiDrawCallback callback);
+
+// Toggle input capture
+extern "C" __declspec(dllexport)
+void mdb_imgui_set_input_enabled(bool enabled);
+
+// Set toggle key (default: F2)
+extern "C" __declspec(dllexport)
+void mdb_imgui_set_toggle_key(int vkCode);
+```
+
 ---
 
 ### MDB_Core
@@ -490,12 +567,16 @@ MDB_Core/
 │   ├── UnityEngineBase.cs     # Unity-specific base classes
 │   └── UnityValueTypes.cs     # Vector3, Quaternion, Color, etc.
 ├── Generated/
-│   └── GameSDK.*.cs           # 173 generated wrapper files
+│   └── GameSDK.*.cs           # Generated wrapper files
 ├── ModHost/
 │   ├── ModAttribute.cs        # [Mod] attribute
 │   ├── ModBase.cs             # Base class for mods
 │   ├── ModLogger.cs           # Logging system
-│   └── ModManager.cs          # Mod discovery and lifecycle
+│   ├── ModManager.cs          # Mod discovery and lifecycle
+│   └── Patching/              # Hooking system
+│       ├── HookManager.cs     # Low-level hook API
+│       ├── PatchAttribute.cs  # [Patch], [Prefix], [Postfix] attributes
+│       └── PatchProcessor.cs  # Auto-discovery and application
 ├── MDB_Core.csproj            # .NET 8.0 (development)
 └── GameSDK.ModHost.csproj     # .NET Framework 4.7.2 (runtime)
 ```
@@ -647,14 +728,24 @@ public static class Il2CppRuntime
 
 ### Method Invocation Flow
 
-When you call a wrapper method like `gameObject.get_name()`:
+When you access a wrapper property like `player.transform`:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│ C# Wrapper Code                                                     │
-│ public string get_name()                                            │
+│ Your Mod Code                                                       │
+│                                                                     │
+│ var player = GameObject.Find("Player");                             │
+│ Transform t = player.transform;   // ← This triggers the flow       │
+└───────────────────────────────┬─────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ Generated Wrapper Property (GameSDK.UnityEngine.cs)                 │
+│                                                                     │
+│ public Transform transform                                          │
 │ {                                                                   │
-│     return Il2CppRuntime.Call<string>(this, "get_name", ...);       │
+│     get => Il2CppRuntime.Call<Transform>(this, "get_transform",     │
+│                                          Type.EmptyTypes);          │
 │ }                                                                   │
 └───────────────────────────────┬─────────────────────────────────────┘
                                 │
@@ -663,8 +754,8 @@ When you call a wrapper method like `gameObject.get_name()`:
 │ Il2CppRuntime.Call<T>                                               │
 │ 1. Validate instance.NativePtr != IntPtr.Zero                       │
 │ 2. Get Il2CppClass* from instance header                            │
-│ 3. Call mdb_get_method(klass, "get_name", 0)                        │
-│ 4. Marshal arguments (none in this case)                            │
+│ 3. Call mdb_get_method(klass, "get_transform", 0)                   │
+│ 4. Marshal arguments (none for getter)                              │
 │ 5. Call mdb_invoke_method(method, instance, args)                   │
 └───────────────────────────────┬─────────────────────────────────────┘
                                 │ P/Invoke
@@ -692,11 +783,11 @@ When you call a wrapper method like `gameObject.get_name()`:
                                 │
                                 ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│ Native Compiled Method (from original C# code)                      │
+│ Native Compiled Method (from original Unity C#)                     │
 │                                                                     │
-│ // Original C#: public string name { get { return m_Name; } }       │
+│ // Original: public Transform transform { get; }                    │
 │ // Compiled to native x64 assembly                                  │
-│ mov rax, [rcx+0x18]  ; Load m_Name field                            │
+│ mov rax, [rcx+0x10]  ; Load m_CachedTransform field                 │
 │ ret                                                                 │
 └───────────────────────────────┬─────────────────────────────────────┘
                                 │
@@ -704,11 +795,41 @@ When you call a wrapper method like `gameObject.get_name()`:
 ┌─────────────────────────────────────────────────────────────────────┐
 │ Return Path                                                         │
 │                                                                     │
-│ IL2CPP returns Il2CppString* → MDB_Bridge returns void*             │
+│ IL2CPP returns Transform* → MDB_Bridge returns void*                │
 │ → Il2CppRuntime receives IntPtr → Il2CppMarshaler.MarshalReturn<T>  │
-│ → Detects string type → Reads UTF-16 chars from Il2CppString        │
-│ → Returns managed System.String                                     │
+│ → Detects wrapper type → Creates new Transform(nativePtr)           │
+│ → Returns managed Transform wrapper object                          │
 └─────────────────────────────────────────────────────────────────────┘
+```
+
+### Example: Calling a Method with Arguments
+
+```csharp
+// Your mod code
+player.SetActive(false);
+```
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│ Generated Wrapper Method                                            │
+│                                                                     │
+│ public void SetActive(bool value)                                   │
+│ {                                                                   │
+│     Il2CppRuntime.InvokeVoid(this, "SetActive",                     │
+│                              new[] { typeof(bool) }, value);        │
+│ }                                                                   │
+└───────────────────────────────┬─────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│ Argument Marshaling                                                 │
+│                                                                     │
+│ bool value = false → boxed to IL2CPP bool (1 byte, value 0)         │
+│ Stored in IntPtr[] args array                                       │
+└───────────────────────────────┬─────────────────────────────────────┘
+                                │
+                                ▼
+                     (continues through bridge to native...)
 ```
 
 ---
@@ -973,6 +1094,517 @@ transform.position = new Vector3(0, 10, 0);
 
 ---
 
+## Method Hooking (Harmony-Style)
+
+MDB Framework includes a powerful method hooking system inspired by Harmony/HarmonyX. You can intercept game methods, modify their behavior, or completely replace them.
+
+### Quick Start
+
+```csharp
+using System;
+using GameSDK;
+using GameSDK.ModHost;
+using GameSDK.ModHost.Patching;
+
+namespace MyHookMod
+{
+    [Mod("My Hook Mod", "1.0.0", "YourName")]
+    public class MyHookMod : ModBase
+    {
+        public override void OnLoad()
+        {
+            Logger.Info("Hook mod loaded! Patches are applied automatically.");
+        }
+    }
+
+    // Patches are discovered and applied automatically when your mod loads
+    [Patch("", "Player")]              // Target: global namespace, class "Player"
+    [PatchMethod("Update", 0)]         // Target method "Update" with 0 parameters
+    public static class PlayerUpdatePatch
+    {
+        [Prefix]
+        public static bool Prefix(IntPtr __instance)
+        {
+            // Runs BEFORE Player.Update()
+            // Return true to continue to original method
+            // Return false to skip original method
+            return true;
+        }
+
+        [Postfix]
+        public static void Postfix(IntPtr __instance)
+        {
+            // Runs AFTER Player.Update()
+        }
+    }
+}
+```
+
+### Patch Attributes
+
+#### `[Patch]` - Target Class
+
+```csharp
+// Option 1: By namespace and class name (for IL2CPP lookup)
+[Patch("UnityEngine", "GameObject")]
+
+// Option 2: Using generated wrapper type (if available)
+[Patch(typeof(Player))]
+
+// Option 3: Empty namespace for global types
+[Patch("", "GameManager")]
+```
+
+#### `[PatchMethod]` - Target Method
+
+```csharp
+// Specify method name and parameter count
+[PatchMethod("TakeDamage", 1)]      // TakeDamage with 1 parameter
+
+// Or just the name (parameter count inferred from patch method)
+[PatchMethod("Update")]
+```
+
+#### `[PatchRva]` - Target by RVA (for obfuscated methods)
+
+```csharp
+[PatchRva(0x1A3B5C0)]  // Target method by its RVA offset
+```
+
+### Patch Types
+
+#### `[Prefix]` - Runs Before Original
+
+```csharp
+[Prefix]
+public static bool Prefix(IntPtr __instance, int __0, ref float __1)
+{
+    // __instance = the object instance (IntPtr.Zero for static methods)
+    // __0 = first parameter (by index)
+    // __1 = second parameter (ref to modify before calling original)
+    
+    // Return true = continue to original method
+    // Return false = skip original method entirely
+    return true;
+}
+```
+
+#### `[Postfix]` - Runs After Original
+
+```csharp
+[Postfix]
+public static void Postfix(IntPtr __instance, int __0, ref IntPtr __result)
+{
+    // __result = the return value (ref to modify)
+    
+    // Modify return value example:
+    // __result = Il2CppBridge.mdb_new_string("Modified!");
+}
+```
+
+#### `[Finalizer]` - Runs Even on Exception
+
+```csharp
+[Finalizer]
+public static Exception Finalizer(Exception __exception)
+{
+    if (__exception != null)
+    {
+        Log.Error($"Method threw: {__exception.Message}");
+        return null;  // Swallow exception
+    }
+    return __exception;  // Re-throw original
+}
+```
+
+### Low-Level Hook API
+
+For more control, use `HookManager` directly:
+
+```csharp
+using GameSDK.ModHost.Patching;
+
+public override void OnLoad()
+{
+    // Find the method to hook
+    IntPtr klass = Il2CppBridge.mdb_find_class("", "", "Player");
+    IntPtr method = Il2CppBridge.mdb_get_method(klass, "Update", 0);
+    
+    // Create hook with callback
+    HookInfo hook = HookManager.CreateHook(method, MyDetour, out IntPtr original, "Player.Update");
+    
+    // Store original for calling
+    _originalUpdate = original;
+}
+
+private static IntPtr _originalUpdate;
+
+private static IntPtr MyDetour(IntPtr instance, IntPtr args, IntPtr original)
+{
+    // Custom logic before
+    Log.Info("Before Update");
+    
+    // Call original method
+    IntPtr result = CallOriginal(_originalUpdate, instance);
+    
+    // Custom logic after
+    Log.Info("After Update");
+    
+    return result;
+}
+```
+
+### Hook by RVA
+
+For obfuscated methods with Unicode names:
+
+```csharp
+// Hook by RVA offset (found in dump.cs)
+HookInfo hook = HookManager.CreateHookByRva(0x1A3B5C0UL, MyDetour, out IntPtr original, "ObfuscatedMethod");
+```
+
+---
+
+## ImGui Integration
+
+MDB Framework includes built-in Dear ImGui support for creating in-game overlay UIs. ImGui is rendered on top of the game using DirectX hooks. I mostly implemented this for the Walmart UnityExplorer I created.
+
+### Quick Start
+
+```csharp
+using System;
+using System.Numerics;
+using MDB.Explorer.ImGui;
+using GameSDK.ModHost;
+
+namespace MyImGuiMod
+{
+    [Mod("ImGui Demo", "1.0.0", "YourName")]
+    public class ImGuiDemoMod : ModBase
+    {
+        private ImGuiController _imgui;
+        private bool _showWindow = true;
+        private string _playerName = "Player1";
+        private float _speed = 1.0f;
+        private bool _godMode = false;
+
+        public override void OnLoad()
+        {
+            Logger.Info("ImGui Demo loading...");
+            
+            // Initialize ImGui controller
+            _imgui = new ImGuiController();
+            _imgui.OnDraw = DrawUI;
+            
+            if (_imgui.Initialize())
+            {
+                Logger.Info($"ImGui initialized! DirectX: {_imgui.DirectXVersion}");
+                Logger.Info("Press F2 to toggle input capture");
+            }
+            else
+            {
+                Logger.Error("Failed to initialize ImGui");
+            }
+        }
+
+        private void DrawUI()
+        {
+            // Create a window
+            if (ImGui.Begin("My Mod Menu", ref _showWindow, ImGuiWindowFlags.None))
+            {
+                ImGui.Text("Welcome to my mod!");
+                ImGui.Separator();
+                
+                // Text input
+                ImGui.InputText("Player Name", ref _playerName, 64);
+                
+                // Slider
+                ImGui.SliderFloat("Speed", ref _speed, 0.1f, 10.0f);
+                
+                // Checkbox
+                ImGui.Checkbox("God Mode", ref _godMode);
+                
+                // Button
+                if (ImGui.Button("Apply Settings"))
+                {
+                    Logger.Info($"Settings applied: {_playerName}, Speed={_speed}, GodMode={_godMode}");
+                }
+                
+                ImGui.Separator();
+                ImGui.TextDisabled("Press F2 to toggle mouse capture");
+            }
+            ImGui.End();
+        }
+    }
+}
+```
+
+### ImGui API
+
+The framework exposes a comprehensive ImGui API through P/Invoke bindings:
+
+#### Windows
+
+```csharp
+// Basic window
+if (ImGui.Begin("Window Title"))
+{
+    // Window content
+}
+ImGui.End();
+
+// Window with close button
+bool open = true;
+if (ImGui.Begin("Closeable Window", ref open))
+{
+    // Content
+}
+ImGui.End();
+
+// Child regions (scrollable areas)
+if (ImGui.BeginChild("ScrollArea", new Vector2(0, 200)))
+{
+    // Scrollable content
+}
+ImGui.EndChild();
+```
+
+#### Text
+
+```csharp
+ImGui.Text("Normal text");
+ImGui.TextDisabled("Grayed out text");
+ImGui.TextWrapped("This text will wrap to multiple lines if needed.");
+ImGui.TextColored(new Vector4(1, 0, 0, 1), "Red text");
+```
+
+#### Buttons & Inputs
+
+```csharp
+// Buttons
+if (ImGui.Button("Click Me")) { /* clicked */ }
+if (ImGui.SmallButton("Small")) { /* clicked */ }
+
+// Checkbox
+bool enabled = false;
+ImGui.Checkbox("Enable Feature", ref enabled);
+
+// Text input
+string text = "";
+ImGui.InputText("Label", ref text, 256);
+ImGui.InputTextWithHint("Search", "Type here...", ref text, 256);
+
+// Sliders
+float value = 0.5f;
+ImGui.SliderFloat("Volume", ref value, 0.0f, 1.0f);
+
+int intValue = 50;
+ImGui.SliderInt("Level", ref intValue, 1, 100);
+```
+
+#### Trees & Collapsing Headers
+
+```csharp
+// Collapsing header
+if (ImGui.CollapsingHeader("Advanced Options"))
+{
+    ImGui.Text("Hidden content");
+}
+
+// Tree nodes
+if (ImGui.TreeNode("Parent"))
+{
+    ImGui.Text("Child content");
+    
+    if (ImGui.TreeNode("Nested"))
+    {
+        ImGui.Text("Deeply nested");
+        ImGui.TreePop();
+    }
+    
+    ImGui.TreePop();
+}
+
+// Tree with flags
+if (ImGui.TreeNodeEx("Selectable", ImGuiTreeNodeFlags.Selected | ImGuiTreeNodeFlags.OpenOnArrow))
+{
+    ImGui.Text("Selected node");
+    ImGui.TreePop();
+}
+```
+
+#### Layout
+
+```csharp
+ImGui.Separator();              // Horizontal line
+ImGui.SameLine();               // Next widget on same line
+ImGui.Indent();                 // Increase indentation
+ImGui.Unindent();               // Decrease indentation
+ImGui.SetNextItemWidth(200);    // Set next widget width
+```
+
+#### Menus
+
+```csharp
+if (ImGui.BeginMainMenuBar())
+{
+    if (ImGui.BeginMenu("File"))
+    {
+        if (ImGui.MenuItem("New")) { /* new */ }
+        if (ImGui.MenuItem("Open", "Ctrl+O")) { /* open */ }
+        ImGui.Separator();
+        if (ImGui.MenuItem("Exit")) { /* exit */ }
+        ImGui.EndMenu();
+    }
+    
+    if (ImGui.BeginMenu("Edit"))
+    {
+        if (ImGui.MenuItem("Undo", "Ctrl+Z")) { }
+        if (ImGui.MenuItem("Redo", "Ctrl+Y")) { }
+        ImGui.EndMenu();
+    }
+    
+    ImGui.EndMainMenuBar();
+}
+```
+
+#### Styling
+
+```csharp
+// Push/pop colors
+ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(1, 0, 0, 1));
+ImGui.Button("Red Button");
+ImGui.PopStyleColor();
+
+// Multiple style changes
+ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1, 1, 0, 1));
+ImGui.PushStyleColor(ImGuiCol.WindowBg, new Vector4(0.1f, 0.1f, 0.1f, 0.9f));
+// ... draw content ...
+ImGui.PopStyleColor(2);  // Pop 2 colors
+```
+
+### Input Control
+
+ImGui input capture can be toggled with F2 (default):
+
+```csharp
+// Check if ImGui is capturing input
+if (_imgui.IsInputEnabled)
+{
+    // Mouse/keyboard goes to ImGui
+}
+
+// Manually enable/disable
+_imgui.IsInputEnabled = true;
+
+// Change toggle key (uses Windows VK codes)
+_imgui.SetToggleKey(0x71);  // F2 = 0x71
+```
+
+### DirectX Version Detection
+
+The framework auto-detects DirectX 11 or 12:
+
+```csharp
+var version = _imgui.DirectXVersion;  // DX11 or DX12
+Logger.Info($"Game uses DirectX {version}");
+```
+
+### Complete Example: Scene Explorer
+
+```csharp
+[Mod("Scene Explorer", "1.0.0", "MDB")]
+public class SceneExplorer : ModBase
+{
+    private ImGuiController _imgui;
+    private List<string> _gameObjects = new List<string>();
+    private string _searchFilter = "";
+    private int _selectedIndex = -1;
+
+    public override void OnLoad()
+    {
+        _imgui = new ImGuiController();
+        _imgui.OnDraw = DrawExplorer;
+        _imgui.Initialize();
+        
+        RefreshGameObjects();
+    }
+
+    private void RefreshGameObjects()
+    {
+        _gameObjects.Clear();
+        // Use wrapper to get all GameObjects
+        var allObjects = UnityEngine.Object.FindObjectsByType(
+            typeof(UnityEngine.GameObject), 
+            FindObjectsSortMode.None);
+        
+        foreach (var obj in allObjects)
+        {
+            _gameObjects.Add(obj.get_name());
+        }
+    }
+
+    private void DrawExplorer()
+    {
+        ImGui.SetNextWindowSize(new Vector2(400, 600), ImGuiCond.FirstUseEver);
+        
+        if (ImGui.Begin("Scene Explorer"))
+        {
+            // Search bar
+            ImGui.InputTextWithHint("##search", "Filter...", ref _searchFilter, 256);
+            ImGui.SameLine();
+            if (ImGui.Button("Refresh"))
+            {
+                RefreshGameObjects();
+            }
+            
+            ImGui.Separator();
+            
+            // Object list
+            if (ImGui.BeginChild("ObjectList"))
+            {
+                for (int i = 0; i < _gameObjects.Count; i++)
+                {
+                    string name = _gameObjects[i];
+                    
+                    // Filter
+                    if (!string.IsNullOrEmpty(_searchFilter) && 
+                        !name.ToLower().Contains(_searchFilter.ToLower()))
+                        continue;
+                    
+                    bool selected = (i == _selectedIndex);
+                    if (ImGui.Selectable(name, selected))
+                    {
+                        _selectedIndex = i;
+                        Logger.Info($"Selected: {name}");
+                    }
+                }
+            }
+            ImGui.EndChild();
+        }
+        ImGui.End();
+    }
+}
+```
+
+### Cleanup
+
+Always dispose the controller when your mod unloads:
+
+```csharp
+public class MyMod : ModBase, IDisposable
+{
+    private ImGuiController _imgui;
+    
+    public void Dispose()
+    {
+        _imgui?.Dispose();
+    }
+}
+```
+
+---
+
 ## API Reference
 
 ### ModBase
@@ -993,6 +1625,7 @@ public abstract class ModBase
     public virtual void OnUpdate() { }      // Called every frame
     public virtual void OnFixedUpdate() { } // Called on physics tick
     public virtual void OnLateUpdate() { }  // Called after all Updates
+    public virtual void OnGUI() { }         // Called during Unity's GUI phase (for IMGUI)
 }
 ```
 
@@ -1043,6 +1676,76 @@ Color32 blue = new Color32(0, 0, 255, 255);
 
 // These are defined in UnityValueTypes.cs as structs
 // They marshal directly to IL2CPP (same memory layout)
+```
+
+### HookManager
+
+```csharp
+using GameSDK.ModHost.Patching;
+
+// Create a hook on an IL2CPP method
+HookInfo hook = HookManager.CreateHook(methodPtr, detourDelegate, out IntPtr original, "Description");
+
+// Create a hook by RVA (for obfuscated methods)
+HookInfo hook = HookManager.CreateHookByRva(0x1A3B5C0UL, detourDelegate, out IntPtr original, "Description");
+
+// Create a hook on a raw pointer
+HookInfo hook = HookManager.CreateHookByPtr(targetPtr, detourDelegate, out IntPtr original, "Description");
+
+// Enable/disable a hook
+HookManager.SetHookEnabled(hook.Handle, false);  // Disable
+HookManager.SetHookEnabled(hook.Handle, true);   // Re-enable
+
+// Remove a hook
+HookManager.RemoveHook(hook);
+HookManager.RemoveAllHooks();
+
+// Get all active hooks
+IEnumerable<HookInfo> allHooks = HookManager.GetAllHooks();
+```
+
+### Patch Attributes
+
+```csharp
+// Target a class for patching
+[Patch("Namespace", "ClassName")]           // By namespace and name
+[Patch(typeof(GeneratedWrapper))]           // By wrapper type
+
+// Specify target method
+[PatchMethod("MethodName")]                 // By name
+[PatchMethod("MethodName", 2)]              // By name and parameter count
+
+// Target obfuscated method by RVA
+[PatchRva(0x1A3B5C0)]
+
+// Patch method types
+[Prefix]        // Runs before original
+[Postfix]       // Runs after original  
+[Finalizer]     // Runs even on exception
+```
+
+### ImGuiController
+
+```csharp
+using MDB.Explorer.ImGui;
+
+// Create and initialize
+var imgui = new ImGuiController();
+imgui.OnDraw = () => { /* draw ImGui content */ };
+bool success = imgui.Initialize();
+
+// Properties
+bool ready = imgui.IsInitialized;
+bool capturing = imgui.IsInputEnabled;
+DxVersion dx = imgui.DirectXVersion;  // DX11 or DX12
+
+// Control input capture
+imgui.IsInputEnabled = true;
+imgui.SetToggleKey(0x71);  // VK_F2
+
+// Cleanup
+imgui.Shutdown();
+imgui.Dispose();
 ```
 
 ---
@@ -1098,25 +1801,46 @@ msbuild "MDB_Bridge\MDB_Bridge.vcxproj" /p:Configuration=Release /p:Platform=x64
 
 ```
 <GameFolder>/
-├── GameAssembly.dll             # Original game
-├── version.dll                  # MDB_Bridge.dll renamed (proxy injection)
+├── GameAssembly.dll                # Original game
+├── version.dll                     # MDB_Bridge.dll renamed (proxy injection)
 └── MDB/
+    ├── MDB_Bridge.dll              # Native bridge (copy, not renamed)
+    ├── Development/                # Mod development template
+    │   ├── ExampleMod.cs           # Example mod source
+    │   └── ExampleMod.csproj       # Project file referencing GameSDK.ModHost.dll
     ├── Dump/
-    │   ├── dump.cs              # IL2CPP metadata dump
-    │   ├── wrapper_generator.py # Parser script
-    │   ├── build.bat            # Build trigger
-    │   └── MDB_Core/            # C# SDK sources
+    │   ├── dump.cs                 # IL2CPP metadata dump
+    │   ├── wrapper_generator.py    # Parser script
+    │   ├── build.bat               # Build trigger (called automatically)
+    │   ├── Il2CppRuntimeDumper.dll # Dumper DLL
+    │   ├── @Logs/                  # Parser logs
+    │   └── MDB_Core/               # C# SDK sources
+    │       ├── Core/               # Runtime core files
+    │       ├── Generated/          # Generated wrapper classes (GameSDK.*.cs)
+    │       ├── ModHost/            # Mod system (ModBase, Patching, etc.)
+    │       └── GameSDK.ModHost.csproj
     ├── Managed/
-    │   └── GameSDK.ModHost.dll  # Compiled mod host
+    │   ├── GameSDK.ModHost.dll     # Compiled mod host + wrappers
+    │   └── GameSDK.ModHost.pdb     # Debug symbols
     ├── Mods/
-    │   └── YourMod.dll          # Your mods here
+    │   ├── YourMod.dll             # Your mods here
+    │   └── MDB_Explorer_ImGui.dll  # Built-in scene explorer (optional)
     └── Logs/
-        └── Mods.log             # Runtime logs
+        ├── MDB.log                 # Bridge/runtime logs
+        └── Mods.log                # Mod-specific logs
 ```
 
 ---
 
 ## Troubleshooting
+
+### "SDK Build Failed"
+The parser failed to build `GameSDK.ModHost.dll`. Causes:
+- This is absolutely the most likely cause of issues. It's nearly impossible for the parser to generate perfect code for every game. If the build fails, check the log files in `MDB/Dump/@Logs/` for details and report issues on GitHub. If I own the game, I may be able to fix the parser for it.
+- Missing .NET SDK installation
+- Incorrect .NET Framework version
+- Ambiguous references in Generated Wrapper files
+- Missing types in Generated Wrappers
 
 ### "Instance is null or invalid for method X"
 
@@ -1180,6 +1904,7 @@ Usually a native bridge issue:
 - Wrong architecture (must be x64)
 - IL2CPP API mismatch (game update changed exports)
 - CLR hosting failed
+- Game has anti-cheat protections that block injection
 
 **Fix:** Check Windows Event Viewer for crash details.
 
@@ -1189,18 +1914,23 @@ Usually a native bridge issue:
 
 1. **Game launches** → Loads `GameAssembly.dll` (IL2CPP runtime)
 2. **Injection** → `MDB_Bridge.dll` loads into process (via proxy DLL, injector, etc.)
-3. **CLR Hosting** → Bridge starts .NET Framework 4.0 CLR
-4. **ModHost loads** → `GameSDK.ModHost.dll` loaded into CLR
-5. **ModManager starts** → Scans `MDB/Mods/` for mod DLLs
-6. **Mods instantiated** → Creates instances of classes with `[Mod]` attribute
-7. **OnLoad called** → Each mod's `OnLoad()` executes
-8. **Game loop hooks** → Unity callbacks trigger `OnUpdate()`, etc.
-9. **Wrapper calls** → Mods call wrapper methods (e.g., `GameObject.Find()`)
-10. **P/Invoke** → Wrapper calls `Il2CppBridge` P/Invoke functions
-11. **Native bridge** → `MDB_Bridge.dll` calls IL2CPP runtime functions
-12. **IL2CPP execution** → Native compiled game code executes
-13. **Return marshaling** → Results converted back to managed types
-14. **Mod receives result** → Wrapper returns managed object to mod
+3. **MinHook initialized** → Native hooking library ready
+4. **CLR Hosting** → Bridge starts .NET Framework 4.0 CLR
+5. **ImGui initialized** → DirectX Present hook installed for overlay
+6. **ModHost loads** → `GameSDK.ModHost.dll` loaded into CLR
+7. **ModManager starts** → Scans `MDB/Mods/` for mod DLLs
+8. **Mods instantiated** → Creates instances of classes with `[Mod]` attribute
+9. **Patches applied** → `PatchProcessor` discovers `[Patch]` classes and installs hooks
+10. **OnLoad called** → Each mod's `OnLoad()` executes
+11. **Game loop hooks** → Unity callbacks trigger `OnUpdate()`, `OnGUI()`, etc.
+12. **Hooks execute** → Prefix/Postfix patches intercept game methods
+13. **ImGui renders** → Draw callbacks execute during Present hook
+14. **Wrapper calls** → Mods call wrapper methods (e.g., `GameObject.Find()`)
+15. **P/Invoke** → Wrapper calls `Il2CppBridge` P/Invoke functions
+16. **Native bridge** → `MDB_Bridge.dll` calls IL2CPP runtime functions
+17. **IL2CPP execution** → Native compiled game code executes
+18. **Return marshaling** → Results converted back to managed types
+19. **Mod receives result** → Wrapper returns managed object to mod
 
 ---
 
@@ -1268,14 +1998,6 @@ public class unicode_class_1 : ParentClass
 }
 ```
 
-### Example: Phasmophobia
-
-Phasmophobia uses heavy Unicode obfuscation (Malayalam script). The parser successfully handles:
-- **932 Unicode classes** → `unicode_class_1` through `unicode_class_932`
-- **23,868 Unicode methods** → `unicode_method_1` through `unicode_method_23868`
-- **0 Unicode properties** → None exist in this game
-- **0 Unicode namespaces** → All namespaces are ASCII
-
 ### Bridge Functions
 
 The C++ bridge provides two new exports for RVA-based calling:
@@ -1308,11 +2030,12 @@ uint64_t mdb_get_method_pointer_from_rva(uint64_t rva)
 ## Current Limitations
 
 - **Universal but not perfect** - The parser handles most games automatically, but some edge cases may require adding types to skip lists
-- **No automatic injection** - You need to bring your own DLL injector or use the version.dll proxy method
-- **No GUI** - Everything is logged to files and console
+- **No automatic injection** - You need to bring your own DLL injector or use the version.dll proxy method - Doesnt work for every game. Actually, most games that go through the effort of encrypting the metadata also have anti-cheat the prevents side-loading.
 - **No hot reload** - Restart the game to reload mods
-- **Generic methods are tricky** - IL2CPP erases generics, so `List<Player>` becomes `List<object>`
+- **Generic methods are tricky** - IL2CPP erases generics, so `List<Player>` becomes `List<object>` - Working on improving this.
 - **Some games may detect injection** - Anti-cheat protected games will likely block this
+- **ImGui DirectX only** - OpenGL/Vulkan games not currently supported
+- **x64 only** - 32-bit games not supported
 
 ## Contributing
 
@@ -1326,5 +2049,29 @@ Inspired by the excellent work of:
 - [Il2CppDumper](https://github.com/Perfare/Il2CppDumper)
 - [Il2CppAssemblyUnhollower](https://github.com/knah/Il2CppAssemblyUnhollower)
 - [Il2CppRuntimeDumper](https://github.com/kagasu/Il2CppRuntimeDumper)
+- [Dear ImGui](https://github.com/ocornut/imgui) - Immediate mode GUI library
+- [MinHook](https://github.com/TsudaKageyu/minhook) - Minimalistic x86/x64 API hooking
 
 These projects paved the way. MDB Framework just takes a different route to the same destination.
+
+---
+
+## Disclaimer
+
+**This framework is provided "as-is" for educational and research purposes only.**
+
+The author(s) of MDB Framework are **not responsible** for any consequences resulting from the use or misuse of this software. This includes but is not limited to:
+
+- **Game bans or account suspensions** - Many games prohibit modding in their Terms of Service
+- **Anti-cheat detections** - Using this framework may trigger anti-cheat systems
+- **Data loss or corruption** - Modifying game memory can cause crashes or save corruption
+- **Legal consequences** - Violating a game's EULA may have legal implications
+
+**Before using MDB Framework:**
+
+1. **Read the game's Terms of Service** - Respect the rules set by game developers
+2. **Never use in online/multiplayer games** - This can ruin the experience for others and result in permanent bans
+3. **Use only for single-player experimentation** - Or games that explicitly allow modding
+4. **Understand the risks** - You are solely responsible for your actions
+
+By using this framework, you acknowledge that you understand these risks and agree to use the software responsibly and ethically.
