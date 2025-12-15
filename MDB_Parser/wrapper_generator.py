@@ -616,6 +616,8 @@ SKIP_TYPES = {
     "MaterialReference", "Match", "OpenVR", "UnitySynchronizationContext", "Pointer", "SDKTexture",
     "VisualRecordingIndicators", "Map", "DateTime", "Uri", "Resources", "Hierarchy", "Settings",
     "Task", "TaskStatus",
+    # Types that inherit from sealed types (CS0509 errors)
+    "LookAtBone", "TrigonometricBone",
 }
 
 def get_renamed_class_name(type_name: str, namespace: str) -> Tuple[str, str]:
