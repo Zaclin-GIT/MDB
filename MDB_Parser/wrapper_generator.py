@@ -656,24 +656,62 @@ BASE_TYPE_DISAMBIGUATION = {
     "Object": "UnityEngine.Object",  # Classes inheriting Object always mean Unity's Object
 }
 
-# Types that need full qualification for USAGE (method params, return types, etc.)
-# These should NOT be applied to base types as they may conflict with other libraries
-AMBIGUOUS_TYPES = {
-    "EventHandler": "System.EventHandler", "Object": "UnityEngine.Object",
-    "Image": "UnityEngine.UI.Image", "Button": "UnityEngine.UI.Button",
-    "Toggle": "UnityEngine.UI.Toggle", "Renderer": "UnityEngine.Renderer",
-    "TextAsset": "UnityEngine.TextAsset", "BigInteger": "System.Numerics.BigInteger",
-    "Message": "Riptide.Message", "Client": "Riptide.Client", "Server": "Riptide.Server",
-    "ErrorEventArgs": "System.IO.ErrorEventArgs",
-    "IFormatter": "System.Runtime.Serialization.IFormatter",
-    "SocketManager": "DecaGames.RotMG.Managers.Net.SocketManager",
-    "Random": "UnityEngine.Random", "Hashtable": "System.Collections.Hashtable",
-    "Version": "System.Version", "BlendMode": "UnityEngine.Rendering.BlendMode",
-    "Bone": "UnityEngine.XR.Bone", "Constraint": "RootMotion.FinalIK.Constraint",
-    "LOD": "UnityEngine.LOD", "Logger": "UnityEngine.Logger", "Pose": "UnityEngine.Pose",
-    "RenderingPath": "UnityEngine.RenderingPath", "Stream": "System.IO.Stream",
-    "UpdateType": "DG.Tweening.UpdateType",
-}
+def resolve_ambiguous_type(type_name: str, current_ns: str, imported_ns: set) -> str:
+    """
+    Resolve a type name to its fully qualified form if ambiguous.
+    Uses TYPE_REGISTRY to determine if type exists in multiple namespaces.
+    
+    Strategy:
+    1. If type is in current namespace, use it unqualified
+    2. If type exists in exactly one imported namespace, use it unqualified  
+    3. If type exists in multiple imported namespaces, fully qualify it
+    4. If type not found in registry, return as-is (it's a known type or will fail later)
+    """
+    # Handle array types
+    is_array = type_name.endswith("[]")
+    base_type = type_name[:-2] if is_array else type_name
+    
+    # Skip primitives and known .NET types - they don't need qualification
+    if base_type in TYPE_MAP or base_type in KNOWN_TYPES:
+        return type_name
+    
+    # Check if this type exists in our registry
+    if base_type not in TYPE_REGISTRY:
+        return type_name  # Not in registry, return as-is
+    
+    namespaces_with_type = TYPE_REGISTRY.get(base_type, [])
+    
+    # If only one namespace has this type, no ambiguity
+    if len(namespaces_with_type) <= 1:
+        return type_name
+    
+    # Type exists in multiple namespaces - need to resolve
+    # Priority 1: Current namespace
+    if current_ns in namespaces_with_type:
+        return type_name  # Use unqualified, current namespace takes precedence
+    
+    # Priority 2: Check imported namespaces
+    matching_imported = [ns for ns in namespaces_with_type if ns in imported_ns]
+    
+    if len(matching_imported) == 1:
+        # Exactly one imported namespace has it - use unqualified
+        return type_name
+    elif len(matching_imported) > 1:
+        # Multiple imported namespaces have it - must qualify
+        # Pick the first matching namespace (prefer Unity namespaces)
+        for preferred_prefix in ["UnityEngine", "System", "TMPro"]:
+            for ns in matching_imported:
+                if ns.startswith(preferred_prefix):
+                    qualified = f"{ns}.{base_type}"
+                    return qualified + "[]" if is_array else qualified
+        # Fallback to first match
+        qualified = f"{matching_imported[0]}.{base_type}"
+        return qualified + "[]" if is_array else qualified
+    else:
+        # Not in any imported namespace - qualify with first available
+        # This type won't be resolvable anyway, but qualify for clarity
+        qualified = f"{namespaces_with_type[0]}.{base_type}"
+        return qualified + "[]" if is_array else qualified
 
 def is_obfuscated_type(type_name: str) -> bool:
     # DEBUG STATS: ~2,168 calls - Detects obfuscation patterns (Malayalam, Greek, etc.)
@@ -691,9 +729,13 @@ def is_obfuscated_type(type_name: str) -> bool:
         return True
     return False
 
-def map_type(il2cpp_type: str) -> str:
+def map_type(il2cpp_type: str, current_ns: str = None, imported_ns: set = None) -> str:
     # DEBUG STATS: ~204,915 calls - Type conversion from IL2CPP to C#
-    """Convert IL2CPP type to C# type. [STEP 4.x: Type mapping]"""
+    """Convert IL2CPP type to C# type. [STEP 4.x: Type mapping]
+    
+    If current_ns and imported_ns are provided, will resolve ambiguous types
+    using the TYPE_REGISTRY instead of hardcoded mappings.
+    """
     _track_call("map_type")
     if not il2cpp_type or "*" in il2cpp_type:
         return None
@@ -706,20 +748,34 @@ def map_type(il2cpp_type: str) -> str:
                 return None
     if il2cpp_type.startswith("Nullable`1") or "Nullable<" in il2cpp_type:
         return None
-    if il2cpp_type.endswith("[]") and il2cpp_type[:-2] in AMBIGUOUS_TYPES:
-        return AMBIGUOUS_TYPES[il2cpp_type[:-2]] + "[]"
-    if il2cpp_type in AMBIGUOUS_TYPES:
-        return AMBIGUOUS_TYPES[il2cpp_type]
+    
+    # Handle backtick generics like Dictionary`2
     if "`" in il2cpp_type:
         parts = il2cpp_type.split("`")
-        base_type = AMBIGUOUS_TYPES.get(parts[0], parts[0])
+        base_type = parts[0]
         try:
             num_params = int(parts[1].split("[")[0].split("<")[0])
             result = f"{base_type}<{', '.join(['object'] * num_params)}>"
             return result + "[]" if il2cpp_type.endswith("[]") else result
         except (ValueError, IndexError):
             return base_type
-    return TYPE_MAP.get(il2cpp_type, il2cpp_type)
+    
+    # Handle array types - map base type first, then re-add []
+    is_array = il2cpp_type.endswith("[]")
+    base_type = il2cpp_type[:-2] if is_array else il2cpp_type
+    
+    # Map primitive types
+    mapped = TYPE_MAP.get(base_type, base_type)
+    
+    # Re-add array suffix
+    if is_array:
+        mapped = mapped + "[]"
+    
+    # If we have namespace context, resolve ambiguous types dynamically
+    if current_ns is not None and imported_ns is not None:
+        mapped = resolve_ambiguous_type(mapped, current_ns, imported_ns)
+    
+    return mapped
 
 # C# reserved keywords
 CSHARP_KEYWORDS = {
@@ -989,13 +1045,13 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
             if "*" in invoke_method.return_type or any("*" in p.type for p in invoke_method.parameters): continue
             if is_generic_type_param(invoke_method.return_type) or any(is_generic_type_param(p.type) for p in invoke_method.parameters): continue
             # Check return type is valid and resolvable
-            return_type = map_type(invoke_method.return_type)
+            return_type = map_type(invoke_method.return_type, ns, imported_ns)
             if return_type is None or not is_type_resolvable(invoke_method.return_type, ns, imported_ns): continue
             # Check all parameter types are valid and resolvable
-            if not all(map_type(p.type) and is_type_resolvable(p.type, ns, imported_ns) for p in invoke_method.parameters): continue
+            if not all(map_type(p.type, ns, imported_ns) and is_type_resolvable(p.type, ns, imported_ns) for p in invoke_method.parameters): continue
             seen_delegate_names.add(delegate_name)
             type_count += 1
-            params_str = ", ".join(f"{map_type(p.type)} {sanitize_name(p.name) or p.name}" for p in invoke_method.parameters)
+            params_str = ", ".join(f"{map_type(p.type, ns, imported_ns)} {sanitize_name(p.name) or p.name}" for p in invoke_method.parameters)
             if delegate_name != original_delegate_name:
                 body_lines.append(f"    /// <summary>Renamed to avoid conflict. Original IL2CPP name: '{original_delegate_name}'</summary>")
             body_lines.append(f"    {t.visibility} delegate {return_type} {delegate_name}({params_str});")
@@ -1064,7 +1120,7 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
             # Output public fields (skip const and invalid/unresolvable types)
             valid_field_count = 0
             for fld in [f for f in t.fields if f.visibility == "public" and not f.is_const]:
-                field_type = map_type(fld.type)
+                field_type = map_type(fld.type, ns, imported_ns)
                 if field_type is None or not is_type_resolvable(fld.type, ns, imported_ns): continue
                 valid_field_count += 1
                 body_lines.append(f"        public {field_type} {fld.name};")
@@ -1184,7 +1240,7 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
                         if prop_info["set"]: methods_used_as_properties.discard(f"set_{prop_name}")
                         continue
                     
-                    prop_type = map_type(prop_info["type"])
+                    prop_type = map_type(prop_info["type"], ns, imported_ns)
                     if prop_type is None: continue
                     
                     # Skip properties with types that aren't resolvable
@@ -1230,7 +1286,7 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
                 else:
                     method_name = sanitize_name(method.name)
                     if not method_name: continue
-                sig_key = (method_name, tuple('object' if is_generic_type_param(p.type) else map_type(p.type) for p in method.parameters))
+                sig_key = (method_name, tuple('object' if is_generic_type_param(p.type) else map_type(p.type, ns, imported_ns) for p in method.parameters))
                 if sig_key not in seen_signatures:
                     seen_signatures.add(sig_key)
                     deduped_methods.append(method)
@@ -1255,13 +1311,13 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
                     type_params_clause = f"<{', '.join(sorted(generic_params))}>" if is_generic else ""
                     
                     # Map return type (use generic param name for generic types)
-                    return_type = method.return_type if is_generic_type_param(method.return_type) else map_type(method.return_type)
+                    return_type = method.return_type if is_generic_type_param(method.return_type) else map_type(method.return_type, ns, imported_ns)
 
                     # Build parameter list and names
                     param_parts, param_names_list = [], []
                     for idx, p in enumerate(method.parameters):
                         mod_prefix = f"{p.modifier} " if p.modifier else ""
-                        ptype = p.type if is_generic_type_param(p.type) else map_type(p.type)
+                        ptype = p.type if is_generic_type_param(p.type) else map_type(p.type, ns, imported_ns)
                         pname = sanitize_name(p.name) or f"arg{idx}"
                         param_parts.append(f"{mod_prefix}{ptype} {pname}")
                         param_names_list.append(pname)
@@ -1270,7 +1326,7 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
 
                     # Build paramTypes array
                     if method.parameters:
-                        param_types_items = [f'typeof({p.type.rstrip("[]")})' if is_generic_type_param(p.type) else f'typeof({map_type(p.type)})' for p in method.parameters]
+                        param_types_items = [f'typeof({p.type.rstrip("[]")})' if is_generic_type_param(p.type) else f'typeof({map_type(p.type, ns, imported_ns)})' for p in method.parameters]
                         param_types_decl = f"new Type[] {{ {', '.join(param_types_items)} }}"
                     else:
                         param_types_decl = "global::System.Type.EmptyTypes"
