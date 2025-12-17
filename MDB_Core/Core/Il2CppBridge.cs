@@ -506,6 +506,30 @@ namespace GameSDK
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr mdb_array_get_element(IntPtr array, int index);
 
+        /// <summary>
+        /// Get the element class of an IL2CPP array.
+        /// </summary>
+        /// <param name="array">Pointer to the IL2CPP array</param>
+        /// <returns>Pointer to the element's Il2CppClass, or IntPtr.Zero on error</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr mdb_array_get_element_class(IntPtr array);
+
+        /// <summary>
+        /// Check if a class is a value type (struct).
+        /// </summary>
+        /// <param name="klass">Pointer to Il2CppClass</param>
+        /// <returns>1 if value type, 0 if reference type, -1 on error</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_class_is_valuetype(IntPtr klass);
+
+        /// <summary>
+        /// Get the element class of a class (for arrays, this is the element type).
+        /// </summary>
+        /// <param name="klass">Pointer to Il2CppClass</param>
+        /// <returns>Pointer to the element's Il2CppClass, or IntPtr.Zero</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr mdb_class_get_element_class(IntPtr klass);
+
         // ==============================
         // Helper Methods
         // ==============================

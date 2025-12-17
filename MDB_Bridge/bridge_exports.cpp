@@ -550,6 +550,75 @@ MDB_API void* mdb_array_get_element(void* array, int index) {
     return arr->vector[index];
 }
 
+MDB_API void* mdb_array_get_element_class(void* array) {
+    clear_error();
+    if (!array) {
+        set_error(MdbErrorCode::NullPointer, "Invalid argument: array is null");
+        return nullptr;
+    }
+    
+    // Get the class of the array object
+    auto* obj = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppObject*>(array);
+    if (!obj->m_pClass) {
+        set_error(MdbErrorCode::InvalidClass, "Array has no class");
+        return nullptr;
+    }
+    
+    // Use the official IL2CPP API to get element class - struct offsets vary between versions
+    static auto il2cpp_class_get_element_class_fn = reinterpret_cast<void*(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_class_get_element_class")
+    );
+    
+    if (il2cpp_class_get_element_class_fn) {
+        return il2cpp_class_get_element_class_fn(obj->m_pClass);
+    }
+    
+    // Fallback to struct access if API not available (may not work on all IL2CPP versions)
+    set_error(MdbErrorCode::ExportNotFound, "il2cpp_class_get_element_class API not found");
+    return obj->m_pClass->m_pElementClass;
+}
+
+MDB_API int mdb_class_is_valuetype(void* klass) {
+    clear_error();
+    if (!klass) {
+        set_error(MdbErrorCode::NullPointer, "Invalid argument: klass is null");
+        return -1;
+    }
+    
+    auto* il2cpp_klass = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppClass*>(klass);
+    
+    // Check the valuetype flag - it's in the bitfield section
+    // We need to use the IL2CPP API for this
+    static auto il2cpp_class_is_valuetype_fn = reinterpret_cast<bool(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_class_is_valuetype")
+    );
+    
+    if (il2cpp_class_is_valuetype_fn) {
+        return il2cpp_class_is_valuetype_fn(klass) ? 1 : 0;
+    }
+    
+    // Fallback: Check if parent is System.ValueType
+    if (il2cpp_klass->m_pParentClass) {
+        const char* parentName = il2cpp_klass->m_pParentClass->m_pName;
+        if (parentName && strcmp(parentName, "ValueType") == 0) {
+            return 1;
+        }
+    }
+    
+    return 0;
+}
+
+MDB_API void* mdb_class_get_element_class(void* klass) {
+    clear_error();
+    if (!klass) {
+        set_error(MdbErrorCode::NullPointer, "Invalid argument: klass is null");
+        return nullptr;
+    }
+    
+    auto* il2cpp_klass = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppClass*>(klass);
+    return il2cpp_klass->m_pElementClass;
+}
+
 // ==============================
 // RVA-based Method Access
 // ==============================
