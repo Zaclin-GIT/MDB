@@ -11,7 +11,13 @@
 #include <unordered_map>
 #include <mutex>
 #include <type_traits>
+#include <fstream>
+#include <sstream>
+#include <vector>
 #include <windows.h>
+#include <Psapi.h>
+
+#pragma comment(lib, "psapi.lib")
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -362,16 +368,100 @@ namespace il2cpp {
 		inline std::unordered_map<std::string, std::string> g_obfuscated_exports;
 		inline bool g_exports_scanned = false;
 
-		// Known obfuscation suffix patterns
+		// Known obfuscation suffix patterns (expanded list)
 		inline const char* OBFUSCATION_SUFFIXES[] = {
-			"_wasting_your_time",
-			// Add more patterns here as discovered
+			"_wasting_your_life",
+			nullptr
 		};
 
 		// Map obfuscated suffix to original IL2CPP export suffix
 		inline std::unordered_map<std::string, std::string> SUFFIX_TO_ORIGINAL = {
-			{ "_wasting_your_time", "_domain_get_assemblies" },
+			{ "_wasting_your_life", "_domain_get_assemblies" },
 		};
+
+		// Export resolution log entries
+		inline std::vector<std::string> g_export_log;
+		inline std::mutex g_export_log_mtx;
+
+		// Log an export resolution
+		inline void log_export_resolution(const std::string& original_name, const std::string& resolved_name, uintptr_t address, const std::string& method) {
+			std::scoped_lock lk(g_export_log_mtx);
+			std::stringstream ss;
+			ss << original_name << " -> " << resolved_name << " @ 0x" << std::hex << address << " [" << method << "]";
+			g_export_log.push_back(ss.str());
+		}
+
+		// Write export log to file
+		inline void write_export_log() {
+			// Get game executable path
+			char exePath[MAX_PATH];
+			GetModuleFileNameA(nullptr, exePath, MAX_PATH);
+			std::string exeDir(exePath);
+			size_t lastSlash = exeDir.find_last_of("\\/");
+			if (lastSlash != std::string::npos) {
+				exeDir = exeDir.substr(0, lastSlash);
+			}
+
+			// Create MDB/Dump folder if needed
+			std::string mdbDir = exeDir + "\\MDB";
+			std::string dumpDir = mdbDir + "\\Dump";
+			CreateDirectoryA(mdbDir.c_str(), nullptr);
+			CreateDirectoryA(dumpDir.c_str(), nullptr);
+
+			// Write export log
+			std::string logPath = dumpDir + "\\resolved_exports.txt";
+			std::ofstream file(logPath);
+			if (file.is_open()) {
+				file << "// IL2CPP Export Resolution Log\n";
+				file << "// Format: original_name -> resolved_name @ address [resolution_method]\n\n";
+				std::scoped_lock lk(g_export_log_mtx);
+				for (const auto& entry : g_export_log) {
+					file << entry << "\n";
+				}
+				file.close();
+			}
+		}
+
+		// Find export by suffix pattern
+		inline uintptr_t find_export_by_suffix(HMODULE hModule, const char* suffix) {
+			auto dosHeader = reinterpret_cast<PIMAGE_DOS_HEADER>(hModule);
+			if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE) return 0;
+
+			auto ntHeaders = reinterpret_cast<PIMAGE_NT_HEADERS>(
+				reinterpret_cast<BYTE*>(hModule) + dosHeader->e_lfanew);
+			if (ntHeaders->Signature != IMAGE_NT_SIGNATURE) return 0;
+
+			auto& exportDir = ntHeaders->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_EXPORT];
+			if (exportDir.VirtualAddress == 0) return 0;
+
+			auto exports = reinterpret_cast<PIMAGE_EXPORT_DIRECTORY>(
+				reinterpret_cast<BYTE*>(hModule) + exportDir.VirtualAddress);
+
+			auto names = reinterpret_cast<DWORD*>(
+				reinterpret_cast<BYTE*>(hModule) + exports->AddressOfNames);
+			auto ordinals = reinterpret_cast<WORD*>(
+				reinterpret_cast<BYTE*>(hModule) + exports->AddressOfNameOrdinals);
+			auto functions = reinterpret_cast<DWORD*>(
+				reinterpret_cast<BYTE*>(hModule) + exports->AddressOfFunctions);
+
+			size_t suffixLen = strlen(suffix);
+			for (DWORD i = 0; i < exports->NumberOfNames; ++i) {
+				const char* name = reinterpret_cast<const char*>(
+					reinterpret_cast<BYTE*>(hModule) + names[i]);
+				size_t nameLen = strlen(name);
+
+				if (nameLen > suffixLen && strcmp(name + nameLen - suffixLen, suffix) == 0) {
+					// Store the found obfuscated name for logging
+					auto it = SUFFIX_TO_ORIGINAL.find(suffix);
+					if (it != SUFFIX_TO_ORIGINAL.end()) {
+						std::string originalName = "il2cpp" + it->second;
+						g_obfuscated_exports[originalName] = name;
+					}
+					return reinterpret_cast<uintptr_t>(hModule) + functions[ordinals[i]];
+				}
+			}
+			return 0;
+		}
 
 		// Scan PE exports and build obfuscation map
 		inline void scan_pe_exports() {
@@ -406,7 +496,8 @@ namespace il2cpp {
 				std::string exportName(name);
 
 				// Check each obfuscation suffix
-				for (const auto& suffix : OBFUSCATION_SUFFIXES) {
+				for (int s = 0; OBFUSCATION_SUFFIXES[s] != nullptr; ++s) {
+					const char* suffix = OBFUSCATION_SUFFIXES[s];
 					size_t suffixLen = strlen(suffix);
 					if (exportName.length() > suffixLen) {
 						// Check if export ends with this suffix
@@ -444,32 +535,50 @@ namespace il2cpp {
 			return { Il2CppStatus::OK, p_game_assembly };
 		}
 
+		// Unified export resolution with fallback chain:
+		// 1. Standard GetProcAddress
+		// 2. Suffix-based pattern matching for obfuscated exports
 		template <class T>
 		inline Result<T> resolve_export(std::string_view name) {
 			auto mod = ensure_game_assembly();
 			if (!mod) return { mod.status, nullptr };
 			
-			// Try the original name
 			std::string exportName(name);
+			
+			// Strategy 1: Standard GetProcAddress
 			auto p = reinterpret_cast<T>(::GetProcAddress(mod.value, exportName.c_str()));
+			if (p) {
+				log_export_resolution(exportName, exportName, reinterpret_cast<uintptr_t>(p), "GetProcAddress");
+				return { Il2CppStatus::OK, p };
+			}
 			
-			if (!p) return { Il2CppStatus::GetProcAddressFailed, nullptr };
-			return { Il2CppStatus::OK, p };
-		}
-		
-		// Hardcoded fallback for obfuscated domain_get_assemblies
-		template <class T>
-		inline Result<T> resolve_export_with_fallback(std::string_view name, std::string_view fallback) {
-			auto result = resolve_export<T>(name);
-			if (result) return result;
+			// Strategy 2: Check for cached obfuscated name
+			scan_pe_exports();
+			auto it = g_obfuscated_exports.find(exportName);
+			if (it != g_obfuscated_exports.end()) {
+				p = reinterpret_cast<T>(::GetProcAddress(mod.value, it->second.c_str()));
+				if (p) {
+					log_export_resolution(exportName, it->second, reinterpret_cast<uintptr_t>(p), "SuffixMatch");
+					return { Il2CppStatus::OK, p };
+				}
+			}
 			
-			// Try fallback name
-			auto mod = ensure_game_assembly();
-			if (!mod) return { mod.status, nullptr };
+			// Strategy 3: Direct suffix scan for this specific export
+			for (int i = 0; OBFUSCATION_SUFFIXES[i] != nullptr; ++i) {
+				uintptr_t addr = find_export_by_suffix(mod.value, OBFUSCATION_SUFFIXES[i]);
+				if (addr) {
+					// Get the actual name that was found
+					std::string foundName = "<suffix:" + std::string(OBFUSCATION_SUFFIXES[i]) + ">";
+					auto obfIt = g_obfuscated_exports.find(exportName);
+					if (obfIt != g_obfuscated_exports.end()) {
+						foundName = obfIt->second;
+					}
+					log_export_resolution(exportName, foundName, addr, "SuffixScan");
+					return { Il2CppStatus::OK, reinterpret_cast<T>(addr) };
+				}
+			}
 			
-			auto p = reinterpret_cast<T>(::GetProcAddress(mod.value, std::string(fallback).c_str()));
-			if (!p) return { Il2CppStatus::GetProcAddressFailed, nullptr };
-			return { Il2CppStatus::OK, p };
+			return { Il2CppStatus::GetProcAddressFailed, nullptr };
 		}
 
 		// dereferenced function pointers (valid after ensure_exports())
@@ -498,9 +607,8 @@ namespace il2cpp {
 			// Resolve all exports now (lazy)
 			auto r_il2cpp_domain_get = resolve_export<void* (__fastcall*)(void)>("il2cpp_domain_get");
 			auto r_il2cpp_thread_attach = resolve_export<void* (__fastcall*)(void*)>("il2cpp_thread_attach");
-			// Try obfuscated fallback for domain_get_assemblies
-			auto r_il2cpp_domain_get_assemblies = resolve_export_with_fallback<unity_structs::il2cppAssembly** (__fastcall*)(void*, size_t*)>(
-				"il2cpp_domain_get_assemblies", "a44f8f_wasting_your_life");
+			// Uses unified resolve_export with automatic suffix fallback
+			auto r_il2cpp_domain_get_assemblies = resolve_export<unity_structs::il2cppAssembly** (__fastcall*)(void*, size_t*)>("il2cpp_domain_get_assemblies");
 			auto r_il2cpp_class_from_name = resolve_export<unity_structs::il2cppClass* (__fastcall*)(unity_structs::il2cppImage*, const char*, const char*)>("il2cpp_class_from_name");
 			auto r_il2cpp_class_get_method_from_name = resolve_export<unity_structs::il2cppMethodInfo* (__fastcall*)(unity_structs::il2cppClass*, const char*, int)>("il2cpp_class_get_method_from_name");
 			auto r_il2cpp_class_get_field_from_name = resolve_export<unity_structs::il2cppFieldInfo* (__fastcall*)(unity_structs::il2cppClass*, const char*)>("il2cpp_class_get_field_from_name");
@@ -529,6 +637,9 @@ namespace il2cpp {
 			if (auto s = bind(il2cpp_object_new, r_il2cpp_object_new, Il2CppStatus::GetProcAddressFailed); s != Il2CppStatus::OK) return s;
 
 			if (r_il2cpp_string_new) il2cpp_string_new = r_il2cpp_string_new.value;
+			
+			// Write export resolution log to game folder
+			write_export_log();
 			
 			s_initialized = true;
 			return Il2CppStatus::OK;

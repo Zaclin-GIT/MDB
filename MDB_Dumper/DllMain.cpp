@@ -385,7 +385,16 @@ void MainThread() {
 	auto hModule = reinterpret_cast<HMODULE>(GameAssemblyBaseAddress);
 
     Il2CppApi::Instance().Initialize(hModule);
-	Log("Il2CppApi initialized");
+	
+	// Validate all IL2CPP exports were resolved
+	if (!Il2CppApi::Instance().IsValid()) {
+		std::string missing = Il2CppApi::Instance().GetMissingExports();
+		Log("FATAL: Failed to resolve IL2CPP exports: " + missing);
+		Log("The game may have obfuscated exports that are not yet supported.");
+		Log("Aborting dump.");
+		return;
+	}
+	Log("Il2CppApi initialized - all exports resolved");
 
 	size_t size;
 	auto domain = Il2CppApi::Instance().il2cpp_domain_get();
