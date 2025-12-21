@@ -18,6 +18,9 @@ namespace GameSDK.ModHost
         private static readonly object _logLock = new object();
         private static StreamWriter _logWriter;
         private static string _logPath;
+        
+        // Section separator for console output
+        private const string SECTION_LINE = "────────────────────────────────────────";
 
         /// <summary>
         /// Create a new logger for a mod.
@@ -26,6 +29,24 @@ namespace GameSDK.ModHost
         public ModLogger(string modName)
         {
             _modName = modName;
+        }
+        
+        /// <summary>
+        /// Write a section separator to the console.
+        /// </summary>
+        public static void Section(string title, ConsoleColor color = ConsoleColor.DarkGray)
+        {
+            lock (_logLock)
+            {
+                var prevColor = System.Console.ForegroundColor;
+                System.Console.ForegroundColor = color;
+                System.Console.WriteLine();
+                System.Console.WriteLine($"── {title} ──");
+                System.Console.ForegroundColor = prevColor;
+                
+                _logWriter?.WriteLine();
+                _logWriter?.WriteLine($"── {title} ──");
+            }
         }
 
         /// <summary>
@@ -70,10 +91,7 @@ namespace GameSDK.ModHost
                 if (_logWriter != null)
                 {
                     _logWriter.WriteLine();
-                    _logWriter.WriteLine($"========================================");
-                    _logWriter.WriteLine($"MDB Framework - Mod Log");
-                    _logWriter.WriteLine($"Session started: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-                    _logWriter.WriteLine($"========================================");
+                    _logWriter.WriteLine($"=== MDB Framework Session {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===");
                     _logWriter.WriteLine();
                 }
             }
@@ -82,19 +100,22 @@ namespace GameSDK.ModHost
         /// <summary>
         /// Write a log message.
         /// </summary>
-        private void Write(string level, string message)
+        private void Write(string level, string message, ConsoleColor color = ConsoleColor.White)
         {
-            string timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
-            string formatted = $"[{timestamp}] [{level}] [{_modName}] {message}";
+            string timestamp = DateTime.Now.ToString("HH:mm:ss");
+            string fileFormatted = $"[{timestamp}] [{level}] [{_modName}] {message}";
+            string consoleFormatted = $"[{timestamp}] [{_modName}] {message}";
 
             lock (_logLock)
             {
-                // Write to log file
-                _logWriter?.WriteLine(formatted);
+                // Write to log file (full format)
+                _logWriter?.WriteLine(fileFormatted);
 
-                // Also write to console/debug output
-                System.Console.WriteLine(formatted);
-                System.Diagnostics.Debug.WriteLine(formatted);
+                // Write to console with color
+                var prevColor = System.Console.ForegroundColor;
+                System.Console.ForegroundColor = color;
+                System.Console.WriteLine(consoleFormatted);
+                System.Console.ForegroundColor = prevColor;
             }
         }
 
@@ -103,7 +124,15 @@ namespace GameSDK.ModHost
         /// </summary>
         public void Info(string message)
         {
-            Write("INFO", message);
+            Write("INFO", message, ConsoleColor.Blue);
+        }
+        
+        /// <summary>
+        /// Log an informational message with custom color.
+        /// </summary>
+        public void Info(string message, ConsoleColor color)
+        {
+            Write("INFO", message, color);
         }
 
         /// <summary>
@@ -111,7 +140,7 @@ namespace GameSDK.ModHost
         /// </summary>
         public void Warning(string message)
         {
-            Write("WARN", message);
+            Write("WARN", message, ConsoleColor.Yellow);
         }
 
         /// <summary>
@@ -119,7 +148,7 @@ namespace GameSDK.ModHost
         /// </summary>
         public void Error(string message)
         {
-            Write("ERROR", message);
+            Write("ERROR", message, ConsoleColor.Red);
         }
 
         /// <summary>
@@ -127,8 +156,7 @@ namespace GameSDK.ModHost
         /// </summary>
         public void Error(string message, Exception ex)
         {
-            Write("ERROR", $"{message}: {ex.Message}");
-            Write("ERROR", $"Stack trace: {ex.StackTrace}");
+            Write("ERROR", $"{message}: {ex.Message}", ConsoleColor.Red);
         }
 
         /// <summary>
@@ -138,7 +166,7 @@ namespace GameSDK.ModHost
         public void Debug(string message)
         {
 #if DEBUG
-            Write("DEBUG", message);
+            Write("DEBUG", message, ConsoleColor.DarkGray);
 #endif
         }
 
@@ -168,16 +196,54 @@ namespace GameSDK.ModHost
         
         /// <summary>
         /// Static log method for use by helpers and static classes that don't have a logger instance.
+        /// Auto-detects [INFO], [ERROR], [WARN], [DEBUG] prefixes and applies appropriate colors.
         /// </summary>
         public static void LogInternal(string source, string message)
         {
-            string timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
-            string formatted = $"[{timestamp}] [INFO] [{source}] {message}";
+            // Auto-detect level prefix and apply appropriate color
+            ConsoleColor color = ConsoleColor.Blue;
+            string cleanMessage = message;
+            
+            if (message.StartsWith("[ERROR]"))
+            {
+                color = ConsoleColor.Red;
+                cleanMessage = message.Substring(7).TrimStart();
+            }
+            else if (message.StartsWith("[WARN]"))
+            {
+                color = ConsoleColor.Yellow;
+                cleanMessage = message.Substring(6).TrimStart();
+            }
+            else if (message.StartsWith("[INFO]"))
+            {
+                color = ConsoleColor.Blue;
+                cleanMessage = message.Substring(6).TrimStart();
+            }
+            else if (message.StartsWith("[DEBUG]") || message.StartsWith("[TRACE]"))
+            {
+                color = ConsoleColor.DarkGray;
+                cleanMessage = message.Substring(7).TrimStart();
+            }
+            
+            LogInternal(source, cleanMessage, color);
+        }
+        
+        /// <summary>
+        /// Static log method with explicit color support.
+        /// </summary>
+        public static void LogInternal(string source, string message, ConsoleColor color)
+        {
+            string timestamp = DateTime.Now.ToString("HH:mm:ss");
+            string fileFormatted = $"[{timestamp}] [INFO] [{source}] {message}";
+            string consoleFormatted = $"[{timestamp}] [{source}] {message}";
 
             lock (_logLock)
             {
-                _logWriter?.WriteLine(formatted);
-                System.Console.WriteLine(formatted);
+                _logWriter?.WriteLine(fileFormatted);
+                var prevColor = System.Console.ForegroundColor;
+                System.Console.ForegroundColor = color;
+                System.Console.WriteLine(consoleFormatted);
+                System.Console.ForegroundColor = prevColor;
             }
         }
     }

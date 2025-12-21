@@ -185,9 +185,24 @@ IMGUI_EXPORT bool igIsItemClicked(ImGuiMouseButton mouse_button)
     return ImGui::IsItemClicked(mouse_button);
 }
 
+IMGUI_EXPORT bool igIsItemHovered(ImGuiHoveredFlags flags)
+{
+    return ImGui::IsItemHovered(flags);
+}
+
 IMGUI_EXPORT bool igIsItemToggledOpen()
 {
     return ImGui::IsItemToggledOpen();
+}
+
+// ===== Tooltips =====
+
+IMGUI_EXPORT void igSetTooltip(const char* fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    ImGui::SetTooltipV(fmt, args);
+    va_end(args);
 }
 
 // ===== Widgets: Combo =====
@@ -286,4 +301,38 @@ IMGUI_EXPORT bool igColorButton(const char* desc_id, ImVec4 col, ImGuiColorEditF
 IMGUI_EXPORT bool igSmallButton(const char* label)
 {
     return ImGui::SmallButton(label);
+}
+
+// ===== Context Menus / Popups =====
+
+IMGUI_EXPORT bool igBeginPopupContextItem(const char* str_id, ImGuiPopupFlags popup_flags)
+{
+    return ImGui::BeginPopupContextItem(str_id, popup_flags);
+}
+
+IMGUI_EXPORT bool igBeginPopup(const char* str_id, ImGuiWindowFlags flags)
+{
+    return ImGui::BeginPopup(str_id, flags);
+}
+
+IMGUI_EXPORT void igEndPopup()
+{
+    ImGui::EndPopup();
+}
+
+IMGUI_EXPORT void igOpenPopup_Str(const char* str_id, ImGuiPopupFlags popup_flags)
+{
+    ImGui::OpenPopup(str_id, popup_flags);
+}
+
+IMGUI_EXPORT void igCloseCurrentPopup()
+{
+    ImGui::CloseCurrentPopup();
+}
+
+// ===== Clipboard =====
+
+IMGUI_EXPORT void igSetClipboardText(const char* text)
+{
+    ImGui::SetClipboardText(text);
 }

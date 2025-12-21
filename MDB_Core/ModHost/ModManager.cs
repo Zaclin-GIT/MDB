@@ -62,15 +62,8 @@ namespace GameSDK.ModHost
                 
                 // Set up assembly resolver to help mods find GameSDK.ModHost
                 AppDomain.CurrentDomain.AssemblyResolve += OnAssemblyResolve;
-                
-                _logger.Info("===========================================");
-                _logger.Info("MDB Framework - ModManager Initializing");
-                _logger.Info("===========================================");
-                _logger.Info($"MDB Directory: {_mdbDirectory}");
-                _logger.Info($"Mods Directory: {_modsDirectory}");
 
                 // Initialize IL2CPP runtime
-                _logger.Info("Initializing IL2CPP runtime...");
                 if (!Il2CppRuntime.Initialize())
                 {
                     _logger.Error("Failed to initialize IL2CPP runtime!");
@@ -83,7 +76,6 @@ namespace GameSDK.ModHost
                 if (!Directory.Exists(_modsDirectory))
                 {
                     Directory.CreateDirectory(_modsDirectory);
-                    _logger.Info("Created Mods directory");
                 }
 
                 // Discover and load mods
@@ -93,8 +85,9 @@ namespace GameSDK.ModHost
                 StartUpdateLoop();
 
                 _initialized = true;
-                _logger.Info("ModManager initialization complete!");
-                _logger.Info($"Loaded {_loadedMods.Count} mod(s)");
+                
+                ModLogger.Section("Ready", ConsoleColor.Magenta);
+                _logger.Info($"{_loadedMods.Count} mod(s) active");
                 
                 return 0;
             }
@@ -110,54 +103,58 @@ namespace GameSDK.ModHost
         /// </summary>
         private static void DiscoverAndLoadMods()
         {
-            _logger.Info("Discovering mods...");
-
             string[] dllFiles = Directory.GetFiles(_modsDirectory, "*.dll", SearchOption.TopDirectoryOnly);
-            _logger.Info($"Found {dllFiles.Length} DLL file(s) in Mods folder");
-
+            
+            // First pass: Load assemblies and discover mods
+            ModLogger.Section("Mods", ConsoleColor.Magenta);
+            var loadedAssemblies = new List<(Assembly assembly, string path)>();
             foreach (string dllPath in dllFiles)
             {
                 try
                 {
-                    LoadModFromFile(dllPath);
+                    byte[] assemblyBytes = File.ReadAllBytes(dllPath);
+                    Assembly assembly = Assembly.Load(assemblyBytes);
+                    loadedAssemblies.Add((assembly, dllPath));
+                    
+                    // Log discovered mods
+                    foreach (var modType in GetModTypesFromAssembly(assembly))
+                    {
+                        var attr = modType.GetCustomAttribute<ModAttribute>();
+                        string modName = attr?.Name ?? modType.Name;
+                        string version = attr?.Version ?? "1.0.0";
+                        string author = attr?.Author ?? "Unknown";
+                        _logger.Info($"  {modName} v{version} by {author}", ConsoleColor.Blue);
+                    }
                 }
                 catch (Exception ex)
                 {
-                    _logger.Error($"Failed to load mod from {Path.GetFileName(dllPath)}", ex);
+                    _logger.Error($"Failed to load: {Path.GetFileName(dllPath)}");
+                }
+            }
+            
+            // Second pass: Process patches (hooks)
+            foreach (var (assembly, _) in loadedAssemblies)
+            {
+                PatchProcessor.ProcessAssembly(assembly);
+            }
+            
+            // Third pass: Initialize mod types
+            ModLogger.Section("Initializing", ConsoleColor.Magenta);
+            foreach (var (assembly, dllPath) in loadedAssemblies)
+            {
+                try
+                {
+                    LoadModTypesFromAssembly(assembly, dllPath);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error($"Failed to initialize: {Path.GetFileName(dllPath)}");
                 }
             }
         }
-
-        /// <summary>
-        /// Load a mod from a DLL file.
-        /// </summary>
-        private static void LoadModFromFile(string dllPath)
+        
+        private static IEnumerable<Type> GetModTypesFromAssembly(Assembly assembly)
         {
-            string fileName = Path.GetFileName(dllPath);
-            _logger.Info($"Loading mod: {fileName}");
-
-            // Load the assembly by reading bytes to bypass zone security checks
-            // This avoids the "Operation is not supported" error (0x80131515)
-            // that occurs when loading DLLs from network/untrusted locations
-            byte[] assemblyBytes = File.ReadAllBytes(dllPath);
-            Assembly assembly = Assembly.Load(assemblyBytes);
-
-            // Process patches from this assembly
-            try
-            {
-                int patchCount = PatchProcessor.ProcessAssembly(assembly);
-                if (patchCount > 0)
-                {
-                    _logger.Info($"  Applied {patchCount} patch(es) from {fileName}");
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.Error($"  Failed to process patches from {fileName}: {ex.Message}");
-            }
-
-            // Find all types that inherit from ModBase
-            // Use ReflectionTypeLoadException handling to get partial results
             Type[] allTypes;
             try
             {
@@ -165,14 +162,23 @@ namespace GameSDK.ModHost
             }
             catch (ReflectionTypeLoadException ex)
             {
-                // Log the loader exceptions for debugging
-                foreach (var loaderEx in ex.LoaderExceptions)
-                {
-                    if (loaderEx != null)
-                    {
-                        _logger.Error($"  Loader exception: {loaderEx.Message}");
-                    }
-                }
+                allTypes = ex.Types.Where(t => t != null).ToArray();
+            }
+            return allTypes.Where(t => t != null && typeof(ModBase).IsAssignableFrom(t) && !t.IsAbstract);
+        }
+        
+        private static void LoadModTypesFromAssembly(Assembly assembly, string dllPath)
+        {
+            string fileName = Path.GetFileName(dllPath);
+
+            // Find all types that inherit from ModBase
+            Type[] allTypes;
+            try
+            {
+                allTypes = assembly.GetTypes();
+            }
+            catch (ReflectionTypeLoadException ex)
+            {
                 // Use the types that did load successfully
                 allTypes = ex.Types.Where(t => t != null).ToArray();
             }
@@ -183,8 +189,7 @@ namespace GameSDK.ModHost
 
             if (modTypes.Length == 0)
             {
-                _logger.Warning($"No ModBase types found in {fileName}");
-                return;
+                return;  // Not a mod DLL, skip silently
             }
 
             foreach (Type modType in modTypes)
@@ -208,24 +213,21 @@ namespace GameSDK.ModHost
             // Get mod info from attribute
             ModInfo info = GetModInfo(modType, dllPath);
 
-            _logger.Info($"  Found mod: {info}");
-
             // Create instance
             ModBase mod = (ModBase)Activator.CreateInstance(modType);
             mod.Info = info;
             mod.Logger = new ModLogger(info.Name);
 
             // Call OnLoad
-            _logger.Info($"  Calling OnLoad for {info.Name}...");
             try
             {
                 mod.OnLoad();
-                _logger.Info($"  {info.Name} loaded successfully!");
+                _logger.Info($"  ✓ {info.Name}", ConsoleColor.Blue);
             }
             catch (Exception ex)
             {
-                _logger.Error($"  OnLoad failed for {info.Name}", ex);
-                return; // Don't add to loaded mods if OnLoad fails
+                _logger.Error($"Failed to load {info.Name}: {ex.Message}");
+                return;
             }
 
             _loadedMods.Add(mod);
@@ -275,7 +277,6 @@ namespace GameSDK.ModHost
                 IsBackground = true
             };
             _updateThread.Start();
-            _logger.Info("Update loop started");
         }
 
         /// <summary>
@@ -403,7 +404,7 @@ namespace GameSDK.ModHost
         /// </summary>
         public static void Shutdown()
         {
-            _logger.Info("ModManager shutting down...");
+_logger.Info("Shutting down");
             
             _running = false;
             _updateThread?.Join(1000);

@@ -107,25 +107,30 @@ namespace GameSDK
         private static readonly object _initLock = new object();
 
         // ==============================
-        // Debug Logging - Only compiled in DEBUG builds
+        // Debug Logging Configuration
         // ==============================
         
         /// <summary>
-        /// Log debug message (only in DEBUG builds).
+        /// Enable verbose debug/trace logging. Set to false for production.
         /// </summary>
-        [Conditional("DEBUG")]
+        public static bool VerboseLogging = false;
+        
+        /// <summary>
+        /// Log debug message (only when VerboseLogging is enabled).
+        /// </summary>
         private static void LogDebug(string message)
         {
-            GameSDK.ModHost.ModLogger.LogInternal("Il2CppRuntime", $"[DEBUG] {message}");
+            if (VerboseLogging)
+                GameSDK.ModHost.ModLogger.LogInternal("Il2CppRuntime", $"[DEBUG] {message}");
         }
         
         /// <summary>
-        /// Log trace message (only in DEBUG builds).
+        /// Log trace message (only when VerboseLogging is enabled).
         /// </summary>
-        [Conditional("DEBUG")]
         private static void LogTrace(string message)
         {
-            GameSDK.ModHost.ModLogger.LogInternal("Il2CppRuntime", $"[TRACE] {message}");
+            if (VerboseLogging)
+                GameSDK.ModHost.ModLogger.LogInternal("Il2CppRuntime", $"[TRACE] {message}");
         }
         
         /// <summary>
@@ -666,6 +671,218 @@ namespace GameSDK
             {
                 LogError($"InvokeStaticVoidByRva(0x{rva:X}): {ex.Message}");
             }
+        }
+
+        // ==============================
+        // Field Access Methods
+        // ==============================
+
+        /// <summary>
+        /// Get an instance field value by field name.
+        /// </summary>
+        /// <typeparam name="T">The type of the field value</typeparam>
+        /// <param name="instance">The object instance</param>
+        /// <param name="fieldName">The IL2CPP field name</param>
+        /// <returns>The field value, or default(T) on failure</returns>
+        public static T GetField<T>(object instance, string fieldName)
+        {
+            EnsureInitialized();
+
+            try
+            {
+                IntPtr nativeInstance = GetNativePointer(instance);
+                if (nativeInstance == IntPtr.Zero)
+                {
+                    LogError($"Instance is null for field {fieldName}");
+                    return default(T);
+                }
+
+                IntPtr klass = Il2CppBridge.mdb_object_get_class(nativeInstance);
+                if (klass == IntPtr.Zero)
+                {
+                    LogError($"Could not get class for instance when accessing field {fieldName}");
+                    return default(T);
+                }
+
+                IntPtr field = Il2CppBridge.mdb_get_field(klass, fieldName);
+                if (field == IntPtr.Zero)
+                {
+                    LogError($"Field not found: {fieldName}");
+                    return default(T);
+                }
+
+                int offset = Il2CppBridge.mdb_get_field_offset(field);
+                if (offset < 0)
+                {
+                    LogError($"Invalid field offset for {fieldName}");
+                    return default(T);
+                }
+
+                // Read the field value at instance + offset
+                return ReadFieldValue<T>(nativeInstance, offset);
+            }
+            catch (Exception ex)
+            {
+                LogError($"GetField<{typeof(T).Name}>({fieldName}): {ex.Message}");
+                return default(T);
+            }
+        }
+
+        /// <summary>
+        /// Set an instance field value by field name.
+        /// </summary>
+        /// <typeparam name="T">The type of the field value</typeparam>
+        /// <param name="instance">The object instance</param>
+        /// <param name="fieldName">The IL2CPP field name</param>
+        /// <param name="value">The value to set</param>
+        public static void SetField<T>(object instance, string fieldName, T value)
+        {
+            EnsureInitialized();
+
+            try
+            {
+                IntPtr nativeInstance = GetNativePointer(instance);
+                if (nativeInstance == IntPtr.Zero)
+                {
+                    LogError($"Instance is null for field {fieldName}");
+                    return;
+                }
+
+                IntPtr klass = Il2CppBridge.mdb_object_get_class(nativeInstance);
+                if (klass == IntPtr.Zero)
+                {
+                    LogError($"Could not get class for instance when accessing field {fieldName}");
+                    return;
+                }
+
+                IntPtr field = Il2CppBridge.mdb_get_field(klass, fieldName);
+                if (field == IntPtr.Zero)
+                {
+                    LogError($"Field not found: {fieldName}");
+                    return;
+                }
+
+                int offset = Il2CppBridge.mdb_get_field_offset(field);
+                if (offset < 0)
+                {
+                    LogError($"Invalid field offset for {fieldName}");
+                    return;
+                }
+
+                // Write the field value at instance + offset
+                WriteFieldValue<T>(nativeInstance, offset, value);
+            }
+            catch (Exception ex)
+            {
+                LogError($"SetField<{typeof(T).Name}>({fieldName}): {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Read a field value at a given offset from an instance pointer.
+        /// </summary>
+        private static T ReadFieldValue<T>(IntPtr instance, int offset)
+        {
+            Type t = typeof(T);
+
+            // Handle string specially - it's an IL2CPP string pointer
+            if (t == typeof(string))
+            {
+                IntPtr strPtr = Marshal.ReadIntPtr(instance, offset);
+                if (strPtr == IntPtr.Zero) return default(T);
+                return (T)(object)Il2CppBridge.Il2CppStringToManaged(strPtr);
+            }
+
+            // Handle other reference types (IL2CPP objects)
+            if (!t.IsValueType)
+            {
+                IntPtr objPtr = Marshal.ReadIntPtr(instance, offset);
+                if (objPtr == IntPtr.Zero) return default(T);
+                
+                // Create wrapper instance
+                if (typeof(Il2CppObject).IsAssignableFrom(t))
+                {
+                    return (T)Activator.CreateInstance(t, objPtr);
+                }
+                
+                return default(T);
+            }
+
+            // Handle primitive value types
+            if (t == typeof(int)) return (T)(object)Marshal.ReadInt32(instance, offset);
+            if (t == typeof(uint)) return (T)(object)(uint)Marshal.ReadInt32(instance, offset);
+            if (t == typeof(long)) return (T)(object)Marshal.ReadInt64(instance, offset);
+            if (t == typeof(ulong)) return (T)(object)(ulong)Marshal.ReadInt64(instance, offset);
+            if (t == typeof(short)) return (T)(object)Marshal.ReadInt16(instance, offset);
+            if (t == typeof(ushort)) return (T)(object)(ushort)Marshal.ReadInt16(instance, offset);
+            if (t == typeof(byte)) return (T)(object)Marshal.ReadByte(instance, offset);
+            if (t == typeof(sbyte)) return (T)(object)(sbyte)Marshal.ReadByte(instance, offset);
+            if (t == typeof(bool)) return (T)(object)(Marshal.ReadByte(instance, offset) != 0);
+            if (t == typeof(float))
+            {
+                int bits = Marshal.ReadInt32(instance, offset);
+                return (T)(object)BitConverter.ToSingle(BitConverter.GetBytes(bits), 0);
+            }
+            if (t == typeof(double))
+            {
+                long bits = Marshal.ReadInt64(instance, offset);
+                return (T)(object)BitConverter.ToDouble(BitConverter.GetBytes(bits), 0);
+            }
+            if (t == typeof(IntPtr)) return (T)(object)Marshal.ReadIntPtr(instance, offset);
+
+            LogError($"Unsupported field type: {t.Name}");
+            return default(T);
+        }
+
+        /// <summary>
+        /// Write a field value at a given offset on an instance pointer.
+        /// </summary>
+        private static void WriteFieldValue<T>(IntPtr instance, int offset, T value)
+        {
+            Type t = typeof(T);
+
+            // Handle string specially - need to create IL2CPP string
+            if (t == typeof(string))
+            {
+                string str = value as string;
+                IntPtr strPtr = str != null ? Il2CppBridge.ManagedStringToIl2Cpp(str) : IntPtr.Zero;
+                Marshal.WriteIntPtr(instance, offset, strPtr);
+                return;
+            }
+
+            // Handle other reference types (IL2CPP objects)
+            if (!t.IsValueType)
+            {
+                IntPtr objPtr = GetNativePointer(value);
+                Marshal.WriteIntPtr(instance, offset, objPtr);
+                return;
+            }
+
+            // Handle primitive value types
+            if (t == typeof(int)) { Marshal.WriteInt32(instance, offset, (int)(object)value); return; }
+            if (t == typeof(uint)) { Marshal.WriteInt32(instance, offset, (int)(uint)(object)value); return; }
+            if (t == typeof(long)) { Marshal.WriteInt64(instance, offset, (long)(object)value); return; }
+            if (t == typeof(ulong)) { Marshal.WriteInt64(instance, offset, (long)(ulong)(object)value); return; }
+            if (t == typeof(short)) { Marshal.WriteInt16(instance, offset, (short)(object)value); return; }
+            if (t == typeof(ushort)) { Marshal.WriteInt16(instance, offset, (short)(ushort)(object)value); return; }
+            if (t == typeof(byte)) { Marshal.WriteByte(instance, offset, (byte)(object)value); return; }
+            if (t == typeof(sbyte)) { Marshal.WriteByte(instance, offset, (byte)(sbyte)(object)value); return; }
+            if (t == typeof(bool)) { Marshal.WriteByte(instance, offset, (bool)(object)value ? (byte)1 : (byte)0); return; }
+            if (t == typeof(float))
+            {
+                byte[] bytes = BitConverter.GetBytes((float)(object)value);
+                Marshal.WriteInt32(instance, offset, BitConverter.ToInt32(bytes, 0));
+                return;
+            }
+            if (t == typeof(double))
+            {
+                byte[] bytes = BitConverter.GetBytes((double)(object)value);
+                Marshal.WriteInt64(instance, offset, BitConverter.ToInt64(bytes, 0));
+                return;
+            }
+            if (t == typeof(IntPtr)) { Marshal.WriteIntPtr(instance, offset, (IntPtr)(object)value); return; }
+
+            LogError($"Unsupported field type for writing: {t.Name}");
         }
     }
 }

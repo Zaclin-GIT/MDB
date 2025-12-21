@@ -1,8 +1,59 @@
 #!/usr/bin/env python3
 import os
 import re
+import json
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Set, Tuple
+
+
+# ============================================================================
+# DEOBFUSCATION MAPPING SUPPORT
+# Load mappings.json to use friendly names in generated wrappers
+# ============================================================================
+DEOBFUSCATION_MAPPINGS: Dict[str, Dict] = {}  # obfuscated_name -> mapping dict
+
+def load_deobfuscation_mappings(mappings_path: str = None):
+    """Load deobfuscation mappings from JSON file."""
+    global DEOBFUSCATION_MAPPINGS
+    DEOBFUSCATION_MAPPINGS.clear()
+    
+    if mappings_path is None:
+        # Look for mappings.json in common locations
+        search_paths = [
+            "mappings.json",
+            "../mappings.json",
+            os.path.join(os.path.dirname(__file__), "mappings.json"),
+            os.path.join(os.path.dirname(__file__), "..", "mappings.json"),
+        ]
+        for path in search_paths:
+            if os.path.exists(path):
+                mappings_path = path
+                break
+    
+    if mappings_path and os.path.exists(mappings_path):
+        try:
+            with open(mappings_path, 'r', encoding='utf-8') as f:
+                mappings_list = json.load(f)
+            for m in mappings_list:
+                obf_name = m.get("ObfuscatedName")
+                if obf_name:
+                    DEOBFUSCATION_MAPPINGS[obf_name] = m
+            print(f"[Deobfuscation] Loaded {len(DEOBFUSCATION_MAPPINGS)} mappings from {mappings_path}")
+        except Exception as e:
+            print(f"[Deobfuscation] Warning: Could not load mappings: {e}")
+    else:
+        print("[Deobfuscation] No mappings.json found - using obfuscated names")
+
+def get_friendly_name(obfuscated_name: str) -> Optional[str]:
+    """Get friendly name for an obfuscated symbol, or None if not mapped."""
+    mapping = DEOBFUSCATION_MAPPINGS.get(obfuscated_name)
+    if mapping:
+        return mapping.get("FriendlyName")
+    return None
+
+def get_mapping(obfuscated_name: str) -> Optional[Dict]:
+    """Get full mapping dict for an obfuscated symbol."""
+    return DEOBFUSCATION_MAPPINGS.get(obfuscated_name)
 
 
 # ============================================================================
@@ -662,10 +713,11 @@ def resolve_ambiguous_type(type_name: str, current_ns: str, imported_ns: set) ->
     Uses TYPE_REGISTRY to determine if type exists in multiple namespaces.
     
     Strategy:
-    1. If type is in current namespace, use it unqualified
-    2. If type exists in exactly one imported namespace, use it unqualified  
-    3. If type exists in multiple imported namespaces, fully qualify it
-    4. If type not found in registry, return as-is (it's a known type or will fail later)
+    1. Check if type name conflicts with a namespace part - fully qualify
+    2. If type is in current namespace, use it unqualified
+    3. If type exists in exactly one imported namespace, use it unqualified  
+    4. If type exists in multiple imported namespaces, fully qualify it
+    5. If type not found in registry, return as-is (it's a known type or will fail later)
     """
     # Handle array types
     is_array = type_name.endswith("[]")
@@ -674,6 +726,25 @@ def resolve_ambiguous_type(type_name: str, current_ns: str, imported_ns: set) ->
     # Skip primitives and known .NET types - they don't need qualification
     if base_type in TYPE_MAP or base_type in KNOWN_TYPES:
         return type_name
+    
+    # Check if type name conflicts with any part of the current namespace
+    # e.g., Camera in DecaGames.RotMG.Graphics.Camera namespace
+    if current_ns:
+        ns_parts = set(current_ns.split("."))
+        if base_type in ns_parts:
+            # Type name matches a namespace part - must fully qualify
+            # Find where this type actually exists
+            if base_type in TYPE_REGISTRY:
+                namespaces_with_type = TYPE_REGISTRY.get(base_type, [])
+                # Prefer UnityEngine namespace
+                for ns in namespaces_with_type:
+                    if ns.startswith("UnityEngine"):
+                        qualified = f"{ns}.{base_type}"
+                        return qualified + "[]" if is_array else qualified
+                # Fallback to first match
+                if namespaces_with_type:
+                    qualified = f"{namespaces_with_type[0]}.{base_type}"
+                    return qualified + "[]" if is_array else qualified
     
     # Check if this type exists in our registry
     if base_type not in TYPE_REGISTRY:
@@ -766,6 +837,12 @@ def map_type(il2cpp_type: str, current_ns: str = None, imported_ns: set = None) 
     
     # Map primitive types
     mapped = TYPE_MAP.get(base_type, base_type)
+    
+    # Apply deobfuscation mapping if available
+    # This ensures type references use friendly names, not just class declarations
+    friendly = get_friendly_name(mapped)
+    if friendly:
+        mapped = friendly
     
     # Re-add array suffix
     if is_array:
@@ -1137,7 +1214,14 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
             
             original_class_name = t.name
             is_unicode_class = is_unicode_name(t.name)
-            if is_unicode_class:
+            is_deobfuscated = False  # Track if we're using a friendly name from mappings
+            
+            # Check for deobfuscation mapping first
+            friendly_name = get_friendly_name(t.name)
+            if friendly_name:
+                class_name = friendly_name
+                is_deobfuscated = True
+            elif is_unicode_class:
                 unicode_class_counter += 1
                 class_name = f"unicode_class_{unicode_class_counter}"
             else:
@@ -1173,13 +1257,22 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
             # This avoids issues like Bone -> UnityEngine.XR.Bone when FinalIK Bone is intended
             if base_type and base_type in BASE_TYPE_DISAMBIGUATION:
                 base_type = BASE_TYPE_DISAMBIGUATION[base_type]
+            
+            # Also resolve base type via deobfuscation mappings
+            if base_type:
+                base_friendly = get_friendly_name(base_type)
+                if base_friendly:
+                    base_type = base_friendly
+            
             base_part = f" : {base_type}" if base_type else " : Il2CppObject"
             
             # Track if class was renamed due to conflicts
-            is_renamed_class = (class_name != original_class_name) and not is_unicode_class
+            is_renamed_class = (class_name != original_class_name) and not is_unicode_class and not is_deobfuscated
             
-            # Add XML doc for unicode classes or renamed classes
-            if is_unicode_class:
+            # Add XML doc for deobfuscated, unicode, or renamed classes
+            if is_deobfuscated:
+                body_lines.append(f"    /// <summary>Deobfuscated class. IL2CPP name: '{original_class_name}'</summary>")
+            elif is_unicode_class:
                 body_lines.append(f"    /// <summary>Obfuscated class. Original name: '{original_class_name}'</summary>")
             elif is_renamed_class:
                 body_lines.append(f"    /// <summary>Renamed to avoid conflict. Original IL2CPP name: '{original_class_name}'</summary>")
@@ -1187,8 +1280,8 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
             body_lines.append(f"    {t.visibility} partial class {class_name}{base_part}")
             body_lines.append("    {")
 
-            # For unicode classes, unicode namespaces, or renamed classes, store original name for IL2CPP lookups
-            if is_unicode_class or is_unicode_ns or is_renamed_class:
+            # For deobfuscated, unicode, renamed classes, or unicode namespaces, store original name for IL2CPP lookups
+            if is_deobfuscated or is_unicode_class or is_unicode_ns or is_renamed_class:
                 body_lines.append(f"        /// <summary>Original IL2CPP class name for runtime lookups</summary>")
                 body_lines.append(f"        private const string _il2cppClassName = \"{original_class_name}\";")
                 body_lines.append(f"        private const string _il2cppNamespace = \"{original_ns}\";")
@@ -1197,6 +1290,51 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
             # Constructor - always call base(nativePtr) since we inherit from Il2CppObject at minimum
             body_lines.append(f"        public {class_name}(IntPtr nativePtr) : base(nativePtr) {{ }}")
             body_lines.append("")
+
+            # Field Generation - Generate property accessors for public instance fields
+            # Skip fields with generic type parameters (T, TValue, etc.)
+            pub_instance_fields = [f for f in t.fields if f.visibility == "public" and not f.is_const and not is_generic_type_param(f.type)]
+            if pub_instance_fields:
+                body_lines.append("        // Fields")
+                unicode_field_counter = 0
+                for fld in pub_instance_fields:
+                    # Skip generic type params in field type
+                    if is_generic_type_param(fld.type):
+                        continue
+                    field_type = map_type(fld.type, ns, imported_ns)
+                    if field_type is None or not is_type_resolvable(fld.type, ns, imported_ns): 
+                        continue
+                    
+                    original_field_name = fld.name
+                    is_unicode_field = is_unicode_name(fld.name)
+                    is_deobfuscated_field = False
+                    
+                    # Check for deobfuscation mapping for this field
+                    field_friendly = get_friendly_name(f"{t.name}.{fld.name}") or get_friendly_name(fld.name)
+                    if field_friendly:
+                        display_field_name = field_friendly
+                        is_deobfuscated_field = True
+                    elif is_unicode_field:
+                        unicode_field_counter += 1
+                        display_field_name = f"unicode_field_{unicode_field_counter}"
+                    else:
+                        display_field_name = sanitize_name(fld.name)
+                        if not display_field_name: continue
+                    
+                    # Add doc comment for deobfuscated or unicode fields
+                    if is_deobfuscated_field:
+                        body_lines.append(f"        /// <summary>Deobfuscated field. IL2CPP name: '{original_field_name}'</summary>")
+                    elif is_unicode_field:
+                        body_lines.append(f"        /// <summary>Obfuscated field. Original name: '{original_field_name}'</summary>")
+                    
+                    # Generate property with getter and setter that use Il2CppRuntime.GetField/SetField
+                    body_lines.append(f"        public {field_type} {display_field_name}")
+                    body_lines.append("        {")
+                    body_lines.append(f"            get => Il2CppRuntime.GetField<{field_type}>(this, \"{original_field_name}\");")
+                    body_lines.append(f"            set => Il2CppRuntime.SetField<{field_type}>(this, \"{original_field_name}\", value);")
+                    body_lines.append("        }")
+                    body_lines.append("")
+                body_lines.append("")
 
             # Build a set of method names to avoid property conflicts
             method_names = {m.name for m in t.methods}
@@ -1228,7 +1366,15 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
                 for prop_name, prop_info in sorted(property_methods.items()):
                     original_prop_name = prop_name
                     is_unicode_prop = is_unicode_name(prop_name)
-                    if is_unicode_prop:
+                    is_deobfuscated_prop = False
+                    
+                    # Check for deobfuscation mapping for this property (field-level mapping)
+                    # Format: "ClassName.PropertyName" or just "PropertyName" 
+                    prop_friendly = get_friendly_name(f"{t.name}.{prop_name}") or get_friendly_name(prop_name)
+                    if prop_friendly:
+                        display_prop_name = prop_friendly
+                        is_deobfuscated_prop = True
+                    elif is_unicode_prop:
                         unicode_property_counter += 1
                         display_prop_name = f"unicode_property_{unicode_property_counter}"
                     else:
@@ -1255,8 +1401,13 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
                     static_keyword = "static " if is_static else ""
                     getter_rva = prop_info["get"].rva if prop_info["get"] else None
                     setter_rva = prop_info["set"].rva if prop_info["set"] else None
-                    if is_unicode_prop:
+                    
+                    # Add doc comment for deobfuscated or unicode properties
+                    if is_deobfuscated_prop:
+                        body_lines.append(f"        /// <summary>Deobfuscated property. IL2CPP name: '{original_prop_name}'</summary>")
+                    elif is_unicode_prop:
                         body_lines.append(f"        /// <summary>Obfuscated property. Original name: '{original_prop_name}'</summary>")
+                    
                     body_lines.append(f"        {visibility} {static_keyword}{prop_type} {display_prop_name}")
                     body_lines.append("        {")
                     if prop_info["get"]:
@@ -1296,7 +1447,16 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
                 unicode_method_counter = 0
                 for method in deduped_methods:
                     is_unicode_method = is_unicode_name(method.name)
-                    if is_unicode_method:
+                    is_deobfuscated_method = False
+                    original_method_name = method.name
+                    
+                    # Check for deobfuscation mapping for this method
+                    method_friendly = get_friendly_name(f"{t.name}.{method.name}") or get_friendly_name(method.name)
+                    if method_friendly:
+                        method_name = method_friendly
+                        is_deobfuscated_method = True
+                        use_rva = False
+                    elif is_unicode_method:
                         if not method.rva: continue
                         unicode_method_counter += 1
                         method_name, use_rva = f"unicode_method_{unicode_method_counter}", True
@@ -1333,8 +1493,10 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
 
                     static_keyword = "static " if method.is_static else ""
                     
-                    # Add comment for Unicode methods showing original name and RVA
-                    if use_rva:
+                    # Add comment for deobfuscated or Unicode methods showing original name
+                    if is_deobfuscated_method:
+                        body_lines.append(f"        /// <summary>Deobfuscated method. IL2CPP name: '{original_method_name}'</summary>")
+                    elif use_rva:
                         body_lines.append(f"        /// <summary>Obfuscated method. Original name: {repr(method.name)}, RVA: {method.rva}</summary>")
                     
                     body_lines.append(f"        {method.visibility} {static_keyword}{return_type} {method_name}{type_params_clause}({param_list})")
@@ -1362,14 +1524,14 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
                         args_suffix = f", {param_names}" if param_names else ""
                         if is_void:
                             if is_stat:
-                                body_lines.append(f'            Il2CppRuntime.InvokeStaticVoid("{original_ns}", "{original_class_name}", "{method.name}", {param_types_decl}{args_suffix});')
+                                body_lines.append(f'            Il2CppRuntime.InvokeStaticVoid("{original_ns}", "{original_class_name}", "{original_method_name}", {param_types_decl}{args_suffix});')
                             else:
-                                body_lines.append(f'            Il2CppRuntime.InvokeVoid(this, "{method.name}", {param_types_decl}{args_suffix});')
+                                body_lines.append(f'            Il2CppRuntime.InvokeVoid(this, "{original_method_name}", {param_types_decl}{args_suffix});')
                         else:
                             if is_stat:
-                                body_lines.append(f'            return Il2CppRuntime.CallStatic<{return_type}>("{original_ns}", "{original_class_name}", "{method.name}", {param_types_decl}{args_suffix});')
+                                body_lines.append(f'            return Il2CppRuntime.CallStatic<{return_type}>("{original_ns}", "{original_class_name}", "{original_method_name}", {param_types_decl}{args_suffix});')
                             else:
-                                body_lines.append(f'            return Il2CppRuntime.Call<{return_type}>(this, "{method.name}", {param_types_decl}{args_suffix});')
+                                body_lines.append(f'            return Il2CppRuntime.Call<{return_type}>(this, "{original_method_name}", {param_types_decl}{args_suffix});')
                     body_lines.append("        }")
                     body_lines.append("")
 
@@ -1566,6 +1728,10 @@ def main():
         print(f"[ERROR] Could not find: {dump_path}")
         return
     os.makedirs(output_dir, exist_ok=True)
+
+    # Load deobfuscation mappings if available
+    mappings_path = os.path.join(dump_dir, "mappings.json")
+    load_deobfuscation_mappings(mappings_path)
 
     print(f"[+] Parsing: {dump_path}")
     types = parse_dump_file(dump_path)

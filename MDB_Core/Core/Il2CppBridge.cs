@@ -569,6 +569,17 @@ namespace GameSDK
             return buffer.ToString(0, length);
         }
 
+        /// <summary>
+        /// Convert a managed string to an IL2CPP string.
+        /// </summary>
+        public static IntPtr ManagedStringToIl2Cpp(string managedString)
+        {
+            if (managedString == null)
+                return IntPtr.Zero;
+
+            return mdb_string_new(managedString);
+        }
+
         // ==============================
         // OnGUI Hook Support
         // ==============================

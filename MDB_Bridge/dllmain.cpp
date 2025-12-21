@@ -60,10 +60,15 @@ static void allocate_console() {
         
         // Set console colors for better readability
         HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-        SetConsoleTextAttribute(hConsole, FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+        
+        // Print header in purple/magenta
+        SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+        printf("=== MDB Framework Console ===\n\n");
+        
+        // Reset to default gray for subsequent output
+        SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
         
         g_console_allocated = true;
-        printf("=== MDB Framework Console ===\n\n");
     }
 }
 
@@ -104,12 +109,28 @@ static void log_message(const char* format, ...) {
     
     // Also print to console if available
     if (g_console_allocated) {
+        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+        
+        // Set color based on log level in format string
+        // Blue for INFO, Yellow for WARN, Red for ERROR
+        if (strstr(format, "[ERROR]")) {
+            SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
+        } else if (strstr(format, "[WARN]")) {
+            SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
+        } else {
+            // Default to blue for INFO and other messages
+            SetConsoleTextAttribute(hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+        }
+        
         va_list args_copy;
         va_copy(args_copy, args);
         printf("%s", timestamp);
         vprintf(format, args_copy);
         printf("\n");
         va_end(args_copy);
+        
+        // Reset to default gray
+        SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
     }
     
     va_end(args);
@@ -218,8 +239,6 @@ static bool load_managed_assemblies() {
     
     if (retVal != 0) {
         LOG_WARN("ModManager.Initialize returned: %d", retVal);
-    } else {
-        LOG_INFO("ModManager initialized successfully");
     }
     
     g_mods_loaded = true;
@@ -263,8 +282,6 @@ static void shutdown_clr() {
 // Background thread for initialization
 // We delay initialization to ensure the game has loaded IL2CPP
 static DWORD WINAPI initialization_thread(LPVOID lpParam) {
-    LOG_INFO("=== MDB Framework Starting ===");
-    
     // Wait for GameAssembly.dll to be loaded
     LOG_DEBUG("Waiting for GameAssembly.dll...");
     HMODULE hGameAssembly = nullptr;
@@ -312,7 +329,6 @@ static DWORD WINAPI initialization_thread(LPVOID lpParam) {
         return 1;
     }
     
-    LOG_INFO("=== MDB Framework Ready ===");
     return 0;
 }
 

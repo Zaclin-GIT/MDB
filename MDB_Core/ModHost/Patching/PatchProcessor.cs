@@ -80,14 +80,14 @@ namespace GameSDK.ModHost.Patching
         private delegate IntPtr Detour6(IntPtr arg0, IntPtr arg1, IntPtr arg2, IntPtr arg3, IntPtr arg4, IntPtr arg5, IntPtr methodInfo);
 
         #endregion
+        
+        private static bool _hooksHeaderShown = false;
 
         /// <summary>
         /// Process and apply all patches from an assembly.
         /// </summary>
         public static int ProcessAssembly(Assembly assembly)
         {
-            _logger.Info($"Processing patches from: {assembly.GetName().Name}");
-
             List<PatchInfo> appliedPatches = new List<PatchInfo>();
 
             Type[] types;
@@ -115,7 +115,6 @@ namespace GameSDK.ModHost.Patching
             if (appliedPatches.Count > 0)
             {
                 _patchesByAssembly[assembly] = appliedPatches;
-                _logger.Info($"Applied {appliedPatches.Count} patch(es) from {assembly.GetName().Name}");
             }
 
             return appliedPatches.Count;
@@ -246,7 +245,8 @@ namespace GameSDK.ModHost.Patching
         private static bool ApplyPatch(PatchInfo patchInfo, string assembly)
         {
             string target = $"{patchInfo.TargetNamespace}.{patchInfo.TargetTypeName}.{patchInfo.TargetMethodName}";
-            _logger.Info($"Applying patch to: {target}");
+            // Clean up target name - remove leading dots
+            target = target.TrimStart('.');
 
             IntPtr methodPtr = IntPtr.Zero;
 
@@ -305,7 +305,14 @@ namespace GameSDK.ModHost.Patching
                 return false;
             }
 
-            _logger.Info($"  Successfully patched: {target}");
+            // Show hooks section header on first hook
+            if (!_hooksHeaderShown)
+            {
+                ModLogger.Section("Hooks", ConsoleColor.Magenta);
+                _hooksHeaderShown = true;
+            }
+            
+            _logger.Info($"+ {target}", ConsoleColor.Blue);
             return true;
         }
 
@@ -691,13 +698,14 @@ namespace GameSDK.ModHost.Patching
             {
                 if (patch.HookHandle > 0)
                 {
+                    string target = GetPatchTargetName(patch);
                     Il2CppBridge.mdb_remove_hook(patch.HookHandle);
                     _hookToPatch.Remove(patch.HookHandle);
+                    _logger.Info($"x {target}", ConsoleColor.Red);
                 }
             }
 
             _patchesByAssembly.Remove(assembly);
-            _logger.Info($"Removed all patches from: {assembly.GetName().Name}");
         }
 
         public static IEnumerable<PatchInfo> GetAllPatches()
@@ -710,6 +718,81 @@ namespace GameSDK.ModHost.Patching
             return _patchesByClass.TryGetValue(patchClass, out List<PatchInfo> patches)
                 ? patches
                 : Enumerable.Empty<PatchInfo>();
+        }
+        
+        /// <summary>
+        /// Enable a hook by its handle.
+        /// </summary>
+        public static bool EnableHook(long hookHandle)
+        {
+            if (!_hookToPatch.TryGetValue(hookHandle, out PatchInfo patch))
+                return false;
+                
+            int result = Il2CppBridge.mdb_set_hook_enabled(hookHandle, true);
+            if (result == 0)
+            {
+                string target = GetPatchTargetName(patch);
+                _logger.Info($"+ {target}", ConsoleColor.Blue);
+                return true;
+            }
+            return false;
+        }
+        
+        /// <summary>
+        /// Disable a hook by its handle.
+        /// </summary>
+        public static bool DisableHook(long hookHandle)
+        {
+            if (!_hookToPatch.TryGetValue(hookHandle, out PatchInfo patch))
+                return false;
+                
+            int result = Il2CppBridge.mdb_set_hook_enabled(hookHandle, false);
+            if (result == 0)
+            {
+                string target = GetPatchTargetName(patch);
+                _logger.Info($"- {target}", ConsoleColor.DarkGray);
+                return true;
+            }
+            return false;
+        }
+        
+        /// <summary>
+        /// Enable or disable a hook by its handle.
+        /// </summary>
+        public static bool SetHookEnabled(long hookHandle, bool enabled)
+        {
+            return enabled ? EnableHook(hookHandle) : DisableHook(hookHandle);
+        }
+        
+        /// <summary>
+        /// Enable or disable a hook by patch class type.
+        /// </summary>
+        public static bool SetHookEnabled(Type patchClass, bool enabled)
+        {
+            if (!_patchesByClass.TryGetValue(patchClass, out List<PatchInfo> patches))
+                return false;
+                
+            bool allSuccess = true;
+            foreach (var patch in patches)
+            {
+                if (patch.HookHandle > 0)
+                {
+                    if (!SetHookEnabled(patch.HookHandle, enabled))
+                        allSuccess = false;
+                }
+            }
+            return allSuccess;
+        }
+        
+        private static string GetPatchTargetName(PatchInfo patch)
+        {
+            string ns = patch.TargetNamespace;
+            string type = patch.TargetTypeName;
+            string method = patch.TargetMethodName;
+            
+            if (!string.IsNullOrEmpty(ns))
+                return $"{ns}.{type}.{method}";
+            return $"{type}.{method}";
         }
     }
 }

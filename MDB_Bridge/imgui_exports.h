@@ -67,7 +67,11 @@ IMGUI_EXPORT void igPopStyleColor(int count);
 
 // ===== Item/Widget utilities =====
 IMGUI_EXPORT bool igIsItemClicked(ImGuiMouseButton mouse_button);
+IMGUI_EXPORT bool igIsItemHovered(ImGuiHoveredFlags flags);
 IMGUI_EXPORT bool igIsItemToggledOpen();
+
+// ===== Tooltips =====
+IMGUI_EXPORT void igSetTooltip(const char* fmt, ...);
 
 // ===== Widgets: Combo =====
 IMGUI_EXPORT bool igBeginCombo(const char* label, const char* preview_value, ImGuiComboFlags flags);
@@ -97,6 +101,16 @@ IMGUI_EXPORT bool igColorButton(const char* desc_id, ImVec4 col, ImGuiColorEditF
 
 // ===== Widgets: Buttons =====
 IMGUI_EXPORT bool igSmallButton(const char* label);
+
+// ===== Context Menus / Popups =====
+IMGUI_EXPORT bool igBeginPopupContextItem(const char* str_id, ImGuiPopupFlags popup_flags);
+IMGUI_EXPORT bool igBeginPopup(const char* str_id, ImGuiWindowFlags flags);
+IMGUI_EXPORT void igEndPopup();
+IMGUI_EXPORT void igOpenPopup_Str(const char* str_id, ImGuiPopupFlags popup_flags);
+IMGUI_EXPORT void igCloseCurrentPopup();
+
+// ===== Clipboard =====
+IMGUI_EXPORT void igSetClipboardText(const char* text);
 
 #ifdef __cplusplus
 }
