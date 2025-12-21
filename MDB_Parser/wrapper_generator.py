@@ -236,8 +236,9 @@ PARAM_RE = re.compile(
 )
 
 # Matches enum/class fields like: public const OGEFGINAMLN None = 0;
+# Also matches protected fields for IL2CPP modding access
 FIELD_RE = re.compile(
-    r'^\s*(public|internal|private)\s+'
+    r'^\s*(public|protected|internal|private)\s+'
     r'(const\s+)?'
     r'([\w\.`\[\]]+)\s+'
     r'(\w+)\s*'
@@ -1291,13 +1292,14 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
             body_lines.append(f"        public {class_name}(IntPtr nativePtr) : base(nativePtr) {{ }}")
             body_lines.append("")
 
-            # Field Generation - Generate property accessors for public instance fields
+            # Field Generation - Generate property accessors for public AND protected instance fields
             # Skip fields with generic type parameters (T, TValue, etc.)
-            pub_instance_fields = [f for f in t.fields if f.visibility == "public" and not f.is_const and not is_generic_type_param(f.type)]
-            if pub_instance_fields:
+            # Include protected fields since IL2CPP modding often requires accessing them
+            accessible_fields = [f for f in t.fields if f.visibility in ("public", "protected") and not f.is_const and not is_generic_type_param(f.type)]
+            if accessible_fields:
                 body_lines.append("        // Fields")
                 unicode_field_counter = 0
-                for fld in pub_instance_fields:
+                for fld in accessible_fields:
                     # Skip generic type params in field type
                     if is_generic_type_param(fld.type):
                         continue
