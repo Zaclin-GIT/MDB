@@ -245,6 +245,50 @@ MDB_API void* mdb_invoke_method(void* method, void* instance, void** args, void*
     return result;
 }
 
+MDB_API void* mdb_method_get_param_type(void* method, int index) {
+    clear_error();
+    if (!method) {
+        set_error(MdbErrorCode::NullPointer, "Invalid argument: method is null");
+        return nullptr;
+    }
+    
+    auto* mi = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppMethodInfo*>(method);
+    
+    if (index < 0 || index >= mi->m_uArgsCount) {
+        set_error(MdbErrorCode::InvalidArgument, "Parameter index out of range");
+        return nullptr;
+    }
+    
+    if (!mi->m_pParameters) {
+        set_error(MdbErrorCode::InvalidArgument, "Method has no parameter info");
+        return nullptr;
+    }
+    
+    return mi->m_pParameters[index].m_pParameterType;
+}
+
+MDB_API void* mdb_method_get_return_type(void* method) {
+    clear_error();
+    if (!method) {
+        set_error(MdbErrorCode::NullPointer, "Invalid argument: method is null");
+        return nullptr;
+    }
+    
+    auto* mi = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppMethodInfo*>(method);
+    return mi->m_pReturnType;
+}
+
+MDB_API int mdb_type_get_type_enum(void* type) {
+    clear_error();
+    if (!type) {
+        set_error(MdbErrorCode::NullPointer, "Invalid argument: type is null");
+        return -1;
+    }
+    
+    auto* il2cpp_type = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppType*>(type);
+    return static_cast<int>(il2cpp_type->m_uType);
+}
+
 // ==============================
 // Field Access
 // ==============================
@@ -2229,12 +2273,7 @@ MDB_API const char* mdb_type_get_name(void* type) {
     return il2cpp_type_get_name_fn(type);
 }
 
-// Get type kind (int, float, string, object, etc.)
-MDB_API int mdb_type_get_type_enum(void* type) {
-    if (!type) return -1;
-    auto* t = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppType*>(type);
-    return t->m_uType;
-}
+// NOTE: mdb_type_get_type_enum is defined earlier in this file with proper error handling
 
 // Get property count for a class
 MDB_API int mdb_class_get_property_count(void* klass) {
@@ -2347,12 +2386,7 @@ MDB_API int mdb_method_get_param_count(void* method) {
     return mi->m_uArgsCount;
 }
 
-// Get method return type
-MDB_API void* mdb_method_get_return_type(void* method) {
-    if (!method) return nullptr;
-    auto* mi = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppMethodInfo*>(method);
-    return mi->m_pReturnType;
-}
+// NOTE: mdb_method_get_return_type is defined earlier in this file with proper error handling
 
 // Get method flags (to check if static, public, etc.)
 MDB_API int mdb_method_get_flags(void* method) {

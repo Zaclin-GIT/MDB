@@ -151,6 +151,45 @@ namespace GameSDK
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "mdb_invoke_method")]
         public static extern IntPtr mdb_invoke_method_ptr(IntPtr method, IntPtr instance, IntPtr args, out IntPtr exception);
 
+        /// <summary>
+        /// Get the parameter type for a method at a specific index.
+        /// </summary>
+        /// <param name="method">Pointer to MethodInfo</param>
+        /// <param name="index">Parameter index (0-based)</param>
+        /// <returns>Pointer to Il2CppType, or IntPtr.Zero if invalid</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr mdb_method_get_param_type(IntPtr method, int index);
+
+        /// <summary>
+        /// Get the return type for a method.
+        /// </summary>
+        /// <param name="method">Pointer to MethodInfo</param>
+        /// <returns>Pointer to Il2CppType, or IntPtr.Zero if invalid</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr mdb_method_get_return_type(IntPtr method);
+
+        /// <summary>
+        /// Get the type enum value from an Il2CppType.
+        /// </summary>
+        /// <param name="type">Pointer to Il2CppType</param>
+        /// <returns>Type enum value, or -1 on error</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_type_get_type_enum(IntPtr type);
+
+        // IL2CPP type enum constants
+        public const int IL2CPP_TYPE_VOID = 0x01;
+        public const int IL2CPP_TYPE_BOOLEAN = 0x02;
+        public const int IL2CPP_TYPE_I4 = 0x08;     // int
+        public const int IL2CPP_TYPE_U4 = 0x09;     // uint
+        public const int IL2CPP_TYPE_I8 = 0x0a;     // long
+        public const int IL2CPP_TYPE_U8 = 0x0b;     // ulong
+        public const int IL2CPP_TYPE_R4 = 0x0c;     // float
+        public const int IL2CPP_TYPE_R8 = 0x0d;     // double
+        public const int IL2CPP_TYPE_STRING = 0x0e;
+        public const int IL2CPP_TYPE_PTR = 0x0f;
+        public const int IL2CPP_TYPE_CLASS = 0x12;
+        public const int IL2CPP_TYPE_OBJECT = 0x1c;
+
         // ==============================
         // RVA-based Method Access
         // ==============================
@@ -803,10 +842,6 @@ namespace GameSDK
             }
         }
 
-        /// <summary>Get type enum (IL2CPP_TYPE_*).</summary>
-        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        public static extern int mdb_type_get_type_enum(IntPtr type);
-
         /// <summary>Get class from type.</summary>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr mdb_type_get_class(IntPtr type);
@@ -867,10 +902,6 @@ namespace GameSDK
         /// <summary>Get method parameter count.</summary>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         public static extern int mdb_method_get_param_count(IntPtr method);
-
-        /// <summary>Get method return type.</summary>
-        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        public static extern IntPtr mdb_method_get_return_type(IntPtr method);
 
         /// <summary>Get method flags.</summary>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]

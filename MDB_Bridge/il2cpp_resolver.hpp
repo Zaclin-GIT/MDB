@@ -710,7 +710,8 @@ namespace il2cpp {
 			const std::string& class_name,
 			const std::string& assembly_name)
 	{
-		if (ns.empty() || class_name.empty() || assembly_name.empty())
+		// Allow empty namespace for global classes (e.g., obfuscated game classes)
+		if (class_name.empty() || assembly_name.empty())
 			return { Il2CppStatus::InvalidArgs, nullptr };
 
 		auto a = _internal::find_assembly(assembly_name);
@@ -728,7 +729,8 @@ namespace il2cpp {
 			const std::string& class_name,
 			const std::string& assembly_name = IL2CPP_FALLBACK_ASSEMBLY)
 	{
-		if (ns.empty() || class_name.empty() || assembly_name.empty())
+		// Allow empty namespace for global classes
+		if (class_name.empty() || assembly_name.empty())
 			return { Il2CppStatus::InvalidArgs, 0 };
 
 		auto c = find_class(ns, class_name, assembly_name);
@@ -768,7 +770,8 @@ namespace il2cpp {
 			const std::string& assembly_name,
 			std::optional<int> param_count = std::nullopt)
 	{
-		if (ns.empty() || class_name.empty() || method_name.empty() || assembly_name.empty())
+		// Allow empty namespace for global classes
+		if (class_name.empty() || method_name.empty() || assembly_name.empty())
 			return { Il2CppStatus::InvalidArgs, nullptr };
 
 		auto c = find_class(ns, class_name, assembly_name);
@@ -799,7 +802,8 @@ namespace il2cpp {
 			const std::string& field_name,
 			const std::string& assembly_name)
 	{
-		if (ns.empty() || class_name.empty() || field_name.empty() || assembly_name.empty())
+		// Allow empty namespace for global classes
+		if (class_name.empty() || field_name.empty() || assembly_name.empty())
 			return { Il2CppStatus::InvalidArgs, -1 };
 
 		auto c = find_class(ns, class_name, assembly_name);

@@ -130,6 +130,29 @@ extern "C" {
     /// <returns>Return value pointer (nullptr for void methods)</returns>
     MDB_API void* mdb_invoke_method(void* method, void* instance, void** args, void** exception);
     
+    /// <summary>
+    /// Get the parameter type for a method at a specific index.
+    /// </summary>
+    /// <param name="method">Pointer to MethodInfo</param>
+    /// <param name="index">Parameter index (0-based)</param>
+    /// <returns>Pointer to Il2CppType, or nullptr if invalid</returns>
+    MDB_API void* mdb_method_get_param_type(void* method, int index);
+    
+    /// <summary>
+    /// Get the return type for a method.
+    /// </summary>
+    /// <param name="method">Pointer to MethodInfo</param>
+    /// <returns>Pointer to Il2CppType, or nullptr if invalid</returns>
+    MDB_API void* mdb_method_get_return_type(void* method);
+    
+    /// <summary>
+    /// Get the type enum value from an Il2CppType.
+    /// Common values: 0x0c = float (R4), 0x0d = double (R8), 0x01 = void
+    /// </summary>
+    /// <param name="type">Pointer to Il2CppType</param>
+    /// <returns>Type enum value, or -1 on error</returns>
+    MDB_API int mdb_type_get_type_enum(void* type);
+    
     // ==============================
     // RVA-based Method Access
     // ==============================
