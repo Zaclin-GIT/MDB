@@ -1295,7 +1295,18 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
             # Field Generation - Generate property accessors for public AND protected instance fields
             # Skip fields with generic type parameters (T, TValue, etc.)
             # Include protected fields since IL2CPP modding often requires accessing them
-            accessible_fields = [f for f in t.fields if f.visibility in ("public", "protected") and not f.is_const and not is_generic_type_param(f.type)]
+            # Also include private fields if they have a deobfuscation mapping (explicitly identified as useful)
+            def should_include_field(f):
+                if f.is_const or is_generic_type_param(f.type):
+                    return False
+                if f.visibility in ("public", "protected"):
+                    return True
+                # Include private fields only if they have a deobfuscation mapping
+                if f.visibility == "private":
+                    field_mapping = get_friendly_name(f"{t.name}.{f.name}") or get_friendly_name(f.name)
+                    return field_mapping is not None
+                return False
+            accessible_fields = [f for f in t.fields if should_include_field(f)]
             if accessible_fields:
                 body_lines.append("        // Fields")
                 unicode_field_counter = 0
