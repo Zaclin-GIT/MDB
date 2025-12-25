@@ -14,6 +14,9 @@
 
 #include <mutex>
 #include <atomic>
+#include <vector>
+#include <string>
+#include <algorithm>
 
 // ========== Forward declarations ==========
 
@@ -34,9 +37,23 @@ std::atomic<bool> g_inputEnabled{ true };
 std::atomic<int> g_toggleKey{ VK_F2 };
 bool g_toggleKeyWasDown = false;
 
-// Draw callback from C#
-MdbImGuiDrawCallback g_drawCallback = nullptr;
+// ========== Multi-Callback System ==========
+
+struct ImGuiCallbackInfo {
+    int id;
+    std::string name;
+    MdbImGuiDrawCallback callback;
+    int priority;
+    bool enabled;
+};
+
+// Vector of registered callbacks sorted by priority
+std::vector<ImGuiCallbackInfo> g_callbacks;
 std::mutex g_callbackMutex;
+std::atomic<int> g_nextCallbackId{ 1 };
+
+// Legacy single callback for backwards compatibility
+MdbImGuiDrawCallback g_legacyCallback = nullptr;
 
 // DX11 state
 ID3D11Device* g_pd3dDevice11 = nullptr;
@@ -60,6 +77,39 @@ PFN_Present g_originalPresent = nullptr;
 
 typedef void(WINAPI* PFN_ExecuteCommandLists)(ID3D12CommandQueue*, UINT, ID3D12CommandList* const*);
 PFN_ExecuteCommandLists g_originalExecuteCommandLists = nullptr;
+
+// Helper: Invoke all registered callbacks
+void InvokeAllCallbacks() {
+    std::lock_guard<std::mutex> lock(g_callbackMutex);
+    
+    // Invoke legacy callback first (if any)
+    if (g_legacyCallback) {
+        try {
+            g_legacyCallback();
+        } catch (...) {
+            // Silently ignore callback errors
+        }
+    }
+    
+    // Invoke all registered callbacks in priority order
+    for (const auto& info : g_callbacks) {
+        if (info.enabled && info.callback) {
+            try {
+                info.callback();
+            } catch (...) {
+                // Silently ignore callback errors
+            }
+        }
+    }
+}
+
+// Helper: Sort callbacks by priority (higher priority first)
+void SortCallbacks() {
+    std::sort(g_callbacks.begin(), g_callbacks.end(),
+        [](const ImGuiCallbackInfo& a, const ImGuiCallbackInfo& b) {
+            return a.priority > b.priority;
+        });
+}
 
 // ========== DX11 Helpers ==========
 
@@ -175,22 +225,25 @@ HRESULT WINAPI HookedPresent11(IDXGISwapChain* pSwapChain, UINT SyncInterval, UI
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
-        // Call the registered draw callback
+        // Invoke all registered callbacks (including legacy)
+        bool hasCallbacks = false;
         {
             std::lock_guard<std::mutex> lock(g_callbackMutex);
-            if (g_drawCallback) {
-                g_drawCallback();
-            }
-            else {
-                // Default: show a simple overlay if no callback registered
-                if (g_inputEnabled.load()) {
-                    ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
-                    ImGui::Begin("MDB Explorer", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
-                    ImGui::Text("ImGui initialized successfully!");
-                    ImGui::Text("Press F2 to toggle input capture");
-                    ImGui::Text("Waiting for C# callback...");
-                    ImGui::End();
-                }
+            hasCallbacks = g_legacyCallback != nullptr || !g_callbacks.empty();
+        }
+        
+        if (hasCallbacks) {
+            InvokeAllCallbacks();
+        }
+        else {
+            // Default: show a simple overlay if no callback registered
+            if (g_inputEnabled.load()) {
+                ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
+                ImGui::Begin("MDB Explorer", nullptr, ImGuiWindowFlags_AlwaysAutoResize);
+                ImGui::Text("ImGui initialized successfully!");
+                ImGui::Text("Press F2 to toggle input capture");
+                ImGui::Text("Waiting for C# callback...");
+                ImGui::End();
             }
         }
 
@@ -325,6 +378,13 @@ MDB_IMGUI_API void mdb_imgui_shutdown() {
 
     g_initialized.store(false);
 
+    // Clear all callbacks
+    {
+        std::lock_guard<std::mutex> lock(g_callbackMutex);
+        g_callbacks.clear();
+        g_legacyCallback = nullptr;
+    }
+
     // Restore WndProc
     if (g_hWnd && g_originalWndProc) {
         SetWindowLongPtrW(g_hWnd, GWLP_WNDPROC, (LONG_PTR)g_originalWndProc);
@@ -347,9 +407,67 @@ MDB_IMGUI_API bool mdb_imgui_is_initialized() {
     return g_initialized.load();
 }
 
+// Legacy single callback (backwards compatibility)
 MDB_IMGUI_API void mdb_imgui_register_draw_callback(MdbImGuiDrawCallback callback) {
     std::lock_guard<std::mutex> lock(g_callbackMutex);
-    g_drawCallback = callback;
+    g_legacyCallback = callback;
+}
+
+// ========== Multi-Callback API ==========
+
+MDB_IMGUI_API int mdb_imgui_add_callback(const char* name, MdbImGuiDrawCallback callback, int priority) {
+    if (!callback) {
+        return 0;
+    }
+    
+    std::lock_guard<std::mutex> lock(g_callbackMutex);
+    
+    int id = g_nextCallbackId.fetch_add(1);
+    
+    ImGuiCallbackInfo info;
+    info.id = id;
+    info.name = name ? name : "";
+    info.callback = callback;
+    info.priority = priority;
+    info.enabled = true;
+    
+    g_callbacks.push_back(info);
+    SortCallbacks();
+    
+    return id;
+}
+
+MDB_IMGUI_API bool mdb_imgui_remove_callback(int callbackId) {
+    std::lock_guard<std::mutex> lock(g_callbackMutex);
+    
+    auto it = std::find_if(g_callbacks.begin(), g_callbacks.end(),
+        [callbackId](const ImGuiCallbackInfo& info) { return info.id == callbackId; });
+    
+    if (it != g_callbacks.end()) {
+        g_callbacks.erase(it);
+        return true;
+    }
+    
+    return false;
+}
+
+MDB_IMGUI_API bool mdb_imgui_set_callback_enabled(int callbackId, bool enabled) {
+    std::lock_guard<std::mutex> lock(g_callbackMutex);
+    
+    auto it = std::find_if(g_callbacks.begin(), g_callbacks.end(),
+        [callbackId](const ImGuiCallbackInfo& info) { return info.id == callbackId; });
+    
+    if (it != g_callbacks.end()) {
+        it->enabled = enabled;
+        return true;
+    }
+    
+    return false;
+}
+
+MDB_IMGUI_API int mdb_imgui_get_callback_count() {
+    std::lock_guard<std::mutex> lock(g_callbackMutex);
+    return static_cast<int>(g_callbacks.size()) + (g_legacyCallback ? 1 : 0);
 }
 
 MDB_IMGUI_API void mdb_imgui_set_input_enabled(bool enabled) {

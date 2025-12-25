@@ -5,6 +5,7 @@
     <LangVersion>9.0</LangVersion>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <NoWarn>SYSLIB0011</NoWarn>
     <AssemblyName>GameSDK.Core</AssemblyName>

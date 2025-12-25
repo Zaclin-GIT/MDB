@@ -14,6 +14,7 @@
     <AssemblyName>GameSDK.ModHost</AssemblyName>
     <RootNamespace>GameSDK</RootNamespace>
     <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Output to GameDir\MDB\Managed (two levels up from Dump\MDB_Core) -->
     <OutputPath>..\..\Managed\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
@@ -25,6 +26,8 @@
     <Compile Include="Core\Il2CppBridge.cs" />
     <Compile Include="Core\Il2CppMarshaler.cs" />
     <Compile Include="Core\Il2CppStringHelper.cs" />
+    <Compile Include="Core\ImGui.cs" />
+    <Compile Include="Core\ImGuiManager.cs" />
     <Compile Include="Core\UnityEngineBase.cs" />
     <Compile Include="Core\UnityValueTypes.cs" />
     <Compile Include="ModHost\*.cs" />

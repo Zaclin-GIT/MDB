@@ -52,8 +52,23 @@ MDB_IMGUI_API bool mdb_imgui_is_initialized();
 // Called each frame during Present hook, after ImGui::NewFrame()
 typedef void (*MdbImGuiDrawCallback)();
 
-// Register a draw callback (called from C#)
+// Register a draw callback (called from C#) - DEPRECATED: use multi-callback API
 MDB_IMGUI_API void mdb_imgui_register_draw_callback(MdbImGuiDrawCallback callback);
+
+// ========== Multi-Callback API ==========
+
+// Register a named draw callback (supports multiple mods)
+// Returns callback ID on success, 0 on failure
+MDB_IMGUI_API int mdb_imgui_add_callback(const char* name, MdbImGuiDrawCallback callback, int priority);
+
+// Remove a callback by ID
+MDB_IMGUI_API bool mdb_imgui_remove_callback(int callbackId);
+
+// Enable or disable a callback by ID
+MDB_IMGUI_API bool mdb_imgui_set_callback_enabled(int callbackId, bool enabled);
+
+// Get the number of registered callbacks
+MDB_IMGUI_API int mdb_imgui_get_callback_count();
 
 // ========== Input Control ==========
 

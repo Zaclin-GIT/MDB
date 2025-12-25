@@ -29,13 +29,59 @@ namespace GameSDK
 
         /// <summary>
         /// Returns true if this object has a valid native pointer.
+        /// Check this before accessing any properties or methods to avoid IL2CPP errors.
         /// </summary>
         public bool IsValid => NativePtr != IntPtr.Zero;
+
+        /// <summary>
+        /// Safe equality check that handles null and invalid pointers.
+        /// </summary>
+        public override bool Equals(object obj)
+        {
+            if (obj == null) return NativePtr == IntPtr.Zero;
+            if (obj is Il2CppObject other) return NativePtr == other.NativePtr;
+            if (obj is IntPtr ptr) return NativePtr == ptr;
+            return false;
+        }
+
+        public override int GetHashCode() => NativePtr.GetHashCode();
 
         /// <summary>
         /// Implicit conversion to IntPtr for P/Invoke calls.
         /// </summary>
         public static implicit operator IntPtr(Il2CppObject obj) => obj?.NativePtr ?? IntPtr.Zero;
+
+        /// <summary>
+        /// Null-check operator for cleaner null-coalescing patterns.
+        /// Returns true if the object is valid (non-null pointer).
+        /// </summary>
+        public static implicit operator bool(Il2CppObject obj) => obj != null && obj.NativePtr != IntPtr.Zero;
+
+        /// <summary>
+        /// Override equality operators to handle null pointers correctly.
+        /// </summary>
+        public static bool operator ==(Il2CppObject left, Il2CppObject right)
+        {
+            if (ReferenceEquals(left, null) && ReferenceEquals(right, null)) return true;
+            if (ReferenceEquals(left, null)) return right.NativePtr == IntPtr.Zero;
+            if (ReferenceEquals(right, null)) return left.NativePtr == IntPtr.Zero;
+            return left.NativePtr == right.NativePtr;
+        }
+
+        public static bool operator !=(Il2CppObject left, Il2CppObject right)
+        {
+            return !(left == right);
+        }
+
+        /// <summary>
+        /// Returns a string representation for debugging.
+        /// </summary>
+        public override string ToString()
+        {
+            return NativePtr == IntPtr.Zero 
+                ? $"{GetType().Name}(null)" 
+                : $"{GetType().Name}(0x{NativePtr.ToInt64():X})";
+        }
     }
 
     /// <summary>
@@ -192,25 +238,42 @@ namespace GameSDK
         }
 
         /// <summary>
+        /// When true, null pointer access will throw exceptions instead of returning default values.
+        /// Default is false for graceful handling.
+        /// </summary>
+        public static bool ThrowOnNullPointer = false;
+
+        /// <summary>
+        /// When true, suppresses error logging for null pointer access.
+        /// Useful when you expect some objects might be null and are handling it.
+        /// </summary>
+        public static bool SuppressNullErrors = false;
+
+        /// <summary>
         /// Call an instance method and return the result.
+        /// Returns default(T) if the instance is null/invalid - no exceptions thrown.
         /// </summary>
         /// <typeparam name="T">Return type</typeparam>
         /// <param name="instance">The object instance (must be Il2CppObject or have NativePtr)</param>
         /// <param name="methodName">Name of the method to call</param>
         /// <param name="paramTypes">Parameter types (used for overload resolution)</param>
         /// <param name="args">Arguments to pass to the method</param>
-        /// <returns>The return value, or default(T) on failure</returns>
+        /// <returns>The return value, or default(T) if instance is null/invalid</returns>
         public static T Call<T>(object instance, string methodName, Type[] paramTypes, params object[] args)
         {
             EnsureInitialized();
 
             try
             {
-                // Get native pointer from instance
+                // Get native pointer from instance - handle null gracefully
                 IntPtr nativeInstance = GetNativePointer(instance);
                 if (nativeInstance == IntPtr.Zero)
                 {
-                    LogError($"Instance is null or invalid for method {methodName}");
+                    // Silently return default for null pointers (expected behavior)
+                    if (!SuppressNullErrors)
+                        LogDebug($"Instance is null for method {methodName} - returning default");
+                    if (ThrowOnNullPointer)
+                        throw new Il2CppException(MdbErrorCode.NullPointer, $"Instance is null for method {methodName}");
                     return default(T);
                 }
 
@@ -218,7 +281,8 @@ namespace GameSDK
                 IntPtr klass = Il2CppBridge.mdb_object_get_class(nativeInstance);
                 if (klass == IntPtr.Zero)
                 {
-                    LogError($"Could not get class for instance when calling {methodName}");
+                    if (!SuppressNullErrors)
+                        LogDebug($"Could not get class for instance when calling {methodName}");
                     return default(T);
                 }
 
@@ -263,6 +327,7 @@ namespace GameSDK
 
         /// <summary>
         /// Call an instance method that returns void.
+        /// Does nothing if the instance is null/invalid - no exceptions thrown.
         /// </summary>
         public static void InvokeVoid(object instance, string methodName, Type[] paramTypes, params object[] args)
         {
@@ -273,14 +338,19 @@ namespace GameSDK
                 IntPtr nativeInstance = GetNativePointer(instance);
                 if (nativeInstance == IntPtr.Zero)
                 {
-                    LogError($"Instance is null or invalid for method {methodName}");
+                    // Silently return for null pointers
+                    if (!SuppressNullErrors)
+                        LogDebug($"Instance is null for method {methodName} - skipping");
+                    if (ThrowOnNullPointer)
+                        throw new Il2CppException(MdbErrorCode.NullPointer, $"Instance is null for method {methodName}");
                     return;
                 }
 
                 IntPtr klass = Il2CppBridge.mdb_object_get_class(nativeInstance);
                 if (klass == IntPtr.Zero)
                 {
-                    LogError($"Could not get class for instance when calling {methodName}");
+                    if (!SuppressNullErrors)
+                        LogDebug($"Could not get class for instance when calling {methodName}");
                     return;
                 }
 
@@ -898,6 +968,163 @@ namespace GameSDK
             }
 
             LogError($"Unsupported field type for writing: {t.Name}");
+        }
+
+        // ==============================
+        // Type Checking Utilities
+        // ==============================
+
+        /// <summary>
+        /// Get the IL2CPP class name of an object instance.
+        /// Useful for debugging or runtime type checking.
+        /// </summary>
+        /// <param name="instance">The IL2CPP object instance</param>
+        /// <returns>The IL2CPP class name, or null if invalid</returns>
+        public static string GetRuntimeClassName(object instance)
+        {
+            IntPtr nativePtr = GetNativePointer(instance);
+            if (nativePtr == IntPtr.Zero)
+                return null;
+
+            IntPtr klass = Il2CppBridge.mdb_object_get_class(nativePtr);
+            return Il2CppBridge.GetClassName(klass);
+        }
+
+        /// <summary>
+        /// Get the full IL2CPP class name (namespace.classname) of an object instance.
+        /// </summary>
+        /// <param name="instance">The IL2CPP object instance</param>
+        /// <returns>The full class name, or null if invalid</returns>
+        public static string GetRuntimeClassFullName(object instance)
+        {
+            IntPtr nativePtr = GetNativePointer(instance);
+            if (nativePtr == IntPtr.Zero)
+                return null;
+
+            IntPtr klass = Il2CppBridge.mdb_object_get_class(nativePtr);
+            return Il2CppBridge.GetClassFullName(klass);
+        }
+
+        /// <summary>
+        /// Check if an IL2CPP object is of a specific class by name.
+        /// </summary>
+        /// <param name="instance">The IL2CPP object instance</param>
+        /// <param name="expectedClassName">The expected IL2CPP class name (obfuscated name)</param>
+        /// <returns>True if the object is of the expected class</returns>
+        public static bool IsClassNamed(object instance, string expectedClassName)
+        {
+            string actualName = GetRuntimeClassName(instance);
+            return actualName != null && actualName == expectedClassName;
+        }
+
+        /// <summary>
+        /// Check if an IL2CPP object is an instance of a wrapper type T.
+        /// Uses the _il2cppClassName field from generated wrapper classes.
+        /// </summary>
+        /// <typeparam name="T">The wrapper type to check against (must have _il2cppClassName)</typeparam>
+        /// <param name="instance">The IL2CPP object instance</param>
+        /// <returns>True if the object is an instance of T</returns>
+        public static bool IsInstanceOf<T>(object instance) where T : Il2CppObject
+        {
+            string actualName = GetRuntimeClassName(instance);
+            if (actualName == null)
+                return false;
+
+            // Get the expected IL2CPP class name from the wrapper type
+            Type t = typeof(T);
+            var field = t.GetField("_il2cppClassName", 
+                System.Reflection.BindingFlags.NonPublic | 
+                System.Reflection.BindingFlags.Static);
+            
+            if (field == null)
+            {
+                // No _il2cppClassName field, fall back to managed type name
+                LogDebug($"Type {t.Name} has no _il2cppClassName field, cannot verify IL2CPP type");
+                return true; // Can't verify, assume valid
+            }
+
+            string expectedName = (string)field.GetValue(null);
+            return actualName == expectedName;
+        }
+
+        /// <summary>
+        /// Get a field value with runtime type checking.
+        /// Returns null if the field value is not of the expected type.
+        /// </summary>
+        /// <typeparam name="T">The expected wrapper type</typeparam>
+        /// <param name="instance">The object instance</param>
+        /// <param name="fieldName">The IL2CPP field name</param>
+        /// <returns>The field value if it's of type T, otherwise null</returns>
+        public static T GetFieldTyped<T>(object instance, string fieldName) where T : Il2CppObject
+        {
+            EnsureInitialized();
+
+            try
+            {
+                IntPtr nativeInstance = GetNativePointer(instance);
+                if (nativeInstance == IntPtr.Zero)
+                    return null;
+
+                IntPtr klass = Il2CppBridge.mdb_object_get_class(nativeInstance);
+                if (klass == IntPtr.Zero)
+                    return null;
+
+                IntPtr field = Il2CppBridge.mdb_get_field(klass, fieldName);
+                if (field == IntPtr.Zero)
+                    return null;
+
+                int offset = Il2CppBridge.mdb_get_field_offset(field);
+                if (offset < 0)
+                    return null;
+
+                // Read the pointer
+                IntPtr objPtr = Marshal.ReadIntPtr(nativeInstance, offset);
+                if (objPtr == IntPtr.Zero)
+                    return null;
+
+                // Validate the runtime type
+                IntPtr objClass = Il2CppBridge.mdb_object_get_class(objPtr);
+                string actualClassName = Il2CppBridge.GetClassName(objClass);
+
+                // Get expected class name from wrapper type
+                Type wrapperType = typeof(T);
+                var classNameField = wrapperType.GetField("_il2cppClassName",
+                    System.Reflection.BindingFlags.NonPublic |
+                    System.Reflection.BindingFlags.Static);
+
+                if (classNameField != null)
+                {
+                    string expectedClassName = (string)classNameField.GetValue(null);
+                    if (actualClassName != expectedClassName)
+                    {
+                        // Type mismatch - not the expected type
+                        LogDebug($"GetFieldTyped: Expected {expectedClassName}, got {actualClassName}");
+                        return null;
+                    }
+                }
+
+                // Create wrapper instance
+                return (T)Activator.CreateInstance(typeof(T), objPtr);
+            }
+            catch (Exception ex)
+            {
+                LogError($"GetFieldTyped<{typeof(T).Name}>({fieldName}): {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Try to get a field value with runtime type checking.
+        /// </summary>
+        /// <typeparam name="T">The expected wrapper type</typeparam>
+        /// <param name="instance">The object instance</param>
+        /// <param name="fieldName">The IL2CPP field name</param>
+        /// <param name="value">The output value if successful</param>
+        /// <returns>True if the field exists and is of type T</returns>
+        public static bool TryGetFieldTyped<T>(object instance, string fieldName, out T value) where T : Il2CppObject
+        {
+            value = GetFieldTyped<T>(instance, fieldName);
+            return value != null;
         }
     }
 }
