@@ -1,9 +1,165 @@
 #!/usr/bin/env python3
+"""
+IL2CPP Dump Wrapper Generator
+=============================
+Generates C# wrapper classes from IL2CPP dump.cs files for any Unity/IL2CPP game.
+
+This tool is designed to be game-agnostic and works across different:
+- IL2CPP versions
+- Unity versions  
+- Game-specific third-party libraries
+
+Configuration is loaded from generator_config.json for game-specific customization.
+Universal .NET, Mono, and Unity internal namespaces are always skipped.
+"""
 import os
 import re
 import json
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Set, Tuple
+
+
+# ============================================================================
+# GENERATOR CONFIGURATION
+# Loads settings from generator_config.json for game-specific customization
+# ============================================================================
+
+class GeneratorConfig:
+    """Configuration loaded from generator_config.json with sensible defaults."""
+    
+    # Universal namespaces that are ALWAYS skipped (framework types, not game-specific)
+    # These exist in every IL2CPP dump regardless of game or Unity version
+    UNIVERSAL_SKIP_NAMESPACES = {
+        # .NET Framework / CoreCLR
+        "System", "System.Collections", "System.Collections.Generic", "System.IO", "System.Text",
+        "System.Threading", "System.Threading.Tasks", "System.Linq", "System.Linq.Expressions",
+        "System.Reflection", "System.Runtime", "System.Runtime.CompilerServices",
+        "System.Runtime.InteropServices", "System.Diagnostics", "System.Globalization",
+        "System.Security", "System.ComponentModel", "System.Net", "System.Xml",
+        # Mono runtime
+        "Mono", "mscorlib",
+        # Internal namespaces
+        "Internal", "Microsoft",
+        # Unity internal (not public API)
+        "UnityEngine.Internal", "UnityEngineInternal",
+    }
+    
+    # Universal namespace prefixes that are ALWAYS skipped
+    UNIVERSAL_SKIP_NS_PREFIXES = (
+        "System.",        # All System.* sub-namespaces
+        "Mono.",          # Mono runtime internals
+        "Internal.",      # Internal implementation details
+        "Microsoft.",     # Microsoft runtime types
+    )
+    
+    def __init__(self):
+        # Output settings
+        self.namespace_prefix = "GameSDK"
+        self.output_directory = "MDB_Core/Generated"
+        self.file_prefix = "GameSDK"
+        
+        # Game-specific skips (loaded from config)
+        self.custom_skip_namespaces: Set[str] = set()
+        self.custom_skip_ns_prefixes: List[str] = []
+        self.custom_skip_types: Set[str] = set()
+        self.custom_skip_base_types: Set[str] = set()
+        
+        # Auto-detection settings
+        self.auto_detect_enabled = True
+        self.auto_detect_patterns: List[str] = []
+        
+        # Detected third-party namespaces (populated during parsing)
+        self.detected_third_party: Set[str] = set()
+    
+    @property
+    def skip_namespaces(self) -> Set[str]:
+        """Combined set of all namespaces to skip."""
+        return self.UNIVERSAL_SKIP_NAMESPACES | self.custom_skip_namespaces | self.detected_third_party
+    
+    @property
+    def skip_ns_prefixes(self) -> Tuple[str, ...]:
+        """Combined tuple of all namespace prefixes to skip."""
+        return self.UNIVERSAL_SKIP_NS_PREFIXES + tuple(self.custom_skip_ns_prefixes)
+    
+    def load(self, config_path: str = None) -> 'GeneratorConfig':
+        """Load configuration from JSON file."""
+        if config_path is None:
+            search_paths = [
+                "generator_config.json",
+                os.path.join(os.path.dirname(__file__), "generator_config.json"),
+            ]
+            for path in search_paths:
+                if os.path.exists(path):
+                    config_path = path
+                    break
+        
+        if config_path and os.path.exists(config_path):
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                
+                # Load output settings
+                output = data.get("output", {})
+                self.namespace_prefix = output.get("namespace_prefix", self.namespace_prefix)
+                self.output_directory = output.get("output_directory", self.output_directory)
+                self.file_prefix = output.get("file_prefix", self.file_prefix)
+                
+                # Load custom skip lists
+                self.custom_skip_namespaces = set(data.get("skip_namespaces", {}).get("custom", []))
+                self.custom_skip_ns_prefixes = data.get("skip_namespace_prefixes", {}).get("custom", [])
+                self.custom_skip_types = set(data.get("skip_types", {}).get("custom", []))
+                self.custom_skip_base_types = set(data.get("skip_base_types", {}).get("custom", []))
+                
+                # Load auto-detection settings
+                auto_detect = data.get("auto_detect_third_party", {})
+                self.auto_detect_enabled = auto_detect.get("enabled", True)
+                self.auto_detect_patterns = auto_detect.get("patterns", [])
+                
+                print(f"[Config] Loaded configuration from {config_path}")
+                if self.custom_skip_namespaces:
+                    print(f"[Config] Custom skip namespaces: {len(self.custom_skip_namespaces)}")
+                if self.custom_skip_ns_prefixes:
+                    print(f"[Config] Custom skip prefixes: {len(self.custom_skip_ns_prefixes)}")
+                    
+            except Exception as e:
+                print(f"[Config] Warning: Could not load config: {e}, using defaults")
+        else:
+            print("[Config] No generator_config.json found - using defaults")
+        
+        return self
+    
+    def detect_third_party_from_namespaces(self, all_namespaces: Set[str]) -> None:
+        """Auto-detect third-party libraries from namespace names."""
+        if not self.auto_detect_enabled:
+            return
+        
+        detected = set()
+        for ns in all_namespaces:
+            if not ns:
+                continue
+            # Check against auto-detection patterns
+            for pattern in self.auto_detect_patterns:
+                if ns == pattern or ns.startswith(pattern + "."):
+                    detected.add(ns)
+                    break
+        
+        if detected:
+            self.detected_third_party = detected
+            print(f"[Config] Auto-detected {len(detected)} third-party namespaces to skip")
+    
+    def should_skip_namespace(self, ns: str) -> bool:
+        """Check if a namespace should be skipped."""
+        if not ns:
+            return False
+        if ns in self.skip_namespaces:
+            return True
+        if ns.startswith(self.skip_ns_prefixes):
+            return True
+        return False
+
+
+# Global config instance
+CONFIG = GeneratorConfig()
 
 
 # ============================================================================
@@ -499,6 +655,11 @@ def build_type_registry(types: List[TypeDef]) -> None:
     GENERATED_TYPES.clear()
     SEALED_TYPES.clear()
     
+    # Auto-detect third-party namespaces if enabled
+    if CONFIG.auto_detect_enabled:
+        all_namespaces = {t.namespace for t in types if t.namespace}
+        CONFIG.detect_third_party_from_namespaces(all_namespaces)
+    
     # First pass: identify all sealed types
     for t in types:
         if t.is_sealed and t.name:
@@ -508,6 +669,10 @@ def build_type_registry(types: List[TypeDef]) -> None:
         if not t.name or t.visibility != "public": continue
         if is_unicode_name(t.name.split("`")[0].split("<")[0]): continue
         ns = t.namespace or "Global"
+        
+        # Skip types from namespaces that won't be generated (uses CONFIG for dynamic skip lists)
+        if CONFIG.should_skip_namespace(ns):
+            continue
         
         # DEBUG: Track MaterialReference specifically
         debug_type = t.name == "MaterialReference" and ns == "TMPro"
@@ -535,6 +700,10 @@ def build_type_registry(types: List[TypeDef]) -> None:
         
         if has_content:
             GENERATED_TYPES.add((t.name, ns))
+            # Also register friendly name (deobfuscated) if it exists
+            friendly = get_friendly_name(t.name)
+            if friendly:
+                GENERATED_TYPES.add((friendly, ns))
         
         # Register type (generic or non-generic)
         if "`" in t.name or "<" in t.name:
@@ -546,6 +715,12 @@ def build_type_registry(types: List[TypeDef]) -> None:
             TYPE_REGISTRY.setdefault(t.name, [])
             if ns not in TYPE_REGISTRY[t.name]:
                 TYPE_REGISTRY[t.name].append(ns)
+            # Also register friendly name (deobfuscated) if it exists
+            friendly = get_friendly_name(t.name)
+            if friendly:
+                TYPE_REGISTRY.setdefault(friendly, [])
+                if ns not in TYPE_REGISTRY[friendly]:
+                    TYPE_REGISTRY[friendly].append(ns)
     
     print(f"[+] Built type registry with {len(TYPE_REGISTRY)} non-generic and {len(GENERIC_TYPE_REGISTRY)} generic type names")
     print(f"[+] Types with content (will be generated): {len(GENERATED_TYPES)}")
@@ -580,6 +755,7 @@ def generate_smart_usings(code_body_lines: List[str], current_ns: str,
 # ---------- Code Generator ----------
 
 # Well-known types that are always available - C# built-ins and .NET types
+# These are universal across all Unity/IL2CPP versions
 KNOWN_TYPES = {
     "void", "bool", "byte", "sbyte", "char", "decimal", "double", "float", "int", "uint",
     "long", "ulong", "short", "ushort", "object", "string", "IntPtr", "UIntPtr", "Type",
@@ -594,6 +770,24 @@ KNOWN_TYPES = {
     "IFormattable", "Il2CppObject",
 }
 
+# Types that should be excluded (external runtime types not available in target framework)
+# These are universal and exist in all IL2CPP dumps
+UNRESOLVABLE_TYPES = {
+    "Enumeration",  # System.IO.Enumeration doesn't exist in standard .NET
+    "Path",  # System.IO.Path is static, can't be used as parameter type
+    "UnityEngineInternal",  # Internal Unity namespace
+}
+
+
+def get_unresolvable_prefixes() -> Tuple[str, ...]:
+    """Get namespace prefixes to exclude - uses CONFIG for game-specific additions."""
+    return CONFIG.skip_ns_prefixes
+
+
+def get_unresolvable_namespaces() -> Set[str]:
+    """Get exact namespaces to exclude - uses CONFIG for game-specific additions."""
+    return CONFIG.skip_namespaces
+
 
 def is_type_resolvable(type_name: str, current_namespace: str = None, imported_namespaces: set = None) -> bool:
     # DEBUG STATS: ~142,057 calls - Critical for method/property validation
@@ -602,8 +796,18 @@ def is_type_resolvable(type_name: str, current_namespace: str = None, imported_n
     if not type_name:
         return False
     
+    # Check for unresolvable namespace prefixes (check full type name before extraction)
+    unresolvable_prefixes = get_unresolvable_prefixes()
+    for prefix in unresolvable_prefixes:
+        if type_name.startswith(prefix):
+            return False
+    
     is_used_as_generic = ("<" in type_name and ">" in type_name) or "`" in type_name
     base_name = type_name.split("<")[0].split("[")[0].split("`")[0].strip("?")
+    
+    # Check for unresolvable types
+    if base_name in UNRESOLVABLE_TYPES:
+        return False
     
     if is_generic_type_param(base_name) or base_name in TYPE_MAP or base_name in KNOWN_TYPES:
         return True
@@ -647,14 +851,63 @@ def is_type_resolvable(type_name: str, current_namespace: str = None, imported_n
     # Check if it's in our generated type registry (non-generic)
     if base_name in TYPE_REGISTRY:
         type_namespaces = TYPE_REGISTRY.get(base_name, [])
-        if current_namespace is not None and imported_namespaces is not None:
-            for ns in type_namespaces:
-                if (ns == current_namespace or ns in imported_namespaces) and (base_name, ns) in GENERATED_TYPES:
-                    return True
-            return False
-        else:
-            return any((base_name, ns) in GENERATED_TYPES for ns in type_namespaces)
+        # Filter out unresolvable namespaces before checking
+        unresolvable_ns = get_unresolvable_namespaces()
+        unresolvable_prefixes = get_unresolvable_prefixes()
+        resolvable_namespaces = []
+        for ns in type_namespaces:
+            # Check explicit namespace list
+            if ns in unresolvable_ns:
+                continue
+            # Check prefix patterns
+            if ns.startswith(unresolvable_prefixes):
+                continue
+            resolvable_namespaces.append(ns)
+        # Type is resolvable if it exists in ANY resolvable namespace we're generating
+        # Cross-namespace references will use fully-qualified names via get_qualified_type_name()
+        return any((base_name, ns) in GENERATED_TYPES for ns in resolvable_namespaces)
     return False
+
+
+def get_qualified_type_name(type_name: str, current_ns: str, imported_ns: set) -> str:
+    """
+    Get fully-qualified type name if needed for cross-namespace references.
+    Returns the type with namespace prefix if it's from a non-imported namespace.
+    """
+    # Handle array types
+    is_array = type_name.endswith("[]")
+    base_type = type_name[:-2] if is_array else type_name
+    
+    # Skip primitives and known .NET types - they don't need qualification
+    if base_type in TYPE_MAP or base_type in KNOWN_TYPES:
+        return type_name
+    
+    # Check if this type exists in our registry
+    if base_type not in TYPE_REGISTRY:
+        return type_name  # Not in registry, return as-is
+    
+    namespaces_with_type = TYPE_REGISTRY.get(base_type, [])
+    
+    # Check if type is already accessible (in current or imported namespace)
+    for ns in namespaces_with_type:
+        if (ns == current_ns or ns in imported_ns) and (base_type, ns) in GENERATED_TYPES:
+            return type_name  # Already accessible, no qualification needed
+    
+    # Type exists but not in current/imported namespaces - need full qualification
+    # Find the first namespace where this type is actually generated
+    # Skip namespaces with unresolvable prefixes
+    # Use global:: prefix to force absolute namespace resolution (avoids relative lookup issues)
+    unresolvable_prefixes = get_unresolvable_prefixes()
+    for ns in namespaces_with_type:
+        # Skip unresolvable namespaces
+        ns_with_dot = ns + "."
+        if any(ns_with_dot.startswith(prefix) or ns == prefix.rstrip(".") for prefix in unresolvable_prefixes):
+            continue
+        if (base_type, ns) in GENERATED_TYPES:
+            qualified = f"global::{ns}.{base_type}"
+            return qualified + "[]" if is_array else qualified
+    
+    return type_name  # Fallback
 
 
 # Core namespaces always imported (Global NOT included - types there shadow Unity/System types)
@@ -1035,25 +1288,11 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
     _track_call("generate_wrapper_code_per_namespace")
     _debug(f"STEP 4: Generating wrapper code for {len(types)} types to {output_dir}")
     
-    # Namespaces to skip (conflict with .NET types or are internal/external libraries)
-    SKIP_NAMESPACES = {
-        "System", "System.Collections", "System.Collections.Generic", "System.IO", "System.Text",
-        "System.Threading", "System.Threading.Tasks", "System.Linq", "System.Linq.Expressions",
-        "System.Reflection", "System.Runtime", "System.Runtime.CompilerServices",
-        "System.Runtime.InteropServices", "System.Diagnostics", "System.Globalization",
-        "System.Security", "System.ComponentModel", "System.Net", "System.Xml", "mscorlib",
-        "Mono", "Internal", "Microsoft", "UnityEngine.Internal", "UnityEngineInternal",
-        "EpicTransport",
-    }
-    # Namespace prefixes to skip (catches all sub-namespaces)
-    SKIP_NS_PREFIXES = ("System.", "Mono.", "Internal.", "Microsoft.", "BehaviorDesigner.Runtime.Tasks",
-                        "Riptide", "Edgegap", "Mirror.BouncyCastle")
-
-    # Group types by namespace
+    # Group types by namespace (using CONFIG for dynamic skip lists)
     namespaces = {}
     for t in types:
         ns = t.namespace if t.namespace else "Global"
-        if ns in SKIP_NAMESPACES or ns.startswith(SKIP_NS_PREFIXES):
+        if CONFIG.should_skip_namespace(ns):
             continue
         if ns not in namespaces:
             namespaces[ns] = []
@@ -1129,7 +1368,9 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
             if not all(map_type(p.type, ns, imported_ns) and is_type_resolvable(p.type, ns, imported_ns) for p in invoke_method.parameters): continue
             seen_delegate_names.add(delegate_name)
             type_count += 1
-            params_str = ", ".join(f"{map_type(p.type, ns, imported_ns)} {sanitize_name(p.name) or p.name}" for p in invoke_method.parameters)
+            # Qualify cross-namespace types
+            return_type = get_qualified_type_name(return_type, ns, imported_ns)
+            params_str = ", ".join(f"{get_qualified_type_name(map_type(p.type, ns, imported_ns), ns, imported_ns)} {sanitize_name(p.name) or p.name}" for p in invoke_method.parameters)
             if delegate_name != original_delegate_name:
                 body_lines.append(f"    /// <summary>Renamed to avoid conflict. Original IL2CPP name: '{original_delegate_name}'</summary>")
             body_lines.append(f"    {t.visibility} delegate {return_type} {delegate_name}({params_str});")
@@ -1200,6 +1441,8 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
             for fld in [f for f in t.fields if f.visibility == "public" and not f.is_const]:
                 field_type = map_type(fld.type, ns, imported_ns)
                 if field_type is None or not is_type_resolvable(fld.type, ns, imported_ns): continue
+                # Qualify cross-namespace types
+                field_type = get_qualified_type_name(field_type, ns, imported_ns)
                 valid_field_count += 1
                 body_lines.append(f"        public {field_type} {fld.name};")
             if valid_field_count == 0:
@@ -1265,6 +1508,10 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
                 if base_friendly:
                     base_type = base_friendly
             
+            # Fully qualify base type for cross-namespace inheritance
+            if base_type:
+                base_type = get_qualified_type_name(base_type, ns, imported_ns)
+            
             base_part = f" : {base_type}" if base_type else " : Il2CppObject"
             
             # Track if class was renamed due to conflicts
@@ -1317,6 +1564,9 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
                     field_type = map_type(fld.type, ns, imported_ns)
                     if field_type is None or not is_type_resolvable(fld.type, ns, imported_ns): 
                         continue
+                    
+                    # Get fully-qualified type name for cross-namespace references
+                    field_type = get_qualified_type_name(field_type, ns, imported_ns)
                     
                     original_field_name = fld.name
                     is_unicode_field = is_unicode_name(fld.name)
@@ -1401,6 +1651,8 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
                     
                     prop_type = map_type(prop_info["type"], ns, imported_ns)
                     if prop_type is None: continue
+                    # Qualify cross-namespace types
+                    prop_type = get_qualified_type_name(prop_type, ns, imported_ns)
                     
                     # Skip properties with types that aren't resolvable
                     if not is_type_resolvable(prop_info["type"], ns, imported_ns):
@@ -1485,21 +1737,34 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
                     
                     # Map return type (use generic param name for generic types)
                     return_type = method.return_type if is_generic_type_param(method.return_type) else map_type(method.return_type, ns, imported_ns)
+                    # Qualify cross-namespace types for return type
+                    if not is_generic_type_param(method.return_type):
+                        return_type = get_qualified_type_name(return_type, ns, imported_ns)
 
                     # Build parameter list and names
                     param_parts, param_names_list = [], []
                     for idx, p in enumerate(method.parameters):
                         mod_prefix = f"{p.modifier} " if p.modifier else ""
                         ptype = p.type if is_generic_type_param(p.type) else map_type(p.type, ns, imported_ns)
+                        # Qualify cross-namespace types for parameters
+                        if not is_generic_type_param(p.type):
+                            ptype = get_qualified_type_name(ptype, ns, imported_ns)
                         pname = sanitize_name(p.name) or f"arg{idx}"
                         param_parts.append(f"{mod_prefix}{ptype} {pname}")
                         param_names_list.append(pname)
                     param_list = ", ".join(param_parts)
                     param_names = ", ".join(param_names_list)
 
-                    # Build paramTypes array
+                    # Build paramTypes array - also need qualified names for typeof()
                     if method.parameters:
-                        param_types_items = [f'typeof({p.type.rstrip("[]")})' if is_generic_type_param(p.type) else f'typeof({map_type(p.type, ns, imported_ns)})' for p in method.parameters]
+                        param_types_items = []
+                        for p in method.parameters:
+                            if is_generic_type_param(p.type):
+                                param_types_items.append(f'typeof({p.type.rstrip("[]")})')
+                            else:
+                                ptype_mapped = map_type(p.type, ns, imported_ns)
+                                ptype_qualified = get_qualified_type_name(ptype_mapped, ns, imported_ns)
+                                param_types_items.append(f'typeof({ptype_qualified})')
                         param_types_decl = f"new Type[] {{ {', '.join(param_types_items)} }}"
                     else:
                         param_types_decl = "global::System.Type.EmptyTypes"
@@ -1560,7 +1825,8 @@ def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -
             output_lines = ["// Auto-generated Il2Cpp wrapper classes", f"// Namespace: {ns}", "// Do not edit manually", ""]
             output_lines.extend(using_lines)
             output_lines.extend(body_lines)
-            filepath = os.path.join(output_dir, f"GameSDK.{ns.replace('.', '_')}.cs")
+            # Use configurable file prefix
+            filepath = os.path.join(output_dir, f"{CONFIG.file_prefix}.{ns.replace('.', '_')}.cs")
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write("\n".join(output_lines))
             generated_files[ns] = filepath
@@ -1721,29 +1987,65 @@ def main():
     _track_call("main")
     _debug("STEP 1: Starting wrapper generator")
     import sys
-    if len(sys.argv) > 1:
-        dump_path = os.path.abspath(sys.argv[1])
+    import argparse
+    
+    parser = argparse.ArgumentParser(
+        description="IL2CPP Dump Wrapper Generator - Generate C# wrappers from IL2CPP dump.cs files",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python wrapper_generator.py                    # Use dump.cs in current directory
+  python wrapper_generator.py path/to/dump.cs    # Use specific dump file
+  python wrapper_generator.py -c config.json     # Use specific config file
+  python wrapper_generator.py --no-build         # Generate wrappers without building
+  python wrapper_generator.py --list-detected    # Show auto-detected third-party libs
+        """
+    )
+    parser.add_argument("dump", nargs="?", help="Path to dump.cs file (default: ./dump.cs)")
+    parser.add_argument("-c", "--config", help="Path to generator_config.json")
+    parser.add_argument("-m", "--mappings", help="Path to mappings.json for deobfuscation")
+    parser.add_argument("-o", "--output", help="Output directory for generated files")
+    parser.add_argument("--no-build", action="store_true", help="Skip building after generation")
+    parser.add_argument("--list-detected", action="store_true", help="List auto-detected third-party namespaces and exit")
+    
+    args = parser.parse_args()
+    
+    # Find dump.cs
+    if args.dump:
+        dump_path = os.path.abspath(args.dump)
         dump_dir = os.path.dirname(dump_path)
     else:
         cwd, script_dir = os.getcwd(), os.path.dirname(os.path.abspath(__file__))
+        dump_path = None
         for d in [cwd, script_dir]:
             p = os.path.join(d, "dump.cs")
             if os.path.exists(p):
                 dump_dir, dump_path = d, p
                 break
-        else:
+        if not dump_path:
             print(f"[ERROR] Could not find dump.cs in:\n  - {cwd}\n  - {script_dir}")
+            print("Use: python wrapper_generator.py path/to/dump.cs")
             return
     
-    output_dir = os.path.join(dump_dir, "MDB_Core", "Generated")
-    log_file = os.path.join(dump_dir, "build_log.txt")
     if not os.path.exists(dump_path):
         print(f"[ERROR] Could not find: {dump_path}")
         return
+    
+    # Load generator configuration (game-specific settings)
+    config_path = args.config or os.path.join(dump_dir, "generator_config.json")
+    CONFIG.load(config_path)
+    
+    # Override output directory if specified
+    if args.output:
+        output_dir = os.path.abspath(args.output)
+    else:
+        output_dir = os.path.join(dump_dir, CONFIG.output_directory)
+    
+    log_file = os.path.join(dump_dir, "build_log.txt")
     os.makedirs(output_dir, exist_ok=True)
 
     # Load deobfuscation mappings if available
-    mappings_path = os.path.join(dump_dir, "mappings.json")
+    mappings_path = args.mappings or os.path.join(dump_dir, "mappings.json")
     load_deobfuscation_mappings(mappings_path)
 
     print(f"[+] Parsing: {dump_path}")
@@ -1751,13 +2053,24 @@ def main():
     print(f"[+] Parsed {len(types)} types")
     build_type_registry(types)
     
+    # List detected third-party namespaces and exit if requested
+    if args.list_detected:
+        print("\n[+] Auto-detected third-party namespaces:")
+        for ns in sorted(CONFIG.detected_third_party):
+            print(f"    - {ns}")
+        print(f"\nTotal: {len(CONFIG.detected_third_party)} namespaces")
+        return
+    
     valid_types = [t for t in types if t.name and (t.methods or t.properties or t.fields)]
     print(f"[+] Valid types: {len(valid_types)}")
     print("[+] Generating wrapper code...")
     generated = generate_wrapper_code_per_namespace(valid_types, output_dir)
     print(f"[+] Generated {len(generated)} namespace files")
-    print(f"[+] Output directory: {output_dir}\n[+] Building GameSDK.ModHost.dll...")
-    build_project(dump_dir, log_file)
+    print(f"[+] Output directory: {output_dir}")
+    
+    if not args.no_build:
+        print("[+] Building GameSDK.ModHost.dll...")
+        build_project(dump_dir, log_file)
 
 
 if __name__ == "__main__":

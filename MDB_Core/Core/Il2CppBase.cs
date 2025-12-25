@@ -830,6 +830,13 @@ namespace GameSDK
             }
             if (t == typeof(IntPtr)) return (T)(object)Marshal.ReadIntPtr(instance, offset);
 
+            // Handle blittable structs (like Vector2, Vector3, Color, etc.)
+            if (t.IsValueType && !t.IsEnum && !t.IsPrimitive)
+            {
+                IntPtr fieldPtr = IntPtr.Add(instance, offset);
+                return (T)Marshal.PtrToStructure(fieldPtr, t);
+            }
+
             LogError($"Unsupported field type: {t.Name}");
             return default(T);
         }
@@ -881,6 +888,14 @@ namespace GameSDK
                 return;
             }
             if (t == typeof(IntPtr)) { Marshal.WriteIntPtr(instance, offset, (IntPtr)(object)value); return; }
+
+            // Handle blittable structs (like Vector2, Vector3, Color, etc.)
+            if (t.IsValueType && !t.IsEnum && !t.IsPrimitive)
+            {
+                IntPtr fieldPtr = IntPtr.Add(instance, offset);
+                Marshal.StructureToPtr(value, fieldPtr, false);
+                return;
+            }
 
             LogError($"Unsupported field type for writing: {t.Name}");
         }
