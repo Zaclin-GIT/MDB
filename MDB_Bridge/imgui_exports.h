@@ -81,6 +81,8 @@ IMGUI_EXPORT bool igSelectable_Bool(const char* label, bool selected, ImGuiSelec
 // ===== Widgets: Drag/Slider =====
 IMGUI_EXPORT bool igDragFloat3(const char* label, float v[3], float v_speed, float v_min, float v_max, const char* format, ImGuiSliderFlags flags);
 IMGUI_EXPORT bool igInputFloat3(const char* label, float v[3], const char* format, ImGuiInputTextFlags flags);
+IMGUI_EXPORT bool igSliderFloat(const char* label, float* v, float v_min, float v_max, const char* format, ImGuiSliderFlags flags);
+IMGUI_EXPORT bool igSliderInt(const char* label, int* v, int v_min, int v_max, const char* format, ImGuiSliderFlags flags);
 
 // ===== Misc =====
 IMGUI_EXPORT void igTextColored(ImVec4 col, const char* fmt, ...);
@@ -111,6 +113,16 @@ IMGUI_EXPORT void igCloseCurrentPopup();
 
 // ===== Clipboard =====
 IMGUI_EXPORT void igSetClipboardText(const char* text);
+
+// ===== DrawList (Overlay Drawing) =====
+IMGUI_EXPORT ImDrawList* igGetForegroundDrawList();
+IMGUI_EXPORT ImDrawList* igGetBackgroundDrawList();
+IMGUI_EXPORT void ImDrawList_AddLine(ImDrawList* self, ImVec2 p1, ImVec2 p2, ImU32 col, float thickness);
+IMGUI_EXPORT void ImDrawList_AddRect(ImDrawList* self, ImVec2 p_min, ImVec2 p_max, ImU32 col, float rounding, int flags, float thickness);
+IMGUI_EXPORT void ImDrawList_AddRectFilled(ImDrawList* self, ImVec2 p_min, ImVec2 p_max, ImU32 col, float rounding, int flags);
+IMGUI_EXPORT void ImDrawList_AddCircle(ImDrawList* self, ImVec2 center, float radius, ImU32 col, int num_segments, float thickness);
+IMGUI_EXPORT void ImDrawList_AddCircleFilled(ImDrawList* self, ImVec2 center, float radius, ImU32 col, int num_segments);
+IMGUI_EXPORT void ImDrawList_AddText(ImDrawList* self, ImVec2 pos, ImU32 col, const char* text_begin, const char* text_end);
 
 #ifdef __cplusplus
 }

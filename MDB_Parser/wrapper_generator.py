@@ -737,7 +737,7 @@ def generate_smart_usings(code_body_lines: List[str], current_ns: str,
     # Core Unity namespaces
     core_unity = {"UnityEngine", "UnityEngine.UI", "UnityEngine.Events", "UnityEngine.EventSystems",
                   "UnityEngine.Rendering", "UnityEngine.SceneManagement", "UnityEngine.Audio",
-                  "UnityEngine.AI", "UnityEngine.Animations", "TMPro"}
+                  "UnityEngine.AI", "UnityEngine.Animations", "TMPro", "Unity.Mathematics"}
     using_lines.append("// Core Unity namespace references")
     for ns in sorted(core_unity):
         if ns != current_ns:
@@ -768,6 +768,10 @@ KNOWN_TYPES = {
     "XmlDocument", "XmlElement", "XmlAttribute", "IEnumerator", "IEnumerable", "ICollection",
     "IList", "IDictionary", "IDisposable", "ICloneable", "IComparable", "IEquatable",
     "IFormattable", "Il2CppObject",
+    # Unity.Mathematics types - commonly used in modern Unity games
+    "float2", "float3", "float4", "float2x2", "float3x3", "float4x4",
+    "int2", "int3", "int4", "uint2", "uint3", "uint4",
+    "bool2", "bool3", "bool4", "half", "half2", "half3", "half4", "quaternion",
 }
 
 # Types that should be excluded (external runtime types not available in target framework)

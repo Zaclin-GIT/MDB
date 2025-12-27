@@ -234,6 +234,16 @@ IMGUI_EXPORT bool igInputFloat3(const char* label, float v[3], const char* forma
     return ImGui::InputFloat3(label, v, format, flags);
 }
 
+IMGUI_EXPORT bool igSliderFloat(const char* label, float* v, float v_min, float v_max, const char* format, ImGuiSliderFlags flags)
+{
+    return ImGui::SliderFloat(label, v, v_min, v_max, format, flags);
+}
+
+IMGUI_EXPORT bool igSliderInt(const char* label, int* v, int v_min, int v_max, const char* format, ImGuiSliderFlags flags)
+{
+    return ImGui::SliderInt(label, v, v_min, v_max, format, flags);
+}
+
 // ===== Misc =====
 
 IMGUI_EXPORT void igTextColored(ImVec4 col, const char* fmt, ...)
@@ -335,4 +345,46 @@ IMGUI_EXPORT void igCloseCurrentPopup()
 IMGUI_EXPORT void igSetClipboardText(const char* text)
 {
     ImGui::SetClipboardText(text);
+}
+
+// ===== DrawList (Overlay Drawing) =====
+
+IMGUI_EXPORT ImDrawList* igGetForegroundDrawList()
+{
+    return ImGui::GetForegroundDrawList();
+}
+
+IMGUI_EXPORT ImDrawList* igGetBackgroundDrawList()
+{
+    return ImGui::GetBackgroundDrawList();
+}
+
+IMGUI_EXPORT void ImDrawList_AddLine(ImDrawList* self, ImVec2 p1, ImVec2 p2, ImU32 col, float thickness)
+{
+    if (self) self->AddLine(p1, p2, col, thickness);
+}
+
+IMGUI_EXPORT void ImDrawList_AddRect(ImDrawList* self, ImVec2 p_min, ImVec2 p_max, ImU32 col, float rounding, int flags, float thickness)
+{
+    if (self) self->AddRect(p_min, p_max, col, rounding, (ImDrawFlags)flags, thickness);
+}
+
+IMGUI_EXPORT void ImDrawList_AddRectFilled(ImDrawList* self, ImVec2 p_min, ImVec2 p_max, ImU32 col, float rounding, int flags)
+{
+    if (self) self->AddRectFilled(p_min, p_max, col, rounding, (ImDrawFlags)flags);
+}
+
+IMGUI_EXPORT void ImDrawList_AddCircle(ImDrawList* self, ImVec2 center, float radius, ImU32 col, int num_segments, float thickness)
+{
+    if (self) self->AddCircle(center, radius, col, num_segments, thickness);
+}
+
+IMGUI_EXPORT void ImDrawList_AddCircleFilled(ImDrawList* self, ImVec2 center, float radius, ImU32 col, int num_segments)
+{
+    if (self) self->AddCircleFilled(center, radius, col, num_segments);
+}
+
+IMGUI_EXPORT void ImDrawList_AddText(ImDrawList* self, ImVec2 pos, ImU32 col, const char* text_begin, const char* text_end)
+{
+    if (self) self->AddText(pos, col, text_begin, text_end);
 }

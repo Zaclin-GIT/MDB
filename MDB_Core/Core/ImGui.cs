@@ -666,6 +666,111 @@ namespace GameSDK
 
         #endregion
 
+        #region DrawList (Overlay Drawing)
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "igGetForegroundDrawList")]
+        public static extern IntPtr GetForegroundDrawList();
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "igGetBackgroundDrawList")]
+        public static extern IntPtr GetBackgroundDrawList();
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_AddLine")]
+        private static extern void ImDrawList_AddLine(IntPtr drawList, Vector2 p1, Vector2 p2, uint col, float thickness);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_AddRect")]
+        private static extern void ImDrawList_AddRect(IntPtr drawList, Vector2 pMin, Vector2 pMax, uint col, float rounding, int flags, float thickness);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_AddRectFilled")]
+        private static extern void ImDrawList_AddRectFilled(IntPtr drawList, Vector2 pMin, Vector2 pMax, uint col, float rounding, int flags);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_AddCircle")]
+        private static extern void ImDrawList_AddCircle(IntPtr drawList, Vector2 center, float radius, uint col, int numSegments, float thickness);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_AddCircleFilled")]
+        private static extern void ImDrawList_AddCircleFilled(IntPtr drawList, Vector2 center, float radius, uint col, int numSegments);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_AddText")]
+        private static extern void ImDrawList_AddText(IntPtr drawList, Vector2 pos, uint col, [MarshalAs(UnmanagedType.LPStr)] string text, IntPtr textEnd);
+
+        /// <summary>
+        /// Convert RGBA color to ImGui packed color (ABGR format).
+        /// </summary>
+        public static uint ColorToU32(float r, float g, float b, float a = 1f)
+        {
+            byte rb = (byte)(Math.Max(0, Math.Min(255, (int)(r * 255))));
+            byte gb = (byte)(Math.Max(0, Math.Min(255, (int)(g * 255))));
+            byte bb = (byte)(Math.Max(0, Math.Min(255, (int)(b * 255))));
+            byte ab = (byte)(Math.Max(0, Math.Min(255, (int)(a * 255))));
+            return (uint)((ab << 24) | (bb << 16) | (gb << 8) | rb);
+        }
+
+        /// <summary>
+        /// Convert Vector4 color to ImGui packed color.
+        /// </summary>
+        public static uint ColorToU32(Vector4 color) => ColorToU32(color.X, color.Y, color.Z, color.W);
+
+        /// <summary>
+        /// Draw a line on the foreground overlay.
+        /// </summary>
+        public static void DrawLine(Vector2 p1, Vector2 p2, uint color, float thickness = 1f)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_AddLine(drawList, p1, p2, color, thickness);
+        }
+
+        /// <summary>
+        /// Draw a rectangle outline on the foreground overlay.
+        /// </summary>
+        public static void DrawRect(Vector2 min, Vector2 max, uint color, float thickness = 1f, float rounding = 0f)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_AddRect(drawList, min, max, color, rounding, 0, thickness);
+        }
+
+        /// <summary>
+        /// Draw a filled rectangle on the foreground overlay.
+        /// </summary>
+        public static void DrawRectFilled(Vector2 min, Vector2 max, uint color, float rounding = 0f)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_AddRectFilled(drawList, min, max, color, rounding, 0);
+        }
+
+        /// <summary>
+        /// Draw a circle outline on the foreground overlay.
+        /// </summary>
+        public static void DrawCircle(Vector2 center, float radius, uint color, float thickness = 1f, int segments = 0)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_AddCircle(drawList, center, radius, color, segments, thickness);
+        }
+
+        /// <summary>
+        /// Draw a filled circle on the foreground overlay.
+        /// </summary>
+        public static void DrawCircleFilled(Vector2 center, float radius, uint color, int segments = 0)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_AddCircleFilled(drawList, center, radius, color, segments);
+        }
+
+        /// <summary>
+        /// Draw text on the foreground overlay.
+        /// </summary>
+        public static void DrawText(Vector2 pos, uint color, string text)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_AddText(drawList, pos, color, text, IntPtr.Zero);
+        }
+
+        #endregion
+
         #region Helpers
 
         /// <summary>
