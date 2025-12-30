@@ -670,7 +670,7 @@ namespace GameSDK.ModHost.Patching
             return (IntPtr methodInfo) =>
             {
                 return ExecutePatch(patch, IntPtr.Zero, Array.Empty<IntPtr>(), methodInfo,
-                    () => ((Detour0)patch.OriginalDelegate)(methodInfo));
+                    (modifiedArgs) => ((Detour0)patch.OriginalDelegate)(methodInfo));
             };
         }
 
@@ -682,7 +682,11 @@ namespace GameSDK.ModHost.Patching
                 IntPtr[] args = patch.IsStatic ? new[] { arg0 } : Array.Empty<IntPtr>();
                 
                 return ExecutePatch(patch, instance, args, methodInfo,
-                    () => ((Detour1)patch.OriginalDelegate)(arg0, methodInfo));
+                    (modifiedArgs) => {
+                        if (patch.IsStatic && modifiedArgs.Length > 0)
+                            return ((Detour1)patch.OriginalDelegate)(modifiedArgs[0], methodInfo);
+                        return ((Detour1)patch.OriginalDelegate)(arg0, methodInfo);
+                    });
             };
         }
 
@@ -694,7 +698,13 @@ namespace GameSDK.ModHost.Patching
                 IntPtr[] args = patch.IsStatic ? new[] { arg0, arg1 } : new[] { arg1 };
                 
                 return ExecutePatch(patch, instance, args, methodInfo,
-                    () => ((Detour2)patch.OriginalDelegate)(arg0, arg1, methodInfo));
+                    (modifiedArgs) => {
+                        if (patch.IsStatic && modifiedArgs.Length >= 2)
+                            return ((Detour2)patch.OriginalDelegate)(modifiedArgs[0], modifiedArgs[1], methodInfo);
+                        else if (!patch.IsStatic && modifiedArgs.Length >= 1)
+                            return ((Detour2)patch.OriginalDelegate)(arg0, modifiedArgs[0], methodInfo);
+                        return ((Detour2)patch.OriginalDelegate)(arg0, arg1, methodInfo);
+                    });
             };
         }
 
@@ -706,7 +716,13 @@ namespace GameSDK.ModHost.Patching
                 IntPtr[] args = patch.IsStatic ? new[] { arg0, arg1, arg2 } : new[] { arg1, arg2 };
                 
                 return ExecutePatch(patch, instance, args, methodInfo,
-                    () => ((Detour3)patch.OriginalDelegate)(arg0, arg1, arg2, methodInfo));
+                    (modifiedArgs) => {
+                        if (patch.IsStatic && modifiedArgs.Length >= 3)
+                            return ((Detour3)patch.OriginalDelegate)(modifiedArgs[0], modifiedArgs[1], modifiedArgs[2], methodInfo);
+                        else if (!patch.IsStatic && modifiedArgs.Length >= 2)
+                            return ((Detour3)patch.OriginalDelegate)(arg0, modifiedArgs[0], modifiedArgs[1], methodInfo);
+                        return ((Detour3)patch.OriginalDelegate)(arg0, arg1, arg2, methodInfo);
+                    });
             };
         }
 
@@ -718,7 +734,13 @@ namespace GameSDK.ModHost.Patching
                 IntPtr[] args = patch.IsStatic ? new[] { arg0, arg1, arg2, arg3 } : new[] { arg1, arg2, arg3 };
                 
                 return ExecutePatch(patch, instance, args, methodInfo,
-                    () => ((Detour4)patch.OriginalDelegate)(arg0, arg1, arg2, arg3, methodInfo));
+                    (modifiedArgs) => {
+                        if (patch.IsStatic && modifiedArgs.Length >= 4)
+                            return ((Detour4)patch.OriginalDelegate)(modifiedArgs[0], modifiedArgs[1], modifiedArgs[2], modifiedArgs[3], methodInfo);
+                        else if (!patch.IsStatic && modifiedArgs.Length >= 3)
+                            return ((Detour4)patch.OriginalDelegate)(arg0, modifiedArgs[0], modifiedArgs[1], modifiedArgs[2], methodInfo);
+                        return ((Detour4)patch.OriginalDelegate)(arg0, arg1, arg2, arg3, methodInfo);
+                    });
             };
         }
 
@@ -730,7 +752,13 @@ namespace GameSDK.ModHost.Patching
                 IntPtr[] args = patch.IsStatic ? new[] { arg0, arg1, arg2, arg3, arg4 } : new[] { arg1, arg2, arg3, arg4 };
                 
                 return ExecutePatch(patch, instance, args, methodInfo,
-                    () => ((Detour5)patch.OriginalDelegate)(arg0, arg1, arg2, arg3, arg4, methodInfo));
+                    (modifiedArgs) => {
+                        if (patch.IsStatic && modifiedArgs.Length >= 5)
+                            return ((Detour5)patch.OriginalDelegate)(modifiedArgs[0], modifiedArgs[1], modifiedArgs[2], modifiedArgs[3], modifiedArgs[4], methodInfo);
+                        else if (!patch.IsStatic && modifiedArgs.Length >= 4)
+                            return ((Detour5)patch.OriginalDelegate)(arg0, modifiedArgs[0], modifiedArgs[1], modifiedArgs[2], modifiedArgs[3], methodInfo);
+                        return ((Detour5)patch.OriginalDelegate)(arg0, arg1, arg2, arg3, arg4, methodInfo);
+                    });
             };
         }
 
@@ -744,7 +772,13 @@ namespace GameSDK.ModHost.Patching
                     : new[] { arg1, arg2, arg3, arg4, arg5 };
                 
                 return ExecutePatch(patch, instance, args, methodInfo,
-                    () => ((Detour6)patch.OriginalDelegate)(arg0, arg1, arg2, arg3, arg4, arg5, methodInfo));
+                    (modifiedArgs) => {
+                        if (patch.IsStatic && modifiedArgs.Length >= 6)
+                            return ((Detour6)patch.OriginalDelegate)(modifiedArgs[0], modifiedArgs[1], modifiedArgs[2], modifiedArgs[3], modifiedArgs[4], modifiedArgs[5], methodInfo);
+                        else if (!patch.IsStatic && modifiedArgs.Length >= 5)
+                            return ((Detour6)patch.OriginalDelegate)(arg0, modifiedArgs[0], modifiedArgs[1], modifiedArgs[2], modifiedArgs[3], modifiedArgs[4], methodInfo);
+                        return ((Detour6)patch.OriginalDelegate)(arg0, arg1, arg2, arg3, arg4, arg5, methodInfo);
+                    });
             };
         }
 
@@ -888,7 +922,7 @@ namespace GameSDK.ModHost.Patching
         /// Execute the patch logic (prefix, original, postfix, finalizer).
         /// All exception handling is done here - mod code doesn't need try/catch.
         /// </summary>
-        private static IntPtr ExecutePatch(PatchInfo patch, IntPtr instance, IntPtr[] args, IntPtr methodInfo, Func<IntPtr> callOriginal)
+        private static IntPtr ExecutePatch(PatchInfo patch, IntPtr instance, IntPtr[] args, IntPtr methodInfo, Func<IntPtr[], IntPtr> callOriginal)
         {
             bool runOriginal = true;
             IntPtr result = IntPtr.Zero;
@@ -906,10 +940,10 @@ namespace GameSDK.ModHost.Patching
                     }
                 }
 
-                // Call original
+                // Call original with potentially modified args
                 if (runOriginal && patch.OriginalDelegate != null)
                 {
-                    result = callOriginal();
+                    result = callOriginal(args);
                 }
 
                 // Call postfix
@@ -1016,27 +1050,36 @@ namespace GameSDK.ModHost.Patching
 
         /// <summary>
         /// Invoke a patch method, automatically converting parameters to the expected types.
+        /// Supports ref parameters - modified values are written back to args array.
         /// </summary>
         private static object InvokePatchMethod(MethodInfo method, IntPtr instance, IntPtr[] args, IntPtr result, Exception exception)
         {
             ParameterInfo[] parameters = method.GetParameters();
             object[] invokeArgs = new object[parameters.Length];
+            
+            // Track which parameters map to which args indices for ref writeback
+            int[] argIndexMapping = new int[parameters.Length];
+            for (int i = 0; i < argIndexMapping.Length; i++)
+                argIndexMapping[i] = -1;
 
             for (int i = 0; i < parameters.Length; i++)
             {
                 ParameterInfo param = parameters[i];
                 string name = param.Name;
                 Type ptype = param.ParameterType;
+                
+                // Handle ref/out parameters - get the element type
+                Type elementType = ptype.IsByRef ? ptype.GetElementType() : ptype;
 
                 try
                 {
                     if (name == "__instance")
                     {
-                        invokeArgs[i] = ConvertToType(instance, ptype);
+                        invokeArgs[i] = ConvertToType(instance, elementType);
                     }
                     else if (name == "__result")
                     {
-                        invokeArgs[i] = ConvertToType(result, ptype);
+                        invokeArgs[i] = ConvertToType(result, elementType);
                     }
                     else if (name == "__exception")
                     {
@@ -1046,27 +1089,43 @@ namespace GameSDK.ModHost.Patching
                     {
                         if (argIndex >= 0 && argIndex < args.Length)
                         {
-                            invokeArgs[i] = ConvertToType(args[argIndex], ptype);
+                            invokeArgs[i] = ConvertToType(args[argIndex], elementType);
+                            argIndexMapping[i] = argIndex; // Track for writeback
                         }
                         else
                         {
-                            invokeArgs[i] = GetDefault(ptype);
+                            invokeArgs[i] = GetDefault(elementType);
                         }
                     }
                     else
                     {
-                        invokeArgs[i] = GetDefault(ptype);
+                        invokeArgs[i] = GetDefault(elementType);
                     }
                 }
                 catch
                 {
-                    invokeArgs[i] = GetDefault(ptype);
+                    invokeArgs[i] = GetDefault(elementType);
                 }
             }
 
             try
             {
-                return method.Invoke(null, invokeArgs);
+                object returnValue = method.Invoke(null, invokeArgs);
+                
+                // Write back ref parameters to args array
+                for (int i = 0; i < parameters.Length; i++)
+                {
+                    if (parameters[i].ParameterType.IsByRef && argIndexMapping[i] >= 0)
+                    {
+                        int argIndex = argIndexMapping[i];
+                        object modifiedValue = invokeArgs[i];
+                        
+                        // Convert modified value back to IntPtr for the args array
+                        args[argIndex] = ConvertToIntPtr(modifiedValue);
+                    }
+                }
+                
+                return returnValue;
             }
             catch (TargetInvocationException ex)
             {
@@ -1200,6 +1259,55 @@ namespace GameSDK.ModHost.Patching
 
             // Fallback - return as IntPtr
             return ptr;
+        }
+
+        /// <summary>
+        /// Convert a managed value back to IntPtr for IL2CPP.
+        /// Used when writing back ref parameter values.
+        /// </summary>
+        private static IntPtr ConvertToIntPtr(object value)
+        {
+            if (value == null)
+                return IntPtr.Zero;
+            
+            if (value is IntPtr ptr)
+                return ptr;
+            
+            if (value is int i)
+                return new IntPtr(i);
+            
+            if (value is long l)
+                return new IntPtr(l);
+            
+            if (value is bool b)
+                return new IntPtr(b ? 1 : 0);
+            
+            if (value is float f)
+            {
+                byte[] bytes = BitConverter.GetBytes(f);
+                int bits = BitConverter.ToInt32(bytes, 0);
+                return new IntPtr(bits);
+            }
+            
+            if (value is double d)
+            {
+                byte[] bytes = BitConverter.GetBytes(d);
+                long bits = BitConverter.ToInt64(bytes, 0);
+                return new IntPtr(bits);
+            }
+            
+            if (value is string s)
+            {
+                return Il2CppBridge.ManagedStringToIl2Cpp(s);
+            }
+            
+            if (value is Il2CppObject obj)
+            {
+                return obj.NativePtr;
+            }
+            
+            // Fallback - try to get IntPtr from the value
+            return IntPtr.Zero;
         }
 
         private static object GetDefault(Type type)
