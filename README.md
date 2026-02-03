@@ -133,7 +133,7 @@ namespace MyMod
 
 ## Method Hooking
 
-Intercept game methods using Harmony-style attributes:
+Intercept game methods using HarmonyX-style attributes:
 
 ```csharp
 [Mod("Hook Example", "1.0.0", "YourName")]
@@ -165,6 +165,44 @@ public static class PlayerPatch
 }
 ```
 
+### Special Parameters (HarmonyX Compatible)
+
+| Parameter | Description |
+|-----------|-------------|
+| `IntPtr __instance` | The object instance (`IntPtr.Zero` for static methods) |
+| `__0`, `__1`, etc. | Original method parameters by index |
+| `ref __result` | The return value (modify via ref to change it) |
+| `__state` | Pass data from Prefix to Postfix |
+| `Exception __exception` | The exception thrown (Finalizer only) |
+
+### Controlling Return Values
+
+Use `ref __result` to control what the method returns when skipping the original:
+
+```csharp
+[Patch("", "Player")]
+[PatchMethod("IsAlive", 0)]
+public static class GodModePatch
+{
+    [Prefix]
+    public static bool Prefix(IntPtr __instance, ref bool __result)
+    {
+        __result = true;   // Force return value to true
+        return false;      // Skip original method
+    }
+}
+```
+
+Postfix can also modify the return value after the original runs:
+
+```csharp
+[Postfix]
+public static void Postfix(ref int __result)
+{
+    __result *= 2;  // Double the original return value
+}
+```
+
 ### Patch Attributes
 
 ```csharp
@@ -185,6 +223,25 @@ public static class PlayerPatch
 [PatchRva(0x1A3B5C0)]  // Target by memory offset
 public static class ObfuscatedPatch { ... }
 ```
+
+### Hook Debugging
+
+Enable verbose logging to troubleshoot hook issues:
+
+```csharp
+using GameSDK.ModHost.Patching;
+
+// Enable debug mode before loading mods
+PatchProcessor.SetDebugEnabled(true);
+
+// Later, dump all active hooks to the log
+PatchProcessor.DumpAllHooks();
+```
+
+This logs detailed information about:
+- Parameter signatures (pointer/float/double detection)
+- Trampoline creation and validation
+- x64 calling convention details for float parameters
 
 ---
 

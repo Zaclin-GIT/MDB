@@ -921,6 +921,41 @@ namespace GameSDK
         [return: MarshalAs(UnmanagedType.I1)]
         public static extern bool mdb_field_set_value_direct(IntPtr instance, IntPtr field, IntPtr value, int valueSize);
 
+        // ==============================
+        // Hook Debugging
+        // ==============================
+
+        /// <summary>Enable or disable verbose hook debugging.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void mdb_hook_set_debug_enabled([MarshalAs(UnmanagedType.I1)] bool enabled);
+
+        /// <summary>Check if hook debugging is enabled.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        public static extern bool mdb_hook_is_debug_enabled();
+
+        /// <summary>Get the number of active hooks.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_hook_get_count();
+
+        /// <summary>Dump all hook info to the debug log.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void mdb_hook_dump_all();
+
+        /// <summary>Create a debug hook with signature information for tracing.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        public static extern long mdb_create_hook_debug(IntPtr target, IntPtr detour, out IntPtr original,
+            string signature, string description);
+
+        /// <summary>Validate that a trampoline function works correctly.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        [return: MarshalAs(UnmanagedType.I1)]
+        public static extern bool mdb_hook_validate_trampoline(IntPtr trampoline, string signature);
+
+        /// <summary>Log a hook call for debugging purposes.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void mdb_hook_log_call(long hookHandle, IntPtr arg0, float arg1Float, float arg2Float);
+
         // IL2CPP Type Enum Constants
         public static class Il2CppTypeEnum
         {

@@ -952,8 +952,16 @@ SKIP_TYPES = set()
 
 def get_renamed_class_name(type_name: str, namespace: str) -> Tuple[str, str]:
     # DEBUG STATS: ~9,081 calls - Name resolution for type conflicts
-    """Get renamed class name (renaming disabled). [STEP 4.x: Name resolution]"""
+    """Get renamed class name with deobfuscation support. [STEP 4.x: Name resolution]
+    
+    Returns (display_name, original_name) tuple.
+    Uses friendly names from mappings.json when available.
+    """
     _track_call("get_renamed_class_name")
+    # Check for deobfuscation mapping (friendly name)
+    friendly_name = get_friendly_name(type_name)
+    if friendly_name:
+        return friendly_name, type_name
     return type_name, type_name
 
 # Property names that conflict with C# keywords or System types
@@ -1284,7 +1292,11 @@ def _add_type_with_rename(t: TypeDef, ns: str, seen: set, body: list, kind: str,
     if name in seen: return False
     seen.add(name)
     if name != orig:
-        body.append(f"    /// <summary>Renamed to avoid conflict. Original IL2CPP name: '{orig}'</summary>")
+        # Check if this is a deobfuscation (friendly name) vs a simple rename
+        if get_friendly_name(orig):
+            body.append(f"    /// <summary>Deobfuscated {kind}. IL2CPP name: '{orig}'</summary>")
+        else:
+            body.append(f"    /// <summary>Renamed to avoid conflict. Original IL2CPP name: '{orig}'</summary>")
     return name, orig
 
 def generate_wrapper_code_per_namespace(types: List[TypeDef], output_dir: str) -> dict:

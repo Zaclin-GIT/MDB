@@ -37,6 +37,16 @@ namespace GameSDK.ModHost.Patching
         public bool ReturnsFloat { get; set; }
         
         /// <summary>
+        /// The IL2CPP type enum for the return type (IL2CPP_TYPE_VOID, IL2CPP_TYPE_BOOLEAN, etc.)
+        /// </summary>
+        public int ReturnTypeEnum { get; set; } = Il2CppBridge.IL2CPP_TYPE_VOID;
+        
+        /// <summary>
+        /// True if the method returns void
+        /// </summary>
+        public bool ReturnsVoid => ReturnTypeEnum == Il2CppBridge.IL2CPP_TYPE_VOID;
+        
+        /// <summary>
         /// The IL2CPP MethodInfo pointer for querying parameter types
         /// </summary>
         public IntPtr Il2CppMethod { get; set; }
@@ -65,6 +75,35 @@ namespace GameSDK.ModHost.Patching
         
         // Map from hook handle to patch info for detour lookup
         private static readonly Dictionary<long, PatchInfo> _hookToPatch = new Dictionary<long, PatchInfo>();
+        
+        // Debug flag for verbose logging
+        private static bool _debugEnabled = false;
+
+        /// <summary>
+        /// Enable or disable verbose hook debugging.
+        /// When enabled, hooks will log detailed information about signatures and trampolines.
+        /// </summary>
+        public static void SetDebugEnabled(bool enabled)
+        {
+            _debugEnabled = enabled;
+            Il2CppBridge.mdb_hook_set_debug_enabled(enabled);
+            _logger.Info($"Hook debugging {(enabled ? "ENABLED" : "DISABLED")}");
+        }
+
+        /// <summary>
+        /// Check if hook debugging is enabled.
+        /// </summary>
+        public static bool IsDebugEnabled => _debugEnabled;
+
+        /// <summary>
+        /// Dump all active hooks to the debug log.
+        /// Useful for diagnosing hook issues.
+        /// </summary>
+        public static void DumpAllHooks()
+        {
+            _logger.Info($"Dumping {Il2CppBridge.mdb_hook_get_count()} active hooks...");
+            Il2CppBridge.mdb_hook_dump_all();
+        }
 
         #region Delegate Types for Different Parameter Counts
         
@@ -146,6 +185,32 @@ namespace GameSDK.ModHost.Patching
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
         private delegate float DetourFloat2_PF(IntPtr arg0, float arg1, IntPtr methodInfo);
 
+        #endregion
+        
+        #region Patch Invocation Result
+        
+        /// <summary>
+        /// Result from invoking a patch method, including modified __result value.
+        /// Used to support HarmonyX-style __result ref parameters.
+        /// </summary>
+        private struct PatchInvocationResult
+        {
+            /// <summary>
+            /// The return value from the patch method (e.g., bool for Prefix)
+            /// </summary>
+            public object ReturnValue;
+            
+            /// <summary>
+            /// The modified __result value if the patch had a ref __result parameter
+            /// </summary>
+            public IntPtr ModifiedResult;
+            
+            /// <summary>
+            /// True if the patch method had a ref __result parameter
+            /// </summary>
+            public bool HasModifiedResult;
+        }
+        
         #endregion
         
         private static bool _hooksHeaderShown = false;
@@ -325,6 +390,7 @@ namespace GameSDK.ModHost.Patching
                     _logger.Error($"  Failed to resolve RVA 0x{patchInfo.TargetRva.Value:X}");
                     return false;
                 }
+                _logger.Warning($"  RVA-based hook - cannot detect parameter types, assuming all IntPtr");
             }
             else
             {
@@ -346,7 +412,9 @@ namespace GameSDK.ModHost.Patching
                 patchInfo.Il2CppMethod = method;
                 
                 // Build parameter signature for float-aware detour selection
+                _logger.Info($"  Building parameter signature for {patchInfo.TargetMethodName} (paramCount={patchInfo.ParameterCount})...");
                 BuildParameterSignature(patchInfo, method);
+                _logger.Info($"  Detected signature: '{patchInfo.ParameterSignature}'");
 
                 methodPtr = Il2CppBridge.mdb_get_method_pointer(method);
                 if (methodPtr == IntPtr.Zero)
@@ -427,6 +495,7 @@ namespace GameSDK.ModHost.Patching
             
             // Query each parameter's type
             int paramCount = patchInfo.ParameterCount >= 0 ? patchInfo.ParameterCount : 0;
+            
             for (int i = 0; i < paramCount; i++)
             {
                 IntPtr paramType = Il2CppBridge.mdb_method_get_param_type(method, i);
@@ -437,6 +506,7 @@ namespace GameSDK.ModHost.Patching
                 }
                 
                 int typeEnum = Il2CppBridge.mdb_type_get_type_enum(paramType);
+                
                 switch (typeEnum)
                 {
                     case Il2CppBridge.IL2CPP_TYPE_R4: // float
@@ -453,13 +523,19 @@ namespace GameSDK.ModHost.Patching
             
             patchInfo.ParameterSignature = sig.ToString();
             
-            // Check return type
+            // Check return type and store the type enum
             IntPtr returnType = Il2CppBridge.mdb_method_get_return_type(method);
             if (returnType != IntPtr.Zero)
             {
                 int returnTypeEnum = Il2CppBridge.mdb_type_get_type_enum(returnType);
+                patchInfo.ReturnTypeEnum = returnTypeEnum;
                 patchInfo.ReturnsFloat = (returnTypeEnum == Il2CppBridge.IL2CPP_TYPE_R4 || 
                                           returnTypeEnum == Il2CppBridge.IL2CPP_TYPE_R8);
+            }
+            else
+            {
+                // Default to void if we can't determine the return type
+                patchInfo.ReturnTypeEnum = Il2CppBridge.IL2CPP_TYPE_VOID;
             }
         }
 
@@ -473,6 +549,7 @@ namespace GameSDK.ModHost.Patching
             
             // Try to use float-aware delegate if signature contains floats
             if (!string.IsNullOrEmpty(sig) && sig.Contains("F"))
+                
             {
                 var floatDetour = CreateFloatAwareDetour(patchInfo, sig);
                 if (floatDetour != null)
@@ -531,8 +608,19 @@ namespace GameSDK.ModHost.Patching
             _keepAlive.Add(handle);
 
             IntPtr originalPtr;
-            // Use mdb_create_hook_ptr since methodPtr is already the function pointer
-            long hookHandle = Il2CppBridge.mdb_create_hook_ptr(methodPtr, detourPtr, out originalPtr);
+            long hookHandle;
+            
+            // Use debug hook creation if debugging is enabled
+            if (Il2CppBridge.mdb_hook_is_debug_enabled())
+            {
+                _logger.Info($"  Creating debug hook for {description} with signature: {sig ?? "N/A"}");
+                hookHandle = Il2CppBridge.mdb_create_hook_debug(methodPtr, detourPtr, out originalPtr, sig, description);
+            }
+            else
+            {
+                // Use mdb_create_hook_ptr since methodPtr is already the function pointer
+                hookHandle = Il2CppBridge.mdb_create_hook_ptr(methodPtr, detourPtr, out originalPtr);
+            }
             
             if (hookHandle <= 0)
             {
@@ -545,8 +633,6 @@ namespace GameSDK.ModHost.Patching
             patchInfo.HookHandle = hookHandle;
             
             // Create a delegate for the original method with matching signature
-            // For float-aware delegates, we need to match the signature
-            // Note: sig is already declared above in this method
             if (!string.IsNullOrEmpty(sig) && sig.Contains("F"))
             {
                 patchInfo.OriginalDelegate = CreateOriginalDelegateForSignature(sig, originalPtr);
@@ -789,10 +875,10 @@ namespace GameSDK.ModHost.Patching
             return (IntPtr arg0, float arg1, IntPtr methodInfo) =>
             {
                 IntPtr instance = arg0;
-                object[] args = new object[] { arg1 }; // Float captured correctly!
+                object[] args = new object[] { arg1 };
                 
                 return ExecutePatchWithFloats(patch, instance, args, methodInfo,
-                    () => ((Detour2_PF)patch.OriginalDelegate)(arg0, arg1, methodInfo));
+                    (modArgs) => ((Detour2_PF)patch.OriginalDelegate)(arg0, (float)modArgs[0], methodInfo));
             };
         }
         
@@ -804,7 +890,7 @@ namespace GameSDK.ModHost.Patching
                 object[] args = new object[] { arg1, arg2 };
                 
                 return ExecutePatchWithFloats(patch, instance, args, methodInfo,
-                    () => ((Detour3_PFP)patch.OriginalDelegate)(arg0, arg1, arg2, methodInfo));
+                    (modArgs) => ((Detour3_PFP)patch.OriginalDelegate)(arg0, (float)modArgs[0], (IntPtr)modArgs[1], methodInfo));
             };
         }
         
@@ -816,7 +902,7 @@ namespace GameSDK.ModHost.Patching
                 object[] args = new object[] { arg1, arg2 };
                 
                 return ExecutePatchWithFloats(patch, instance, args, methodInfo,
-                    () => ((Detour3_PPF)patch.OriginalDelegate)(arg0, arg1, arg2, methodInfo));
+                    (modArgs) => ((Detour3_PPF)patch.OriginalDelegate)(arg0, (IntPtr)modArgs[0], (float)modArgs[1], methodInfo));
             };
         }
         
@@ -828,7 +914,7 @@ namespace GameSDK.ModHost.Patching
                 object[] args = new object[] { arg1, arg2 };
                 
                 return ExecutePatchWithFloats(patch, instance, args, methodInfo,
-                    () => ((Detour3_PFF)patch.OriginalDelegate)(arg0, arg1, arg2, methodInfo));
+                    (modArgs) => ((Detour3_PFF)patch.OriginalDelegate)(arg0, (float)modArgs[0], (float)modArgs[1], methodInfo));
             };
         }
         
@@ -840,7 +926,7 @@ namespace GameSDK.ModHost.Patching
                 object[] args = new object[] { arg1, arg2, arg3 };
                 
                 return ExecutePatchWithFloats(patch, instance, args, methodInfo,
-                    () => ((Detour4_PFPP)patch.OriginalDelegate)(arg0, arg1, arg2, arg3, methodInfo));
+                    (modArgs) => ((Detour4_PFPP)patch.OriginalDelegate)(arg0, (float)modArgs[0], (IntPtr)modArgs[1], (IntPtr)modArgs[2], methodInfo));
             };
         }
         
@@ -852,7 +938,7 @@ namespace GameSDK.ModHost.Patching
                 object[] args = new object[] { arg1, arg2, arg3 };
                 
                 return ExecutePatchWithFloats(patch, instance, args, methodInfo,
-                    () => ((Detour4_PPFP)patch.OriginalDelegate)(arg0, arg1, arg2, arg3, methodInfo));
+                    (modArgs) => ((Detour4_PPFP)patch.OriginalDelegate)(arg0, (IntPtr)modArgs[0], (float)modArgs[1], (IntPtr)modArgs[2], methodInfo));
             };
         }
         
@@ -864,7 +950,7 @@ namespace GameSDK.ModHost.Patching
                 object[] args = new object[] { arg1, arg2, arg3 };
                 
                 return ExecutePatchWithFloats(patch, instance, args, methodInfo,
-                    () => ((Detour4_PPPF)patch.OriginalDelegate)(arg0, arg1, arg2, arg3, methodInfo));
+                    (modArgs) => ((Detour4_PPPF)patch.OriginalDelegate)(arg0, (IntPtr)modArgs[0], (IntPtr)modArgs[1], (float)modArgs[2], methodInfo));
             };
         }
         
@@ -876,7 +962,7 @@ namespace GameSDK.ModHost.Patching
                 object[] args = new object[] { arg1, arg2, arg3 };
                 
                 return ExecutePatchWithFloats(patch, instance, args, methodInfo,
-                    () => ((Detour4_PFFP)patch.OriginalDelegate)(arg0, arg1, arg2, arg3, methodInfo));
+                    (modArgs) => ((Detour4_PFFP)patch.OriginalDelegate)(arg0, (float)modArgs[0], (float)modArgs[1], (IntPtr)modArgs[2], methodInfo));
             };
         }
         
@@ -888,7 +974,7 @@ namespace GameSDK.ModHost.Patching
                 object[] args = new object[] { arg1, arg2, arg3 };
                 
                 return ExecutePatchWithFloats(patch, instance, args, methodInfo,
-                    () => ((Detour4_PFPF)patch.OriginalDelegate)(arg0, arg1, arg2, arg3, methodInfo));
+                    (modArgs) => ((Detour4_PFPF)patch.OriginalDelegate)(arg0, (float)modArgs[0], (IntPtr)modArgs[1], (float)modArgs[2], methodInfo));
             };
         }
         
@@ -900,7 +986,7 @@ namespace GameSDK.ModHost.Patching
                 object[] args = new object[] { arg1, arg2, arg3 };
                 
                 return ExecutePatchWithFloats(patch, instance, args, methodInfo,
-                    () => ((Detour4_PPFF)patch.OriginalDelegate)(arg0, arg1, arg2, arg3, methodInfo));
+                    (modArgs) => ((Detour4_PPFF)patch.OriginalDelegate)(arg0, (IntPtr)modArgs[0], (float)modArgs[1], (float)modArgs[2], methodInfo));
             };
         }
         
@@ -912,7 +998,7 @@ namespace GameSDK.ModHost.Patching
                 object[] args = new object[] { arg1, arg2, arg3 };
                 
                 return ExecutePatchWithFloats(patch, instance, args, methodInfo,
-                    () => ((Detour4_PFFF)patch.OriginalDelegate)(arg0, arg1, arg2, arg3, methodInfo));
+                    (modArgs) => ((Detour4_PFFF)patch.OriginalDelegate)(arg0, (float)modArgs[0], (float)modArgs[1], (float)modArgs[2], methodInfo));
             };
         }
 
@@ -921,6 +1007,9 @@ namespace GameSDK.ModHost.Patching
         /// <summary>
         /// Execute the patch logic (prefix, original, postfix, finalizer).
         /// All exception handling is done here - mod code doesn't need try/catch.
+        /// Implements HarmonyX-style prefix semantics:
+        /// - Prefix returning false skips the original method
+        /// - Prefix can set __result via ref parameter when skipping original
         /// </summary>
         private static IntPtr ExecutePatch(PatchInfo patch, IntPtr instance, IntPtr[] args, IntPtr methodInfo, Func<IntPtr[], IntPtr> callOriginal)
         {
@@ -933,10 +1022,19 @@ namespace GameSDK.ModHost.Patching
                 // Call prefix
                 if (patch.PrefixMethod != null)
                 {
-                    object prefixResult = InvokePatchMethod(patch.PrefixMethod, instance, args, IntPtr.Zero, null);
-                    if (prefixResult is bool b && !b)
+                    var prefixInvocation = InvokePatchMethodEx(patch.PrefixMethod, instance, args, IntPtr.Zero, null);
+                    
+                    // Check if prefix wants to skip original
+                    if (prefixInvocation.ReturnValue is bool b && !b)
                     {
                         runOriginal = false;
+                        
+                        // If prefix set __result via ref parameter, use that as the return value
+                        if (prefixInvocation.HasModifiedResult)
+                        {
+                            result = prefixInvocation.ModifiedResult;
+                        }
+                        // Otherwise result stays as IntPtr.Zero (default)
                     }
                 }
 
@@ -946,10 +1044,16 @@ namespace GameSDK.ModHost.Patching
                     result = callOriginal(args);
                 }
 
-                // Call postfix
+                // Call postfix (receives the actual result, whether from original or prefix)
                 if (patch.PostfixMethod != null)
                 {
-                    InvokePatchMethod(patch.PostfixMethod, instance, args, result, null);
+                    var postfixInvocation = InvokePatchMethodEx(patch.PostfixMethod, instance, args, result, null);
+                    
+                    // Postfix can also modify __result via ref parameter
+                    if (postfixInvocation.HasModifiedResult)
+                    {
+                        result = postfixInvocation.ModifiedResult;
+                    }
                 }
             }
             catch (Exception ex)
@@ -986,8 +1090,11 @@ namespace GameSDK.ModHost.Patching
         /// <summary>
         /// Execute the patch logic with float-aware argument handling.
         /// Args is object[] that may contain floats directly instead of IntPtrs.
+        /// Implements HarmonyX-style prefix semantics:
+        /// - Prefix returning false skips the original method
+        /// - Prefix can set __result via ref parameter when skipping original
         /// </summary>
-        private static IntPtr ExecutePatchWithFloats(PatchInfo patch, IntPtr instance, object[] args, IntPtr methodInfo, Func<IntPtr> callOriginal)
+        private static IntPtr ExecutePatchWithFloats(PatchInfo patch, IntPtr instance, object[] args, IntPtr methodInfo, Func<object[], IntPtr> callOriginal)
         {
             bool runOriginal = true;
             IntPtr result = IntPtr.Zero;
@@ -998,23 +1105,38 @@ namespace GameSDK.ModHost.Patching
                 // Call prefix
                 if (patch.PrefixMethod != null)
                 {
-                    object prefixResult = InvokePatchMethodWithFloats(patch.PrefixMethod, instance, args, IntPtr.Zero, null);
-                    if (prefixResult is bool b && !b)
+                    var prefixInvocation = InvokePatchMethodWithFloatsEx(patch.PrefixMethod, instance, args, IntPtr.Zero, null);
+                    
+                    // Check if prefix wants to skip original
+                    if (prefixInvocation.ReturnValue is bool b && !b)
                     {
                         runOriginal = false;
+                        
+                        // If prefix set __result via ref parameter, use that as the return value
+                        if (prefixInvocation.HasModifiedResult)
+                        {
+                            result = prefixInvocation.ModifiedResult;
+                        }
+                        // Otherwise result stays as IntPtr.Zero (default)
                     }
                 }
 
-                // Call original
+                // Call original with potentially modified args
                 if (runOriginal && patch.OriginalDelegate != null)
                 {
-                    result = callOriginal();
+                    result = callOriginal(args);
                 }
 
-                // Call postfix
+                // Call postfix (receives the actual result, whether from original or prefix)
                 if (patch.PostfixMethod != null)
                 {
-                    InvokePatchMethodWithFloats(patch.PostfixMethod, instance, args, result, null);
+                    var postfixInvocation = InvokePatchMethodWithFloatsEx(patch.PostfixMethod, instance, args, result, null);
+                    
+                    // Postfix can also modify __result via ref parameter
+                    if (postfixInvocation.HasModifiedResult)
+                    {
+                        result = postfixInvocation.ModifiedResult;
+                    }
                 }
             }
             catch (Exception ex)
@@ -1051,8 +1173,9 @@ namespace GameSDK.ModHost.Patching
         /// <summary>
         /// Invoke a patch method, automatically converting parameters to the expected types.
         /// Supports ref parameters - modified values are written back to args array.
+        /// Returns PatchInvocationResult which includes modified __result for HarmonyX compatibility.
         /// </summary>
-        private static object InvokePatchMethod(MethodInfo method, IntPtr instance, IntPtr[] args, IntPtr result, Exception exception)
+        private static PatchInvocationResult InvokePatchMethodEx(MethodInfo method, IntPtr instance, IntPtr[] args, IntPtr result, Exception exception)
         {
             ParameterInfo[] parameters = method.GetParameters();
             object[] invokeArgs = new object[parameters.Length];
@@ -1061,6 +1184,10 @@ namespace GameSDK.ModHost.Patching
             int[] argIndexMapping = new int[parameters.Length];
             for (int i = 0; i < argIndexMapping.Length; i++)
                 argIndexMapping[i] = -1;
+            
+            // Track __result parameter index for writeback
+            int resultParamIndex = -1;
+            bool resultIsRef = false;
 
             for (int i = 0; i < parameters.Length; i++)
             {
@@ -1080,6 +1207,8 @@ namespace GameSDK.ModHost.Patching
                     else if (name == "__result")
                     {
                         invokeArgs[i] = ConvertToType(result, elementType);
+                        resultParamIndex = i;
+                        resultIsRef = ptype.IsByRef;
                     }
                     else if (name == "__exception")
                     {
@@ -1125,38 +1254,71 @@ namespace GameSDK.ModHost.Patching
                     }
                 }
                 
-                return returnValue;
+                // Build result with potential __result modification
+                var invocationResult = new PatchInvocationResult
+                {
+                    ReturnValue = returnValue,
+                    HasModifiedResult = resultIsRef && resultParamIndex >= 0,
+                    ModifiedResult = IntPtr.Zero
+                };
+                
+                // If __result was a ref parameter, extract the modified value
+                if (invocationResult.HasModifiedResult)
+                {
+                    invocationResult.ModifiedResult = ConvertToIntPtr(invokeArgs[resultParamIndex]);
+                }
+                
+                return invocationResult;
             }
             catch (TargetInvocationException ex)
             {
                 throw ex.InnerException ?? ex;
             }
         }
+        
+        /// <summary>
+        /// Invoke a patch method, automatically converting parameters to the expected types.
+        /// Supports ref parameters - modified values are written back to args array.
+        /// </summary>
+        private static object InvokePatchMethod(MethodInfo method, IntPtr instance, IntPtr[] args, IntPtr result, Exception exception)
+        {
+            return InvokePatchMethodEx(method, instance, args, result, exception).ReturnValue;
+        }
 
         /// <summary>
         /// Invoke a patch method with float-aware argument handling.
         /// Args is object[] that may contain floats directly instead of IntPtrs.
+        /// Returns PatchInvocationResult which includes modified __result for HarmonyX compatibility.
         /// </summary>
-        private static object InvokePatchMethodWithFloats(MethodInfo method, IntPtr instance, object[] args, IntPtr result, Exception exception)
+        private static PatchInvocationResult InvokePatchMethodWithFloatsEx(MethodInfo method, IntPtr instance, object[] args, IntPtr result, Exception exception)
         {
             ParameterInfo[] parameters = method.GetParameters();
             object[] invokeArgs = new object[parameters.Length];
+            
+            // Track __result parameter index for writeback
+            int resultParamIndex = -1;
+            bool resultIsRef = false;
 
             for (int i = 0; i < parameters.Length; i++)
             {
                 ParameterInfo param = parameters[i];
                 string name = param.Name;
                 Type ptype = param.ParameterType;
+                
+                // Handle ref/out parameters - get the element type
+                Type elementType = ptype.IsByRef ? ptype.GetElementType() : ptype;
 
                 try
                 {
                     if (name == "__instance")
                     {
-                        invokeArgs[i] = ConvertToType(instance, ptype);
+                        invokeArgs[i] = ConvertToType(instance, elementType);
                     }
                     else if (name == "__result")
                     {
-                        invokeArgs[i] = ConvertToType(result, ptype);
+                        invokeArgs[i] = ConvertToType(result, elementType);
+                        resultParamIndex = i;
+                        resultIsRef = ptype.IsByRef;
                     }
                     else if (name == "__exception")
                     {
@@ -1168,51 +1330,76 @@ namespace GameSDK.ModHost.Patching
                         {
                             object arg = args[argIndex];
                             // If arg is already the correct type (e.g., float), use it directly
-                            if (arg != null && ptype.IsAssignableFrom(arg.GetType()))
+                            if (arg != null && elementType.IsAssignableFrom(arg.GetType()))
                             {
                                 invokeArgs[i] = arg;
                             }
                             else if (arg is IntPtr ptr)
                             {
-                                invokeArgs[i] = ConvertToType(ptr, ptype);
+                                invokeArgs[i] = ConvertToType(ptr, elementType);
                             }
-                            else if (arg is float f && ptype == typeof(float))
+                            else if (arg is float f && elementType == typeof(float))
                             {
                                 invokeArgs[i] = f;
                             }
-                            else if (arg is double d && ptype == typeof(double))
+                            else if (arg is double d && elementType == typeof(double))
                             {
                                 invokeArgs[i] = d;
                             }
                             else
                             {
-                                invokeArgs[i] = GetDefault(ptype);
+                                invokeArgs[i] = GetDefault(elementType);
                             }
                         }
                         else
                         {
-                            invokeArgs[i] = GetDefault(ptype);
+                            invokeArgs[i] = GetDefault(elementType);
                         }
                     }
                     else
                     {
-                        invokeArgs[i] = GetDefault(ptype);
+                        invokeArgs[i] = GetDefault(elementType);
                     }
                 }
                 catch
                 {
-                    invokeArgs[i] = GetDefault(ptype);
+                    invokeArgs[i] = GetDefault(elementType);
                 }
             }
 
             try
             {
-                return method.Invoke(null, invokeArgs);
+                object returnValue = method.Invoke(null, invokeArgs);
+                
+                // Build result with potential __result modification
+                var invocationResult = new PatchInvocationResult
+                {
+                    ReturnValue = returnValue,
+                    HasModifiedResult = resultIsRef && resultParamIndex >= 0,
+                    ModifiedResult = IntPtr.Zero
+                };
+                
+                // If __result was a ref parameter, extract the modified value
+                if (invocationResult.HasModifiedResult)
+                {
+                    invocationResult.ModifiedResult = ConvertToIntPtr(invokeArgs[resultParamIndex]);
+                }
+                
+                return invocationResult;
             }
             catch (TargetInvocationException ex)
             {
                 throw ex.InnerException ?? ex;
             }
+        }
+        
+        /// <summary>
+        /// Invoke a patch method with float-aware argument handling.
+        /// Args is object[] that may contain floats directly instead of IntPtrs.
+        /// </summary>
+        private static object InvokePatchMethodWithFloats(MethodInfo method, IntPtr instance, object[] args, IntPtr result, Exception exception)
+        {
+            return InvokePatchMethodWithFloatsEx(method, instance, args, result, exception).ReturnValue;
         }
 
         /// <summary>

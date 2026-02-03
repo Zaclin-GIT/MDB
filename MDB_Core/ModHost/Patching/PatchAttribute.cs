@@ -82,11 +82,21 @@ namespace GameSDK.ModHost.Patching
     /// Return false to skip the original method.
     /// Return true (or void) to continue to the original.
     /// 
-    /// Special parameters:
-    /// - __instance: The object instance (null for static methods)
+    /// Special parameters (HarmonyX compatible):
+    /// - __instance: The object instance (IntPtr, null for static methods)
     /// - __0, __1, etc.: Original method parameters by index
-    /// - __result: The return value (ref to modify)
+    /// - ref __result: The return value (ref to modify when skipping original)
     /// - __state: Passed between prefix/postfix
+    /// 
+    /// Example - Skip original and set return value:
+    /// <code>
+    /// [Prefix]
+    /// public static bool Prefix(IntPtr __instance, ref bool __result)
+    /// {
+    ///     __result = false;  // Set the return value
+    ///     return false;       // Skip original method
+    /// }
+    /// </code>
     /// </summary>
     [AttributeUsage(AttributeTargets.Method, AllowMultiple = false, Inherited = false)]
     public class PrefixAttribute : Attribute
@@ -97,11 +107,20 @@ namespace GameSDK.ModHost.Patching
     /// Marks a method as a postfix patch.
     /// Postfix methods run AFTER the original method.
     /// 
-    /// Special parameters:
-    /// - __instance: The object instance (null for static methods)
-    /// - __0, __1, etc.: Original method parameters by index
-    /// - __result: The return value (ref to modify)
+    /// Special parameters (HarmonyX compatible):
+    /// - __instance: The object instance (IntPtr, null for static methods)
+    /// - __0, __1, etc.: Original method parameters by index  
+    /// - ref __result: The return value (ref to modify after original runs)
     /// - __state: Value from prefix
+    /// 
+    /// Example - Modify return value:
+    /// <code>
+    /// [Postfix]
+    /// public static void Postfix(ref bool __result)
+    /// {
+    ///     __result = true;  // Override the return value
+    /// }
+    /// </code>
     /// </summary>
     [AttributeUsage(AttributeTargets.Method, AllowMultiple = false, Inherited = false)]
     public class PostfixAttribute : Attribute

@@ -252,19 +252,31 @@ MDB_API void* mdb_method_get_param_type(void* method, int index) {
         return nullptr;
     }
     
-    auto* mi = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppMethodInfo*>(method);
+    // Use the official IL2CPP API instead of direct struct access
+    // This handles struct layout differences between Unity versions
+    static auto il2cpp_method_get_param_fn = reinterpret_cast<const void*(*)(void*, uint32_t)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_method_get_param")
+    );
     
-    if (index < 0 || index >= mi->m_uArgsCount) {
-        set_error(MdbErrorCode::InvalidArgument, "Parameter index out of range");
-        return nullptr;
+    if (!il2cpp_method_get_param_fn) {
+        // Fallback to direct struct access if API not available
+        auto* mi = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppMethodInfo*>(method);
+        
+        if (index < 0 || index >= mi->m_uArgsCount) {
+            set_error(MdbErrorCode::InvalidArgument, "Parameter index out of range");
+            return nullptr;
+        }
+        
+        if (!mi->m_pParameters) {
+            set_error(MdbErrorCode::InvalidArgument, "Method has no parameter info");
+            return nullptr;
+        }
+        
+        return mi->m_pParameters[index].m_pParameterType;
     }
     
-    if (!mi->m_pParameters) {
-        set_error(MdbErrorCode::InvalidArgument, "Method has no parameter info");
-        return nullptr;
-    }
-    
-    return mi->m_pParameters[index].m_pParameterType;
+    // Use the official API - returns Il2CppType* directly
+    return const_cast<void*>(il2cpp_method_get_param_fn(method, static_cast<uint32_t>(index)));
 }
 
 MDB_API void* mdb_method_get_return_type(void* method) {
@@ -274,8 +286,18 @@ MDB_API void* mdb_method_get_return_type(void* method) {
         return nullptr;
     }
     
-    auto* mi = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppMethodInfo*>(method);
-    return mi->m_pReturnType;
+    // Use the official IL2CPP API instead of direct struct access
+    static auto il2cpp_method_get_return_type_fn = reinterpret_cast<const void*(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_method_get_return_type")
+    );
+    
+    if (!il2cpp_method_get_return_type_fn) {
+        // Fallback to direct struct access
+        auto* mi = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppMethodInfo*>(method);
+        return mi->m_pReturnType;
+    }
+    
+    return const_cast<void*>(il2cpp_method_get_return_type_fn(method));
 }
 
 MDB_API int mdb_type_get_type_enum(void* type) {
@@ -285,8 +307,18 @@ MDB_API int mdb_type_get_type_enum(void* type) {
         return -1;
     }
     
-    auto* il2cpp_type = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppType*>(type);
-    return static_cast<int>(il2cpp_type->m_uType);
+    // Use the official IL2CPP API instead of direct struct access
+    static auto il2cpp_type_get_type_fn = reinterpret_cast<int(*)(const void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_type_get_type")
+    );
+    
+    if (!il2cpp_type_get_type_fn) {
+        // Fallback to direct struct access
+        auto* il2cpp_type = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppType*>(type);
+        return static_cast<int>(il2cpp_type->m_uType);
+    }
+    
+    return il2cpp_type_get_type_fn(type);
 }
 
 // ==============================
@@ -2488,5 +2520,284 @@ MDB_API bool mdb_field_set_value_direct(void* instance, void* field, void* value
     }
     
     return false;
+}
+
+// ==============================
+// Hook Debugging Implementation
+// ==============================
+
+static bool g_hook_debug_enabled = false;
+static std::unordered_map<int64_t, std::string> g_hook_descriptions;
+static std::unordered_map<int64_t, std::string> g_hook_signatures;
+
+MDB_API void mdb_hook_set_debug_enabled(bool enabled) {
+    g_hook_debug_enabled = enabled;
+    mdb_debug_log("Hook debugging %s", enabled ? "ENABLED" : "DISABLED");
+}
+
+MDB_API bool mdb_hook_is_debug_enabled() {
+    return g_hook_debug_enabled;
+}
+
+MDB_API int mdb_hook_get_count() {
+    std::lock_guard<std::mutex> lock(g_hooks_mutex);
+    return static_cast<int>(g_hooks.size());
+}
+
+MDB_API int mdb_hook_get_debug_info(int index, MdbHookDebugInfo* out_info) {
+    if (!out_info) return -1;
+    
+    std::lock_guard<std::mutex> lock(g_hooks_mutex);
+    
+    if (index < 0 || index >= static_cast<int>(g_hooks.size())) {
+        return -2;
+    }
+    
+    auto it = g_hooks.begin();
+    std::advance(it, index);
+    
+    const HookInfo& info = it->second;
+    out_info->handle = info.handle;
+    out_info->target = info.target;
+    out_info->detour = info.detour;
+    out_info->trampoline = info.original;
+    out_info->enabled = info.enabled;
+    
+    // Get description if available
+    auto desc_it = g_hook_descriptions.find(info.handle);
+    if (desc_it != g_hook_descriptions.end()) {
+        strncpy_s(out_info->description, desc_it->second.c_str(), sizeof(out_info->description) - 1);
+    } else {
+        snprintf(out_info->description, sizeof(out_info->description), "Hook_%lld", info.handle);
+    }
+    
+    return 0;
+}
+
+MDB_API void mdb_hook_dump_all() {
+    std::lock_guard<std::mutex> lock(g_hooks_mutex);
+    
+    mdb_debug_log("=== HOOK DUMP: %zu active hooks ===", g_hooks.size());
+    
+    for (const auto& pair : g_hooks) {
+        const HookInfo& info = pair.second;
+        
+        std::string desc = "Unknown";
+        auto desc_it = g_hook_descriptions.find(info.handle);
+        if (desc_it != g_hook_descriptions.end()) {
+            desc = desc_it->second;
+        }
+        
+        std::string sig = "N/A";
+        auto sig_it = g_hook_signatures.find(info.handle);
+        if (sig_it != g_hook_signatures.end()) {
+            sig = sig_it->second;
+        }
+        
+        mdb_debug_log("  Hook #%lld: %s", info.handle, desc.c_str());
+        mdb_debug_log("    Target:     %p", info.target);
+        mdb_debug_log("    Detour:     %p", info.detour);
+        mdb_debug_log("    Trampoline: %p", info.original);
+        mdb_debug_log("    Signature:  %s", sig.c_str());
+        mdb_debug_log("    Enabled:    %s", info.enabled ? "YES" : "NO");
+        
+        // Dump first few bytes of target and trampoline for debugging
+        if (info.target) {
+            unsigned char* bytes = reinterpret_cast<unsigned char*>(info.target);
+            mdb_debug_log("    Target bytes: %02X %02X %02X %02X %02X %02X %02X %02X",
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]);
+        }
+        if (info.original) {
+            unsigned char* bytes = reinterpret_cast<unsigned char*>(info.original);
+            mdb_debug_log("    Trampoline bytes: %02X %02X %02X %02X %02X %02X %02X %02X",
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]);
+        }
+    }
+    
+    mdb_debug_log("=== END HOOK DUMP ===");
+}
+
+MDB_API int64_t mdb_create_hook_debug(void* target, void* detour, void** out_original, 
+                                       const char* signature, const char* description) {
+    if (g_hook_debug_enabled) {
+        mdb_debug_log("=== Creating Debug Hook ===");
+        mdb_debug_log("  Description: %s", description ? description : "N/A");
+        mdb_debug_log("  Signature:   %s", signature ? signature : "N/A");
+        mdb_debug_log("  Target:      %p", target);
+        mdb_debug_log("  Detour:      %p", detour);
+        
+        // Analyze signature for calling convention expectations
+        if (signature) {
+            int ptrCount = 0, floatCount = 0, doubleCount = 0;
+            for (const char* p = signature; *p; ++p) {
+                switch (*p) {
+                    case 'P': ptrCount++; break;
+                    case 'F': floatCount++; break;
+                    case 'D': doubleCount++; break;
+                }
+            }
+            mdb_debug_log("  Signature analysis: %d ptrs, %d floats, %d doubles", 
+                         ptrCount, floatCount, doubleCount);
+            
+            // On x64 Windows, floats use XMM registers
+            // First 4 args: RCX/XMM0, RDX/XMM1, R8/XMM2, R9/XMM3
+            // If signature has floats, they should be in XMM registers at those positions
+            if (floatCount > 0) {
+                mdb_debug_log("  WARNING: Float parameters detected!");
+                mdb_debug_log("  x64 calling convention: floats use XMM0-XMM3 for first 4 args");
+                
+                for (int i = 0; signature[i]; ++i) {
+                    const char* regName = nullptr;
+                    const char* xmmName = nullptr;
+                    switch (i) {
+                        case 0: regName = "RCX"; xmmName = "XMM0"; break;
+                        case 1: regName = "RDX"; xmmName = "XMM1"; break;
+                        case 2: regName = "R8";  xmmName = "XMM2"; break;
+                        case 3: regName = "R9";  xmmName = "XMM3"; break;
+                        default: regName = "stack"; xmmName = "stack"; break;
+                    }
+                    
+                    if (signature[i] == 'P') {
+                        mdb_debug_log("    Arg %d: Pointer in %s", i, regName);
+                    } else if (signature[i] == 'F') {
+                        mdb_debug_log("    Arg %d: Float in %s", i, xmmName);
+                    } else if (signature[i] == 'D') {
+                        mdb_debug_log("    Arg %d: Double in %s", i, xmmName);
+                    }
+                }
+            }
+        }
+        
+        // Dump target function bytes before hooking
+        if (target) {
+            unsigned char* bytes = reinterpret_cast<unsigned char*>(target);
+            mdb_debug_log("  Target function bytes (pre-hook):");
+            mdb_debug_log("    %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]);
+        }
+    }
+    
+    // Create the hook using the standard function
+    int64_t handle = mdb_create_hook_ptr(target, detour, out_original);
+    
+    if (handle > 0) {
+        // Store metadata
+        if (description) {
+            g_hook_descriptions[handle] = description;
+        }
+        if (signature) {
+            g_hook_signatures[handle] = signature;
+        }
+        
+        if (g_hook_debug_enabled) {
+            mdb_debug_log("  Hook created successfully! Handle: %lld", handle);
+            mdb_debug_log("  Trampoline: %p", out_original ? *out_original : nullptr);
+            
+            // Dump target function bytes after hooking (should show JMP instruction)
+            if (target) {
+                unsigned char* bytes = reinterpret_cast<unsigned char*>(target);
+                mdb_debug_log("  Target function bytes (post-hook):");
+                mdb_debug_log("    %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                    bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                    bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]);
+            }
+            
+            // Dump trampoline bytes
+            if (out_original && *out_original) {
+                unsigned char* bytes = reinterpret_cast<unsigned char*>(*out_original);
+                mdb_debug_log("  Trampoline function bytes:");
+                mdb_debug_log("    %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+                    bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+                    bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]);
+            }
+        }
+    } else {
+        if (g_hook_debug_enabled) {
+            mdb_debug_log("  Hook creation FAILED! Error: %lld", handle);
+        }
+    }
+    
+    return handle;
+}
+
+MDB_API bool mdb_hook_validate_trampoline(void* trampoline, const char* signature) {
+    if (!trampoline || !signature) {
+        mdb_debug_log("Trampoline validation: NULL input");
+        return false;
+    }
+    
+    mdb_debug_log("=== Validating Trampoline ===");
+    mdb_debug_log("  Trampoline: %p", trampoline);
+    mdb_debug_log("  Signature:  %s", signature);
+    
+    // Dump trampoline bytes
+    unsigned char* bytes = reinterpret_cast<unsigned char*>(trampoline);
+    mdb_debug_log("  Bytes: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X",
+        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+        bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]);
+    
+    // Check for common trampoline patterns
+    // MinHook typically creates trampolines that start with the original instructions
+    // then a JMP to continue execution
+    
+    // For x64, look for:
+    // - REX prefixes (0x48, 0x49, etc.)
+    // - JMP rel32 (0xE9)
+    // - JMP [rip+disp32] (0xFF 0x25)
+    
+    bool hasJump = false;
+    for (int i = 0; i < 32; i++) {
+        if (bytes[i] == 0xE9) {
+            mdb_debug_log("  Found JMP rel32 at offset %d", i);
+            hasJump = true;
+            break;
+        }
+        if (bytes[i] == 0xFF && i + 1 < 32 && bytes[i + 1] == 0x25) {
+            mdb_debug_log("  Found JMP [rip+disp32] at offset %d", i);
+            hasJump = true;
+            break;
+        }
+    }
+    
+    if (!hasJump) {
+        mdb_debug_log("  WARNING: No JMP instruction found in first 32 bytes!");
+    }
+    
+    // For signatures with floats, we need to ensure the trampoline preserves XMM registers
+    bool hasFloats = strchr(signature, 'F') != nullptr || strchr(signature, 'D') != nullptr;
+    if (hasFloats) {
+        mdb_debug_log("  Signature has float/double parameters");
+        mdb_debug_log("  IMPORTANT: Trampoline must preserve XMM register contents!");
+        mdb_debug_log("  If original function reads XMM0/XMM1 and trampoline corrupts them,");
+        mdb_debug_log("  the float values will be wrong (often 0.0)");
+    }
+    
+    mdb_debug_log("=== End Trampoline Validation ===");
+    return hasJump;
+}
+
+MDB_API void mdb_hook_log_call(int64_t hook_handle, void* arg0, float arg1_float, float arg2_float) {
+    if (!g_hook_debug_enabled) return;
+    
+    std::string desc = "Unknown";
+    std::string sig = "N/A";
+    
+    {
+        std::lock_guard<std::mutex> lock(g_hooks_mutex);
+        auto desc_it = g_hook_descriptions.find(hook_handle);
+        if (desc_it != g_hook_descriptions.end()) {
+            desc = desc_it->second;
+        }
+        auto sig_it = g_hook_signatures.find(hook_handle);
+        if (sig_it != g_hook_signatures.end()) {
+            sig = sig_it->second;
+        }
+    }
+    
+    mdb_debug_log("[HOOK CALL] %s (handle=%lld, sig=%s)", desc.c_str(), hook_handle, sig.c_str());
+    mdb_debug_log("  arg0 (ptr):   %p", arg0);
+    mdb_debug_log("  arg1 (float): %f (raw bits: 0x%08X)", arg1_float, *reinterpret_cast<uint32_t*>(&arg1_float));
+    mdb_debug_log("  arg2 (float): %f (raw bits: 0x%08X)", arg2_float, *reinterpret_cast<uint32_t*>(&arg2_float));
 }
 

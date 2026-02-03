@@ -736,5 +736,83 @@ extern "C" {
 
     /// <summary>Set field value directly (for primitives).</summary>
     MDB_API bool mdb_field_set_value_direct(void* instance, void* field, void* value, int valueSize);
+
+    // ==============================
+    // Hook Debugging
+    // ==============================
+
+    /// <summary>
+    /// Debug info structure for a hook.
+    /// </summary>
+    struct MdbHookDebugInfo {
+        int64_t handle;
+        void* target;
+        void* detour;
+        void* trampoline;
+        bool enabled;
+        char description[256];
+    };
+
+    /// <summary>
+    /// Enable or disable verbose hook debugging.
+    /// When enabled, hooks will log detailed information about each call.
+    /// </summary>
+    /// <param name="enabled">true to enable debug logging</param>
+    MDB_API void mdb_hook_set_debug_enabled(bool enabled);
+
+    /// <summary>
+    /// Check if hook debugging is enabled.
+    /// </summary>
+    MDB_API bool mdb_hook_is_debug_enabled();
+
+    /// <summary>
+    /// Get the number of active hooks.
+    /// </summary>
+    MDB_API int mdb_hook_get_count();
+
+    /// <summary>
+    /// Get debug info for a hook by index.
+    /// </summary>
+    /// <param name="index">Index of the hook (0 to count-1)</param>
+    /// <param name="out_info">Output structure to fill</param>
+    /// <returns>0 on success, non-zero on failure</returns>
+    MDB_API int mdb_hook_get_debug_info(int index, MdbHookDebugInfo* out_info);
+
+    /// <summary>
+    /// Dump all hook info to the debug log.
+    /// </summary>
+    MDB_API void mdb_hook_dump_all();
+
+    /// <summary>
+    /// Create a debug hook with signature information for tracing.
+    /// This creates a hook and logs detailed information about the calling convention.
+    /// </summary>
+    /// <param name="target">Target function pointer</param>
+    /// <param name="detour">Detour function pointer</param>
+    /// <param name="out_original">Output: trampoline pointer</param>
+    /// <param name="signature">Parameter signature (P=ptr, F=float, D=double)</param>
+    /// <param name="description">Description for logging</param>
+    /// <returns>Hook handle (>0 on success), or negative error code</returns>
+    MDB_API int64_t mdb_create_hook_debug(void* target, void* detour, void** out_original, 
+                                           const char* signature, const char* description);
+
+    /// <summary>
+    /// Validate that a trampoline function works correctly by doing a test call.
+    /// This helps diagnose issues with float parameter passing.
+    /// </summary>
+    /// <param name="trampoline">The trampoline function pointer</param>
+    /// <param name="signature">Expected signature (P=ptr, F=float, D=double)</param>
+    /// <returns>true if validation passes, false otherwise</returns>
+    MDB_API bool mdb_hook_validate_trampoline(void* trampoline, const char* signature);
+
+    /// <summary>
+    /// Log a hook call for debugging purposes.
+    /// Call this from your detour to trace execution.
+    /// </summary>
+    /// <param name="hook_handle">The hook handle</param>
+    /// <param name="arg0">First argument (instance or first param)</param>
+    /// <param name="arg1_float">Second argument as float (if applicable)</param>
+    /// <param name="arg2_float">Third argument as float (if applicable)</param>
+    MDB_API void mdb_hook_log_call(int64_t hook_handle, void* arg0, float arg1_float, float arg2_float);
 }
 
