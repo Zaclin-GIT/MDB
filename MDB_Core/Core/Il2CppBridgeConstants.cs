@@ -54,7 +54,7 @@ namespace GameSDK
         /// <summary>
         /// Name of the native bridge DLL.
         /// </summary>
-        private const string DllName = "MDB_Bridge.dll";
+        internal const string DllName = "MDB_Bridge.dll";
 
         // ==============================
         // IL2CPP Type Constants
