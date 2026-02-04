@@ -12,9 +12,9 @@
 
 ## What Is This?
 
-MDB Framework enables modding of Unity IL2CPP games by **dumping metadata at runtime** - bypassing encrypted `global-metadata.dat` files entirely. It then generates C# wrapper classes that let you interact with game objects using familiar syntax.
+MDB Framework enables modding of Unity IL2CPP games by **dumping metadata at runtime and automatically generating C# wrapper classes** - bypassing encrypted `global-metadata.dat` files entirely. It then builds a complete SDK that lets you interact with game objects using familiar C# syntax.
 
-**TL;DR:** Encrypted metadata? Don't care.
+**TL;DR:** Encrypted metadata? Don't care. Everything happens at runtime, automatically.
 
 ---
 
@@ -41,10 +41,9 @@ MDB Framework enables modding of Unity IL2CPP games by **dumping metadata at run
 ├── MDB_Bridge.dll
 └── MDB/
     ├── Dump/
-    │   ├── dump.cs                 # IL2CPP metadata dump
-    │   └── wrapper_generator.py    # Parser script
+    │   └── dump.cs                 # IL2CPP metadata dump (auto-generated)
     ├── Managed/
-    │   └── GameSDK.Core.dll        # Compiled SDK + wrappers
+    │   └── GameSDK.Core.dll        # Compiled SDK + wrappers (auto-generated)
     ├── Mods/
     │   └── YourMod.dll             # Your mods here
     └── Logs/
@@ -53,34 +52,52 @@ MDB Framework enables modding of Unity IL2CPP games by **dumping metadata at run
 
 ### Workflow
 
-1. **Inject the dumper** → Generates `dump.cs` with all game types
+**NEW: Fully Automated!** The framework now handles everything automatically:
+
+1. **Inject MDB_Bridge.dll** → Framework automatically:
+   - Dumps IL2CPP metadata to `dump.cs`
+   - Generates C# wrapper classes
+   - Builds `GameSDK.Core.dll`
+   - Loads all mods from `MDB/Mods/`
+
 2. **Create your mod** → Reference `GameSDK.Core.dll`, write C# code
 3. **Deploy** → Copy mod DLL to `MDB/Mods/`
-4. **Launch game and Inject MDB_Bridge.dll** → Mods load automatically
+4. **Launch game** → Everything works automatically!
+
+**No more manual steps!** The 3-step process (Dumper → Parser → Bridge) is now fully integrated into MDB_Bridge.dll.
 
 ---
 
 ## Architecture Overview
 
+**NEW: Integrated Single-DLL Architecture**
+
 ```
-┌───────────────────────────────────────────────────────────────┐
-│                        Game Process                           │
-├───────────────────────────────────────────────────────────────┤
-│  IL2CPP Runtime          │         .NET CLR (v4.0)            │
-│  ┌─────────────────┐     │    ┌─────────────────────────────┐ │
-│  │ GameAssembly.dll│◄────┼────│ GameSDK.Core.dll            │ │
-│  │ (native code)   │  P/Invoke│ ├─ Generated Wrappers       │ │
-│  └────────┬────────┘     │    │ ├─ ModManager               │ │
-│           │              │    │ └─ Your Mods                │ │
-│  ┌────────▼────────┐     │    └─────────────────────────────┘ │
-│  │   MinHook       │     │                                    │
-│  │   (Hooking)     │     │    ┌─────────────────────────────┐ │
-│  └─────────────────┘     │    │ Dear ImGui Overlay          │ │
-│                          │    │ (DX11/DX12 auto-detect)     │ │
-│  MDB_Bridge.dll ─────────┼────└─────────────────────────────┘ │
-│  (CLR Host + IL2CPP)     │                                    │
-└───────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│                           Game Process                                    │
+├──────────────────────────────────────────────────────────────────────────┤
+│  IL2CPP Runtime          │         .NET CLR (v4.0)                       │
+│  ┌─────────────────┐     │    ┌────────────────────────────────────────┐│
+│  │ GameAssembly.dll│◄────┼────│ GameSDK.Core.dll (auto-generated)      ││
+│  │ (native code)   │  P/Invoke│ ├─ Generated Wrappers                  ││
+│  └────────┬────────┘     │    │ ├─ ModManager                          ││
+│           │              │    │ └─ Your Mods                           ││
+│  ┌────────▼────────┐     │    └────────────────────────────────────────┘│
+│  │   MinHook       │     │                                              │
+│  │   (Hooking)     │     │    ┌────────────────────────────────────────┐│
+│  └─────────────────┘     │    │ Dear ImGui Overlay                     ││
+│                          │    │ (DX11/DX12 auto-detect)                ││
+│  MDB_Bridge.dll ─────────┼────└────────────────────────────────────────┘│
+│  ├─ IL2CPP Dumper        │                                              │
+│  ├─ Wrapper Generator    │    Automatic Flow:                          │
+│  ├─ MSBuild Trigger      │    1. Dump IL2CPP at runtime                │
+│  └─ CLR Host            │    2. Generate C# wrappers                  │
+│                          │    3. Build GameSDK.Core.dll                │
+│                          │    4. Load mods                             │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
+
+**Key Improvement:** The framework now integrates all functionality into a single DLL. No more separate dumper, parser, and bridge components!
 
 ---
 
