@@ -22,20 +22,31 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Il2CPP Runtime Core -->
     <Compile Include="Core\Il2CppObject.cs" />
     <Compile Include="Core\Il2CppRuntimeCore.cs" />
     <Compile Include="Core\Il2CppMethodInvoker.cs" />
     <Compile Include="Core\Il2CppFieldAccessor.cs" />
     <Compile Include="Core\Il2CppTypeSystem.cs" />
-    <Compile Include="Core\Il2CppBridge.cs" />
+    
+    <!-- Il2CPP Bridge (split into 3 files) -->
+    <Compile Include="Core\Il2CppBridgeConstants.cs" />
+    <Compile Include="Core\Il2CppBridgeCore.cs" />
+    <Compile Include="Core\Il2CppBridgeHelpers.cs" />
+    
+    <!-- Other Core Components -->
     <Compile Include="Core\Il2CppMarshaler.cs" />
     <Compile Include="Core\Il2CppStringHelper.cs" />
     <Compile Include="Core\ImGui.cs" />
     <Compile Include="Core\ImGuiManager.cs" />
     <Compile Include="Core\UnityEngineBase.cs" />
     <Compile Include="Core\UnityValueTypes.cs" />
+    
+    <!-- ModHost and Patching -->
     <Compile Include="ModHost\*.cs" />
     <Compile Include="ModHost\Patching\*.cs" />
+    
+    <!-- Deobfuscation and Generated Code -->
     <Compile Include="Deobfuscation\*.cs" />
     <Compile Include="Generated\*.cs" />
   </ItemGroup>
