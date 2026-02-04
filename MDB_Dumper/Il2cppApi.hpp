@@ -4,8 +4,8 @@
 #include <string>
 #include <sstream>
 #include "Il2CppClass.hpp"
-#include "SignatureScanner.hpp"
-#include "Il2CppSignatures.hpp"
+#include "../MDB_Common/IL2CPP/SignatureScanner.hpp"
+#include "../MDB_Common/IL2CPP/Il2CppSignatures.hpp"
 
 typedef struct Il2CppAssembly Il2CppAssembly;
 typedef struct Il2CppDomain Il2CppDomain;

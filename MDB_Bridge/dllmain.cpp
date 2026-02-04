@@ -6,6 +6,9 @@
 
 #include "bridge_exports.h"
 #include "il2cpp_resolver.hpp"
+#include "il2cpp_dumper.hpp"
+#include "wrapper_generator.hpp"
+#include "build_trigger.hpp"
 
 #include <windows.h>
 #include <metahost.h>
@@ -279,6 +282,96 @@ static void shutdown_clr() {
     }
 }
 
+// Prepare game SDK by dumping and generating wrappers if needed
+static bool prepare_game_sdk() {
+    std::wstring mdb_dir = get_mdb_directory();
+    std::filesystem::path mdb_path(mdb_dir);
+    
+    // Define paths
+    auto dump_dir = mdb_path / L"Dump";
+    auto dump_file = dump_dir / L"dump.cs";
+    auto generated_dir = mdb_path.parent_path() / L"MDB_Core" / L"Generated";
+    auto core_project = mdb_path.parent_path() / L"MDB_Core" / L"MDB_Core.csproj";
+    
+    // Validate that MDB_Core directory exists
+    auto core_dir = mdb_path.parent_path() / L"MDB_Core";
+    if (!std::filesystem::exists(core_dir)) {
+        LOG_ERROR("MDB_Core directory not found at: %ls", core_dir.c_str());
+        LOG_ERROR("Expected structure: <GameFolder>/MDB/ and <GameFolder>/MDB_Core/");
+        return false;
+    }
+    
+    // Validate that MDB_Core.csproj exists
+    if (!std::filesystem::exists(core_project)) {
+        LOG_ERROR("MDB_Core.csproj not found at: %ls", core_project.c_str());
+        return false;
+    }
+    
+    // Convert paths to narrow strings for logging
+    std::string dump_dir_str = dump_dir.string();
+    std::string dump_file_str = dump_file.string();
+    std::string generated_dir_str = generated_dir.string();
+    std::string core_project_str = core_project.string();
+    
+    // Check if wrappers already exist and are fresh
+    if (MDB::WrapperGen::AreWrappersFresh(generated_dir_str)) {
+        LOG_INFO("Game SDK wrappers are up to date, skipping generation");
+        return true;
+    }
+    
+    LOG_INFO("=== Game SDK Preparation ===");
+    LOG_INFO("Step 1/3: Dumping IL2CPP metadata...");
+    
+    // Step 1: Dump IL2CPP metadata
+    auto dump_result = MDB::Dumper::DumpIL2CppRuntime(dump_dir_str);
+    if (!dump_result.success) {
+        LOG_ERROR("Failed to dump IL2CPP metadata: %s", dump_result.error_message.c_str());
+        return false;
+    }
+    
+    LOG_INFO("  Dumped %zu classes from %zu assemblies", 
+             dump_result.total_classes, dump_result.total_assemblies);
+    LOG_INFO("  Dump saved to: %s", dump_result.dump_path.c_str());
+    
+    LOG_INFO("Step 2/3: Generating C# wrapper classes...");
+    
+    // Step 2: Generate C# wrappers
+    auto gen_result = MDB::WrapperGen::GenerateWrappers(
+        dump_file_str,
+        generated_dir_str,
+        "GameSDK"
+    );
+    
+    if (!gen_result.success) {
+        LOG_ERROR("Failed to generate wrappers: %s", gen_result.error_message.c_str());
+        return false;
+    }
+    
+    LOG_INFO("  Generated %zu wrapper files", gen_result.generated_files.size());
+    LOG_INFO("  Total classes: %zu", gen_result.total_classes_generated);
+    
+    LOG_INFO("Step 3/3: Building MDB_Core project...");
+    
+    // Step 3: Build MDB_Core project with MSBuild
+    auto build_result = MDB::Build::TriggerBuild(core_project_str);
+    
+    if (!build_result.success) {
+        LOG_ERROR("Failed to build MDB_Core: %s", build_result.error_message.c_str());
+        if (!build_result.build_output.empty()) {
+            LOG_ERROR("Build output:\n%s", build_result.build_output.c_str());
+        }
+        return false;
+    }
+    
+    LOG_INFO("  Build succeeded!");
+    if (!build_result.build_output.empty()) {
+        LOG_DEBUG("Build output:\n%s", build_result.build_output.c_str());
+    }
+    
+    LOG_INFO("=== Game SDK Ready ===");
+    return true;
+}
+
 // Background thread for initialization
 // We delay initialization to ensure the game has loaded IL2CPP
 static DWORD WINAPI initialization_thread(LPVOID lpParam) {
@@ -313,6 +406,13 @@ static DWORD WINAPI initialization_thread(LPVOID lpParam) {
     if (domain) {
         mdb_thread_attach(domain);
         LOG_DEBUG("Thread attached to IL2CPP domain");
+    }
+    
+    // Prepare Game SDK (dump + generate + build)
+    LOG_INFO("Preparing Game SDK...");
+    if (!prepare_game_sdk()) {
+        LOG_ERROR("Failed to prepare Game SDK");
+        return 1;
     }
     
     // Initialize CLR and load mods
