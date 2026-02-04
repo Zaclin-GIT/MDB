@@ -460,10 +460,6 @@ namespace GameSDK
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         public static extern int mdb_get_dontdestroyonload_scene_handle();
 
-        /// <summary>
-        /// Helper to get scene name as a managed string.
-        /// </summary>
-
         // ==============================
         // Array Helpers
         // ==============================
@@ -549,22 +545,6 @@ namespace GameSDK
         /// <returns>Method name string, or empty if not hooked</returns>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr mdb_get_hooked_method();
-        
-        /// <summary>
-        /// Get the name of the method that was hooked for OnGUI (managed wrapper).
-        /// </summary>
-
-        /// <summary>
-        /// Get the name of a class as a managed string.
-        /// </summary>
-        /// <param name="klass">Pointer to Il2CppClass</param>
-        /// <returns>Class name, or null if invalid</returns>
-
-        /// <summary>
-        /// Get the full name (namespace.classname) of a class.
-        /// </summary>
-        /// <param name="klass">Pointer to Il2CppClass</param>
-        /// <returns>Full class name, or null if invalid</returns>
 
         // ==============================
         // Generic Method Hooking
@@ -658,8 +638,6 @@ namespace GameSDK
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr mdb_field_get_name(IntPtr field);
 
-        /// <summary>Get field name (managed wrapper).</summary>
-
         /// <summary>Get field type.</summary>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr mdb_field_get_type(IntPtr field);
@@ -672,8 +650,6 @@ namespace GameSDK
         /// <summary>Get type name (native).</summary>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr mdb_type_get_name(IntPtr type);
-
-        /// <summary>Get type name (managed wrapper).</summary>
 
         /// <summary>Get class from type.</summary>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
@@ -696,8 +672,6 @@ namespace GameSDK
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr mdb_property_get_name(IntPtr prop);
 
-        /// <summary>Get property name (managed wrapper).</summary>
-
         /// <summary>Get property getter method.</summary>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr mdb_property_get_get_method(IntPtr prop);
@@ -717,8 +691,6 @@ namespace GameSDK
         /// <summary>Get method name (native).</summary>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr mdb_method_get_name_str(IntPtr method);
-
-        /// <summary>Get method name string (managed wrapper).</summary>
 
         /// <summary>Get method parameter count.</summary>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]

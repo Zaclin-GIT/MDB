@@ -66,6 +66,7 @@ namespace GameSDK
         // OnGUI Hook Helpers
         // ==============================
 
+        /// <summary>
         /// Get the name of the method that was hooked for OnGUI (managed wrapper).
         /// </summary>
         public static string GetHookedMethod()
@@ -81,6 +82,8 @@ namespace GameSDK
         // Class Information Helpers
         // ==============================
 
+        /// <summary>
+        /// Get the name of a class as a managed string.
         /// </summary>
         /// <param name="klass">Pointer to Il2CppClass</param>
         /// <returns>Class name, or null if invalid</returns>
