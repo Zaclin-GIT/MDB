@@ -52,6 +52,7 @@ namespace GameSDK
         /// <summary>
         /// Gets the hash code based on the native pointer.
         /// </summary>
+        /// <returns>The hash code of the native pointer</returns>
         public override int GetHashCode() => NativePtr.GetHashCode();
 
         /// <summary>

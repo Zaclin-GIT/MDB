@@ -166,7 +166,7 @@ namespace GameSDK
         /// <returns>The class pointer, or IntPtr.Zero if not found</returns>
         private static IntPtr GetOrCacheClass(string assembly, string ns, string name)
         {
-            string key = $"{ns}:{name}";
+            string key = $"{assembly}:{ns}:{name}";
 
             lock (_classCache)
             {
