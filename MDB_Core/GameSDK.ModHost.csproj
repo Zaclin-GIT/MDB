@@ -22,7 +22,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="Core\Il2CppBase.cs" />
+    <Compile Include="Core\Il2CppObject.cs" />
+    <Compile Include="Core\Il2CppRuntimeCore.cs" />
+    <Compile Include="Core\Il2CppMethodInvoker.cs" />
+    <Compile Include="Core\Il2CppFieldAccessor.cs" />
+    <Compile Include="Core\Il2CppTypeSystem.cs" />
     <Compile Include="Core\Il2CppBridge.cs" />
     <Compile Include="Core\Il2CppMarshaler.cs" />
     <Compile Include="Core\Il2CppStringHelper.cs" />
