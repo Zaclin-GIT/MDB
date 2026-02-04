@@ -1,5 +1,5 @@
 // ==============================
-// Il2CppBridge - P/Invoke Declarations
+// Il2CppBridge - Core P/Invoke Declarations
 // ==============================
 // This file contains all P/Invoke declarations for the native MDB_Bridge.dll
 
@@ -10,52 +10,11 @@ using System.Text;
 namespace GameSDK
 {
     /// <summary>
-    /// Error codes returned by bridge functions.
-    /// These must match the MdbErrorCode enum in bridge_exports.h.
-    /// </summary>
-    public enum MdbErrorCode : int
-    {
-        Success = 0,
-        
-        // Initialization errors (1-99)
-        NotInitialized = 1,
-        InitFailed = 2,
-        GameAssemblyNotFound = 3,
-        ExportNotFound = 4,
-        
-        // Argument errors (100-199)
-        InvalidArgument = 100,
-        NullPointer = 101,
-        InvalidClass = 102,
-        InvalidMethod = 103,
-        InvalidField = 104,
-        
-        // Resolution errors (200-299)
-        ClassNotFound = 200,
-        MethodNotFound = 201,
-        FieldNotFound = 202,
-        AssemblyNotFound = 203,
-        
-        // Invocation errors (300-399)
-        InvocationFailed = 300,
-        ExceptionThrown = 301,
-        ThreadNotAttached = 302,
-        
-        // Memory errors (400-499)
-        AllocationFailed = 400,
-        BufferTooSmall = 401,
-        
-        // Unknown error
-        Unknown = -1
-    }
-
-    /// <summary>
     /// P/Invoke declarations for the native IL2CPP bridge.
     /// These functions communicate with the MDB_Bridge.dll which wraps IL2CPP APIs.
     /// </summary>
-    public static class Il2CppBridge
+    public static partial class Il2CppBridge
     {
-        private const string DllName = "MDB_Bridge.dll";
 
         // ==============================
         // Initialization
@@ -177,18 +136,6 @@ namespace GameSDK
         public static extern int mdb_type_get_type_enum(IntPtr type);
 
         // IL2CPP type enum constants
-        public const int IL2CPP_TYPE_VOID = 0x01;
-        public const int IL2CPP_TYPE_BOOLEAN = 0x02;
-        public const int IL2CPP_TYPE_I4 = 0x08;     // int
-        public const int IL2CPP_TYPE_U4 = 0x09;     // uint
-        public const int IL2CPP_TYPE_I8 = 0x0a;     // long
-        public const int IL2CPP_TYPE_U8 = 0x0b;     // ulong
-        public const int IL2CPP_TYPE_R4 = 0x0c;     // float
-        public const int IL2CPP_TYPE_R8 = 0x0d;     // double
-        public const int IL2CPP_TYPE_STRING = 0x0e;
-        public const int IL2CPP_TYPE_PTR = 0x0f;
-        public const int IL2CPP_TYPE_CLASS = 0x12;
-        public const int IL2CPP_TYPE_OBJECT = 0x1c;
 
         // ==============================
         // RVA-based Method Access
@@ -516,13 +463,6 @@ namespace GameSDK
         /// <summary>
         /// Helper to get scene name as a managed string.
         /// </summary>
-        public static string GetSceneName(int sceneIndex)
-        {
-            byte[] buffer = new byte[256];
-            int length = mdb_scenemanager_get_scene_name(sceneIndex, buffer, buffer.Length);
-            if (length <= 0) return null;
-            return System.Text.Encoding.UTF8.GetString(buffer, 0, length);
-        }
 
         // ==============================
         // Array Helpers
@@ -570,57 +510,9 @@ namespace GameSDK
         public static extern IntPtr mdb_class_get_element_class(IntPtr klass);
 
         // ==============================
-        // Helper Methods
-        // ==============================
-
-        /// <summary>
-        /// Get the last error as a managed string.
-        /// </summary>
-        public static string GetLastError()
-        {
-            IntPtr errorPtr = mdb_get_last_error();
-            return errorPtr != IntPtr.Zero ? Marshal.PtrToStringAnsi(errorPtr) : "Unknown error";
-        }
-
-        /// <summary>
-        /// Get the last error code.
-        /// </summary>
-        public static MdbErrorCode GetLastErrorCode()
-        {
-            int code = mdb_get_last_error_code();
-            return Enum.IsDefined(typeof(MdbErrorCode), code) ? (MdbErrorCode)code : MdbErrorCode.Unknown;
-        }
-
-        /// <summary>
-        /// Convert an IL2CPP string to a managed string.
-        /// </summary>
-        public static string Il2CppStringToManaged(IntPtr il2cppString)
-        {
-            if (il2cppString == IntPtr.Zero)
-                return null;
-
-            StringBuilder buffer = new StringBuilder(4096);
-            int length = mdb_string_to_utf8(il2cppString, buffer, buffer.Capacity);
-            
-            if (length < 0)
-                return null;
-
-            return buffer.ToString(0, length);
-        }
-
-        /// <summary>
-        /// Convert a managed string to an IL2CPP string.
-        /// </summary>
-        public static IntPtr ManagedStringToIl2Cpp(string managedString)
-        {
-            if (managedString == null)
-                return IntPtr.Zero;
-
-            return mdb_string_new(managedString);
-        }
 
         // ==============================
-        // OnGUI Hook Support
+        // Delegates
         // ==============================
 
         /// <summary>
@@ -661,50 +553,18 @@ namespace GameSDK
         /// <summary>
         /// Get the name of the method that was hooked for OnGUI (managed wrapper).
         /// </summary>
-        public static string GetHookedMethod()
-        {
-            IntPtr ptr = mdb_get_hooked_method();
-            if (ptr == IntPtr.Zero)
-                return string.Empty;
-            return System.Runtime.InteropServices.Marshal.PtrToStringAnsi(ptr) ?? string.Empty;
-        }
 
         /// <summary>
         /// Get the name of a class as a managed string.
         /// </summary>
         /// <param name="klass">Pointer to Il2CppClass</param>
         /// <returns>Class name, or null if invalid</returns>
-        public static string GetClassName(IntPtr klass)
-        {
-            if (klass == IntPtr.Zero)
-                return null;
-            IntPtr namePtr = mdb_class_get_name(klass);
-            if (namePtr == IntPtr.Zero)
-                return null;
-            return Marshal.PtrToStringAnsi(namePtr);
-        }
 
         /// <summary>
         /// Get the full name (namespace.classname) of a class.
         /// </summary>
         /// <param name="klass">Pointer to Il2CppClass</param>
         /// <returns>Full class name, or null if invalid</returns>
-        public static string GetClassFullName(IntPtr klass)
-        {
-            if (klass == IntPtr.Zero)
-                return null;
-            
-            string ns = null;
-            IntPtr nsPtr = mdb_class_get_namespace(klass);
-            if (nsPtr != IntPtr.Zero)
-                ns = Marshal.PtrToStringAnsi(nsPtr);
-            
-            string name = GetClassName(klass);
-            if (name == null)
-                return null;
-            
-            return string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
-        }
 
         // ==============================
         // Generic Method Hooking
@@ -781,13 +641,6 @@ namespace GameSDK
         /// <summary>
         /// Get the name of a method (managed wrapper).
         /// </summary>
-        public static string GetMethodName(IntPtr method)
-        {
-            IntPtr ptr = mdb_method_get_name(method);
-            if (ptr == IntPtr.Zero)
-                return null;
-            return Marshal.PtrToStringAnsi(ptr);
-        }
 
         // ==============================
         // Reflection Helpers for Component Inspector
@@ -806,12 +659,6 @@ namespace GameSDK
         private static extern IntPtr mdb_field_get_name(IntPtr field);
 
         /// <summary>Get field name (managed wrapper).</summary>
-        public static string GetFieldName(IntPtr field)
-        {
-            IntPtr ptr = mdb_field_get_name(field);
-            if (ptr == IntPtr.Zero) return null;
-            return Marshal.PtrToStringAnsi(ptr);
-        }
 
         /// <summary>Get field type.</summary>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
@@ -827,20 +674,6 @@ namespace GameSDK
         private static extern IntPtr mdb_type_get_name(IntPtr type);
 
         /// <summary>Get type name (managed wrapper).</summary>
-        public static string GetTypeName(IntPtr type)
-        {
-            if (type == IntPtr.Zero) return null;
-            try
-            {
-                IntPtr ptr = mdb_type_get_name(type);
-                if (ptr == IntPtr.Zero) return null;
-                return Marshal.PtrToStringAnsi(ptr);
-            }
-            catch
-            {
-                return null;
-            }
-        }
 
         /// <summary>Get class from type.</summary>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
@@ -864,12 +697,6 @@ namespace GameSDK
         private static extern IntPtr mdb_property_get_name(IntPtr prop);
 
         /// <summary>Get property name (managed wrapper).</summary>
-        public static string GetPropertyName(IntPtr prop)
-        {
-            IntPtr ptr = mdb_property_get_name(prop);
-            if (ptr == IntPtr.Zero) return null;
-            return Marshal.PtrToStringAnsi(ptr);
-        }
 
         /// <summary>Get property getter method.</summary>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
@@ -892,12 +719,6 @@ namespace GameSDK
         private static extern IntPtr mdb_method_get_name_str(IntPtr method);
 
         /// <summary>Get method name string (managed wrapper).</summary>
-        public static string GetMethodNameStr(IntPtr method)
-        {
-            IntPtr ptr = mdb_method_get_name_str(method);
-            if (ptr == IntPtr.Zero) return null;
-            return Marshal.PtrToStringAnsi(ptr);
-        }
 
         /// <summary>Get method parameter count.</summary>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
@@ -955,41 +776,5 @@ namespace GameSDK
         /// <summary>Log a hook call for debugging purposes.</summary>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         public static extern void mdb_hook_log_call(long hookHandle, IntPtr arg0, float arg1Float, float arg2Float);
-
-        // IL2CPP Type Enum Constants
-        public static class Il2CppTypeEnum
-        {
-            public const int IL2CPP_TYPE_END = 0x00;
-            public const int IL2CPP_TYPE_VOID = 0x01;
-            public const int IL2CPP_TYPE_BOOLEAN = 0x02;
-            public const int IL2CPP_TYPE_CHAR = 0x03;
-            public const int IL2CPP_TYPE_I1 = 0x04;  // sbyte
-            public const int IL2CPP_TYPE_U1 = 0x05;  // byte
-            public const int IL2CPP_TYPE_I2 = 0x06;  // short
-            public const int IL2CPP_TYPE_U2 = 0x07;  // ushort
-            public const int IL2CPP_TYPE_I4 = 0x08;  // int
-            public const int IL2CPP_TYPE_U4 = 0x09;  // uint
-            public const int IL2CPP_TYPE_I8 = 0x0a;  // long
-            public const int IL2CPP_TYPE_U8 = 0x0b;  // ulong
-            public const int IL2CPP_TYPE_R4 = 0x0c;  // float
-            public const int IL2CPP_TYPE_R8 = 0x0d;  // double
-            public const int IL2CPP_TYPE_STRING = 0x0e;
-            public const int IL2CPP_TYPE_PTR = 0x0f;
-            public const int IL2CPP_TYPE_BYREF = 0x10;
-            public const int IL2CPP_TYPE_VALUETYPE = 0x11;
-            public const int IL2CPP_TYPE_CLASS = 0x12;
-            public const int IL2CPP_TYPE_VAR = 0x13;
-            public const int IL2CPP_TYPE_ARRAY = 0x14;
-            public const int IL2CPP_TYPE_GENERICINST = 0x15;
-            public const int IL2CPP_TYPE_TYPEDBYREF = 0x16;
-            public const int IL2CPP_TYPE_I = 0x18;   // IntPtr
-            public const int IL2CPP_TYPE_U = 0x19;   // UIntPtr
-            public const int IL2CPP_TYPE_FNPTR = 0x1b;
-            public const int IL2CPP_TYPE_OBJECT = 0x1c;
-            public const int IL2CPP_TYPE_SZARRAY = 0x1d;  // Single-dimension array
-            public const int IL2CPP_TYPE_MVAR = 0x1e;
-            public const int IL2CPP_TYPE_ENUM = 0x55;
-        }
     }
 }
-
