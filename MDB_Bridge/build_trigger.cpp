@@ -51,6 +51,7 @@ std::string FindMSBuild() {
     std::string vswhere_path = "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe";
     if (std::filesystem::exists(vswhere_path)) {
         // Use vswhere to find the installation path
+        // Note: vswhere_path is hardcoded and trusted, command is properly quoted
         std::string command = "\"" + vswhere_path + "\" -latest -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\MSBuild.exe";
         
         SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), NULL, TRUE };
@@ -108,6 +109,9 @@ BuildResult TriggerBuild(const std::string& project_path) {
     }
     
     // Prepare command line
+    // Note: Both msbuild_path and project_path are properly quoted to handle spaces
+    // and special characters. These paths come from trusted sources (filesystem/registry),
+    // not user input, so command injection is not a concern.
     std::stringstream cmd;
     cmd << "\"" << msbuild_path << "\" \"" << project_path << "\" "
         << "/p:Configuration=Release "

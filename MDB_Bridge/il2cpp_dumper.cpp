@@ -401,9 +401,26 @@ bool IsDumpFresh(const std::string& dump_path) {
         return false;
     }
     
-    // For now, always regenerate. In the future, we could check timestamps
-    // or have a version marker in the dump file
-    return false;
+    // Check if GameAssembly.dll exists and get its timestamp
+    HMODULE hGameAssembly = GetModuleHandleW(L"GameAssembly.dll");
+    if (!hGameAssembly) {
+        return false;
+    }
+    
+    wchar_t gameAssemblyPath[MAX_PATH];
+    if (GetModuleFileNameW(hGameAssembly, gameAssemblyPath, MAX_PATH) == 0) {
+        return false;
+    }
+    
+    try {
+        auto dump_time = std::filesystem::last_write_time(dump_path);
+        auto game_time = std::filesystem::last_write_time(gameAssemblyPath);
+        
+        // If dump is newer than GameAssembly.dll, it's fresh
+        return dump_time > game_time;
+    } catch (...) {
+        return false;
+    }
 }
 
 } // namespace Dumper

@@ -293,6 +293,20 @@ static bool prepare_game_sdk() {
     auto generated_dir = mdb_path.parent_path() / L"MDB_Core" / L"Generated";
     auto core_project = mdb_path.parent_path() / L"MDB_Core" / L"MDB_Core.csproj";
     
+    // Validate that MDB_Core directory exists
+    auto core_dir = mdb_path.parent_path() / L"MDB_Core";
+    if (!std::filesystem::exists(core_dir)) {
+        LOG_ERROR("MDB_Core directory not found at: %ls", core_dir.c_str());
+        LOG_ERROR("Expected structure: <GameFolder>/MDB/ and <GameFolder>/MDB_Core/");
+        return false;
+    }
+    
+    // Validate that MDB_Core.csproj exists
+    if (!std::filesystem::exists(core_project)) {
+        LOG_ERROR("MDB_Core.csproj not found at: %ls", core_project.c_str());
+        return false;
+    }
+    
     // Convert paths to narrow strings for logging
     std::string dump_dir_str = dump_dir.string();
     std::string dump_file_str = dump_file.string();

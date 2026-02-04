@@ -227,18 +227,19 @@ GeneratorResult GenerateWrappers(
         std::replace(safe_ns.begin(), safe_ns.end(), '.', '_');
         if (safe_ns.empty()) safe_ns = "Global";
         
-        std::string filename = output_directory + "\\" + namespace_prefix + "." + safe_ns + ".cs";
+        std::filesystem::path filename = std::filesystem::path(output_directory) / 
+                                        (namespace_prefix + "." + safe_ns + ".cs");
         std::ofstream out_file(filename);
         
         if (!out_file.is_open()) {
-            result.error_message = "Failed to write file: " + filename;
+            result.error_message = "Failed to write file: " + filename.string();
             return result;
         }
         
         out_file << file_content.str();
         out_file.close();
         
-        result.generated_files.push_back(filename);
+        result.generated_files.push_back(filename.string());
     }
     
     result.success = true;
@@ -251,9 +252,46 @@ bool AreWrappersFresh(const std::string& output_directory) {
         return false;
     }
     
-    // For now, always regenerate
-    // In the future, could check timestamps or version markers
-    return false;
+    // Check if there are any generated wrapper files
+    bool has_files = false;
+    for (const auto& entry : std::filesystem::directory_iterator(output_directory)) {
+        if (entry.path().extension() == ".cs") {
+            has_files = true;
+            break;
+        }
+    }
+    
+    if (!has_files) {
+        return false;
+    }
+    
+    // Check if dump.cs exists (the source for generation)
+    std::filesystem::path output_path(output_directory);
+    std::filesystem::path dump_path = output_path.parent_path().parent_path() / "MDB" / "Dump" / "dump.cs";
+    
+    if (!std::filesystem::exists(dump_path)) {
+        return false;
+    }
+    
+    try {
+        // Find the oldest generated wrapper file
+        auto dump_time = std::filesystem::last_write_time(dump_path);
+        std::filesystem::file_time_type oldest_wrapper_time = std::filesystem::file_time_type::max();
+        
+        for (const auto& entry : std::filesystem::directory_iterator(output_directory)) {
+            if (entry.path().extension() == ".cs") {
+                auto wrapper_time = std::filesystem::last_write_time(entry.path());
+                if (wrapper_time < oldest_wrapper_time) {
+                    oldest_wrapper_time = wrapper_time;
+                }
+            }
+        }
+        
+        // If wrappers are newer than dump, they're fresh
+        return oldest_wrapper_time > dump_time;
+    } catch (...) {
+        return false;
+    }
 }
 
 } // namespace WrapperGen
