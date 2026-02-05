@@ -4,7 +4,7 @@
 // Auto-detects DirectX version and provides ImGui rendering hooks.
 
 #include "imgui_integration.h"
-#include "minhook/include/MinHook.h"
+#include <MinHook.h>
 
 // ImGui headers
 #include "imgui.h"

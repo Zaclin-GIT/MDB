@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source Files">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    </Filter>
+    <Filter Include="Source Files\core">
+      <UniqueIdentifier>{A1000001-0000-0000-0000-000000000001}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\il2cpp">
+      <UniqueIdentifier>{A1000001-0000-0000-0000-000000000002}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\codegen">
+      <UniqueIdentifier>{A1000001-0000-0000-0000-000000000003}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Source Files\imgui">
+      <UniqueIdentifier>{A1000001-0000-0000-0000-000000000004}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files">
+      <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
+      <Extensions>h;hh;hpp;hxx;h++;hm;inl;inc;ipp;xsd</Extensions>
+    </Filter>
+    <Filter Include="Header Files\core">
+      <UniqueIdentifier>{B2000001-0000-0000-0000-000000000001}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\il2cpp">
+      <UniqueIdentifier>{B2000001-0000-0000-0000-000000000002}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\codegen">
+      <UniqueIdentifier>{B2000001-0000-0000-0000-000000000003}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\imgui">
+      <UniqueIdentifier>{B2000001-0000-0000-0000-000000000004}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\MDB_Common">
+      <UniqueIdentifier>{B2000001-0000-0000-0000-000000000005}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ThirdParty">
+      <UniqueIdentifier>{C3000001-0000-0000-0000-000000000001}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ThirdParty\MinHook">
+      <UniqueIdentifier>{C3000001-0000-0000-0000-000000000002}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ThirdParty\ImGui">
+      <UniqueIdentifier>{C3000001-0000-0000-0000-000000000003}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ThirdParty\ImGui\backends">
+      <UniqueIdentifier>{C3000001-0000-0000-0000-000000000004}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Core sources -->
+    <ClCompile Include="src\core\bridge_exports.cpp">
+      <Filter>Source Files\core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\dllmain.cpp">
+      <Filter>Source Files\core</Filter>
+    </ClCompile>
+    <!-- IL2CPP sources -->
+    <ClCompile Include="src\il2cpp\il2cpp_dumper.cpp">
+      <Filter>Source Files\il2cpp</Filter>
+    </ClCompile>
+    <!-- Codegen sources -->
+    <ClCompile Include="src\codegen\wrapper_generator.cpp">
+      <Filter>Source Files\codegen</Filter>
+    </ClCompile>
+    <ClCompile Include="src\codegen\build_trigger.cpp">
+      <Filter>Source Files\codegen</Filter>
+    </ClCompile>
+    <!-- ImGui integration sources -->
+    <ClCompile Include="src\imgui\imgui_integration.cpp">
+      <Filter>Source Files\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\imgui\imgui_exports.cpp">
+      <Filter>Source Files\imgui</Filter>
+    </ClCompile>
+    <!-- MinHook sources -->
+    <ClCompile Include="thirdparty\minhook\src\buffer.c">
+      <Filter>ThirdParty\MinHook</Filter>
+    </ClCompile>
+    <ClCompile Include="thirdparty\minhook\src\hook.c">
+      <Filter>ThirdParty\MinHook</Filter>
+    </ClCompile>
+    <ClCompile Include="thirdparty\minhook\src\trampoline.c">
+      <Filter>ThirdParty\MinHook</Filter>
+    </ClCompile>
+    <ClCompile Include="thirdparty\minhook\src\hde\hde64.c">
+      <Filter>ThirdParty\MinHook</Filter>
+    </ClCompile>
+    <!-- Dear ImGui sources -->
+    <ClCompile Include="thirdparty\imgui\imgui.cpp">
+      <Filter>ThirdParty\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="thirdparty\imgui\imgui_draw.cpp">
+      <Filter>ThirdParty\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="thirdparty\imgui\imgui_tables.cpp">
+      <Filter>ThirdParty\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="thirdparty\imgui\imgui_widgets.cpp">
+      <Filter>ThirdParty\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="thirdparty\imgui\imgui_demo.cpp">
+      <Filter>ThirdParty\ImGui</Filter>
+    </ClCompile>
+    <!-- Dear ImGui backends -->
+    <ClCompile Include="thirdparty\imgui\backends\imgui_impl_win32.cpp">
+      <Filter>ThirdParty\ImGui\backends</Filter>
+    </ClCompile>
+    <ClCompile Include="thirdparty\imgui\backends\imgui_impl_dx11.cpp">
+      <Filter>ThirdParty\ImGui\backends</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <!-- Core headers -->
+    <ClInclude Include="src\core\bridge_exports.h">
+      <Filter>Header Files\core</Filter>
+    </ClInclude>
+    <!-- IL2CPP headers -->
+    <ClInclude Include="src\il2cpp\il2cpp_resolver.hpp">
+      <Filter>Header Files\il2cpp</Filter>
+    </ClInclude>
+    <ClInclude Include="src\il2cpp\il2cpp_dumper.hpp">
+      <Filter>Header Files\il2cpp</Filter>
+    </ClInclude>
+    <!-- Codegen headers -->
+    <ClInclude Include="src\codegen\wrapper_generator.hpp">
+      <Filter>Header Files\codegen</Filter>
+    </ClInclude>
+    <ClInclude Include="src\codegen\build_trigger.hpp">
+      <Filter>Header Files\codegen</Filter>
+    </ClInclude>
+    <!-- ImGui headers -->
+    <ClInclude Include="src\imgui\imgui_integration.h">
+      <Filter>Header Files\imgui</Filter>
+    </ClInclude>
+    <ClInclude Include="src\imgui\imgui_exports.h">
+      <Filter>Header Files\imgui</Filter>
+    </ClInclude>
+    <!-- MDB_Common headers -->
+    <ClInclude Include="..\MDB_Common\IL2CPP\Il2CppTypes.hpp">
+      <Filter>Header Files\MDB_Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\MDB_Common\IL2CPP\Il2CppSignatures.hpp">
+      <Filter>Header Files\MDB_Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\MDB_Common\IL2CPP\Il2CppTableDefine.hpp">
+      <Filter>Header Files\MDB_Common</Filter>
+    </ClInclude>
+    <ClInclude Include="..\MDB_Common\IL2CPP\SignatureScanner.hpp">
+      <Filter>Header Files\MDB_Common</Filter>
+    </ClInclude>
+    <!-- MinHook headers -->
+    <ClInclude Include="thirdparty\minhook\include\MinHook.h">
+      <Filter>ThirdParty\MinHook</Filter>
+    </ClInclude>
+    <!-- Dear ImGui headers -->
+    <ClInclude Include="thirdparty\imgui\imgui.h">
+      <Filter>ThirdParty\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="thirdparty\imgui\imgui_internal.h">
+      <Filter>ThirdParty\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="thirdparty\imgui\imconfig.h">
+      <Filter>ThirdParty\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="thirdparty\imgui\backends\imgui_impl_win32.h">
+      <Filter>ThirdParty\ImGui\backends</Filter>
+    </ClInclude>
+    <ClInclude Include="thirdparty\imgui\backends\imgui_impl_dx11.h">
+      <Filter>ThirdParty\ImGui\backends</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>

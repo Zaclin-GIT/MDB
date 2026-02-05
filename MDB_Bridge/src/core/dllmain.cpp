@@ -5,10 +5,10 @@
 // to load and execute the managed mod assemblies.
 
 #include "bridge_exports.h"
-#include "il2cpp_resolver.hpp"
-#include "il2cpp_dumper.hpp"
-#include "wrapper_generator.hpp"
-#include "build_trigger.hpp"
+#include "il2cpp/il2cpp_resolver.hpp"
+#include "il2cpp/il2cpp_dumper.hpp"
+#include "codegen/wrapper_generator.hpp"
+#include "codegen/build_trigger.hpp"
 
 #include <windows.h>
 #include <metahost.h>

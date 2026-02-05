@@ -4,23 +4,15 @@
 // Implements all P/Invoke exported functions using il2cpp_resolver.hpp
 
 #include "bridge_exports.h"
-#include "il2cpp_resolver.hpp"
+#include "il2cpp/il2cpp_resolver.hpp"
 
 #include <string>
 #include <mutex>
 #include <cstdio>
 
 // MinHook for function hooking
-// Include from local minhook folder
-#if __has_include("minhook/include/MinHook.h")
-#include "minhook/include/MinHook.h"
-#define MDB_HAS_MINHOOK 1
-#elif __has_include(<MinHook.h>)
 #include <MinHook.h>
 #define MDB_HAS_MINHOOK 1
-#else
-#define MDB_HAS_MINHOOK 0
-#endif
 
 // Debug logging - writes to both debugger output and a log file
 static FILE* g_log_file = nullptr;

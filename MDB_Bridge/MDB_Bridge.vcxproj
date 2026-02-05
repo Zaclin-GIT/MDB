@@ -59,7 +59,7 @@
       <PreprocessorDefinitions>_DEBUG;MDB_BRIDGE_EXPORTS;_CRT_SECURE_NO_WARNINGS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)..\MDB_Dumper;$(ProjectDir)minhook\include;$(ProjectDir)minhook\src;$(ProjectDir)imgui;$(ProjectDir)imgui\backends;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)src;$(ProjectDir)src\core;$(ProjectDir)src\il2cpp;$(ProjectDir)src\codegen;$(ProjectDir)src\imgui;$(ProjectDir)..\MDB_Common\IL2CPP;$(ProjectDir)thirdparty\minhook\include;$(ProjectDir)thirdparty\imgui;$(ProjectDir)thirdparty\imgui\backends;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
     </ClCompile>
     <Link>
@@ -77,7 +77,7 @@
       <PreprocessorDefinitions>NDEBUG;MDB_BRIDGE_EXPORTS;_CRT_SECURE_NO_WARNINGS;_WINDOWS;_USRDLL;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)..\MDB_Dumper;$(ProjectDir)minhook\include;$(ProjectDir)minhook\src;$(ProjectDir)imgui;$(ProjectDir)imgui\backends;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)src;$(ProjectDir)src\core;$(ProjectDir)src\il2cpp;$(ProjectDir)src\codegen;$(ProjectDir)src\imgui;$(ProjectDir)..\MDB_Common\IL2CPP;$(ProjectDir)thirdparty\minhook\include;$(ProjectDir)thirdparty\imgui;$(ProjectDir)thirdparty\imgui\backends;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
     </ClCompile>
     <Link>
@@ -89,44 +89,71 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="bridge_exports.cpp" />
-    <ClCompile Include="dllmain.cpp" />
-    <ClCompile Include="il2cpp_dumper.cpp" />
-    <ClCompile Include="wrapper_generator.cpp" />
-    <ClCompile Include="build_trigger.cpp" />
-    <ClCompile Include="imgui_integration.cpp" />
-    <ClCompile Include="imgui_exports.cpp" />
+    <!-- Core -->
+    <ClCompile Include="src\core\bridge_exports.cpp">
+      <Filter>Source Files\core</Filter>
+    </ClCompile>
+    <ClCompile Include="src\core\dllmain.cpp">
+      <Filter>Source Files\core</Filter>
+    </ClCompile>
+    <!-- IL2CPP -->
+    <ClCompile Include="src\il2cpp\il2cpp_dumper.cpp">
+      <Filter>Source Files\il2cpp</Filter>
+    </ClCompile>
+    <!-- Codegen -->
+    <ClCompile Include="src\codegen\wrapper_generator.cpp">
+      <Filter>Source Files\codegen</Filter>
+    </ClCompile>
+    <ClCompile Include="src\codegen\build_trigger.cpp">
+      <Filter>Source Files\codegen</Filter>
+    </ClCompile>
+    <!-- ImGui Integration -->
+    <ClCompile Include="src\imgui\imgui_integration.cpp">
+      <Filter>Source Files\imgui</Filter>
+    </ClCompile>
+    <ClCompile Include="src\imgui\imgui_exports.cpp">
+      <Filter>Source Files\imgui</Filter>
+    </ClCompile>
     <!-- MinHook source files -->
-    <ClCompile Include="minhook\src\buffer.c" />
-    <ClCompile Include="minhook\src\hook.c" />
-    <ClCompile Include="minhook\src\trampoline.c" />
-    <ClCompile Include="minhook\src\hde\hde64.c" />
+    <ClCompile Include="thirdparty\minhook\src\buffer.c" />
+    <ClCompile Include="thirdparty\minhook\src\hook.c" />
+    <ClCompile Include="thirdparty\minhook\src\trampoline.c" />
+    <ClCompile Include="thirdparty\minhook\src\hde\hde64.c" />
     <!-- Dear ImGui source files -->
-    <ClCompile Include="imgui\imgui.cpp" />
-    <ClCompile Include="imgui\imgui_draw.cpp" />
-    <ClCompile Include="imgui\imgui_tables.cpp" />
-    <ClCompile Include="imgui\imgui_widgets.cpp" />
-    <ClCompile Include="imgui\imgui_demo.cpp" />
+    <ClCompile Include="thirdparty\imgui\imgui.cpp" />
+    <ClCompile Include="thirdparty\imgui\imgui_draw.cpp" />
+    <ClCompile Include="thirdparty\imgui\imgui_tables.cpp" />
+    <ClCompile Include="thirdparty\imgui\imgui_widgets.cpp" />
+    <ClCompile Include="thirdparty\imgui\imgui_demo.cpp" />
     <!-- Dear ImGui backends -->
-    <ClCompile Include="imgui\backends\imgui_impl_win32.cpp" />
-    <ClCompile Include="imgui\backends\imgui_impl_dx11.cpp" />
+    <ClCompile Include="thirdparty\imgui\backends\imgui_impl_win32.cpp" />
+    <ClCompile Include="thirdparty\imgui\backends\imgui_impl_dx11.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="bridge_exports.h" />
-    <ClInclude Include="il2cpp_resolver.hpp" />
-    <ClInclude Include="il2cpp_dumper.hpp" />
-    <ClInclude Include="wrapper_generator.hpp" />
-    <ClInclude Include="build_trigger.hpp" />
-    <ClInclude Include="imgui_integration.h" />
-    <ClInclude Include="imgui_exports.h" />
+    <!-- Core headers -->
+    <ClInclude Include="src\core\bridge_exports.h" />
+    <!-- IL2CPP headers -->
+    <ClInclude Include="src\il2cpp\il2cpp_resolver.hpp" />
+    <ClInclude Include="src\il2cpp\il2cpp_dumper.hpp" />
+    <!-- Codegen headers -->
+    <ClInclude Include="src\codegen\wrapper_generator.hpp" />
+    <ClInclude Include="src\codegen\build_trigger.hpp" />
+    <!-- ImGui headers -->
+    <ClInclude Include="src\imgui\imgui_integration.h" />
+    <ClInclude Include="src\imgui\imgui_exports.h" />
     <!-- MinHook headers -->
-    <ClInclude Include="minhook\include\MinHook.h" />
+    <ClInclude Include="thirdparty\minhook\include\MinHook.h" />
     <!-- Dear ImGui headers -->
-    <ClInclude Include="imgui\imgui.h" />
-    <ClInclude Include="imgui\imgui_internal.h" />
-    <ClInclude Include="imgui\imconfig.h" />
-    <ClInclude Include="imgui\backends\imgui_impl_win32.h" />
-    <ClInclude Include="imgui\backends\imgui_impl_dx11.h" />
+    <ClInclude Include="thirdparty\imgui\imgui.h" />
+    <ClInclude Include="thirdparty\imgui\imgui_internal.h" />
+    <ClInclude Include="thirdparty\imgui\imconfig.h" />
+    <ClInclude Include="thirdparty\imgui\backends\imgui_impl_win32.h" />
+    <ClInclude Include="thirdparty\imgui\backends\imgui_impl_dx11.h" />
+    <!-- MDB_Common headers -->
+    <ClInclude Include="..\MDB_Common\IL2CPP\Il2CppTypes.hpp" />
+    <ClInclude Include="..\MDB_Common\IL2CPP\Il2CppSignatures.hpp" />
+    <ClInclude Include="..\MDB_Common\IL2CPP\Il2CppTableDefine.hpp" />
+    <ClInclude Include="..\MDB_Common\IL2CPP\SignatureScanner.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
