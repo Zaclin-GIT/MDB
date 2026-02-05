@@ -1,0 +1,81 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 21,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "vs2022",
+            "displayName": "x64 (Visual Studio 2022)",
+            "description": "MSVC v143 toolset, x64 architecture",
+            "generator": "Visual Studio 17 2022",
+            "architecture": {
+                "value": "x64",
+                "strategy": "set"
+            },
+            "binaryDir": "${sourceDir}/build",
+            "cacheVariables": {
+                "CMAKE_CXX_STANDARD": "17"
+            }
+        },
+        {
+            "name": "ninja",
+            "displayName": "x64 Ninja Multi-Config (MSVC)",
+            "description": "Ninja Multi-Config generator with MSVC — faster incremental builds. Run from a VS Developer Command Prompt or after calling vcvarsall.bat x64.",
+            "generator": "Ninja Multi-Config",
+            "binaryDir": "${sourceDir}/build",
+            "cacheVariables": {
+                "CMAKE_CXX_STANDARD": "17"
+            },
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            }
+        },
+        {
+            "name": "ninja-release",
+            "displayName": "x64 Ninja Release (MSVC)",
+            "description": "Single-config Ninja Release build. Run from a VS Developer Command Prompt.",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build",
+            "cacheVariables": {
+                "CMAKE_CXX_STANDARD": "17",
+                "CMAKE_BUILD_TYPE": "Release"
+            },
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "debug",
+            "displayName": "Debug",
+            "configurePreset": "vs2022",
+            "configuration": "Debug"
+        },
+        {
+            "name": "release",
+            "displayName": "Release",
+            "configurePreset": "vs2022",
+            "configuration": "Release"
+        },
+        {
+            "name": "ninja-debug",
+            "displayName": "Ninja Debug",
+            "configurePreset": "ninja",
+            "configuration": "Debug"
+        },
+        {
+            "name": "ninja-release",
+            "displayName": "Ninja Release",
+            "configurePreset": "ninja",
+            "configuration": "Release"
+        }
+    ]
+}

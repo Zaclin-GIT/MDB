@@ -1,6 +1,8 @@
 # Build outputs
 bin/
 obj/
+build/
+build-ninja/
 Release/
 Debug/
 x64/
