@@ -62,9 +62,6 @@
       <Filter>Source Files\il2cpp</Filter>
     </ClCompile>
     <!-- Codegen sources -->
-    <ClCompile Include="src\codegen\wrapper_generator.cpp">
-      <Filter>Source Files\codegen</Filter>
-    </ClCompile>
     <ClCompile Include="src\codegen\build_trigger.cpp">
       <Filter>Source Files\codegen</Filter>
     </ClCompile>
@@ -125,9 +122,6 @@
       <Filter>Header Files\il2cpp</Filter>
     </ClInclude>
     <!-- Codegen headers -->
-    <ClInclude Include="src\codegen\wrapper_generator.hpp">
-      <Filter>Header Files\codegen</Filter>
-    </ClInclude>
     <ClInclude Include="src\codegen\build_trigger.hpp">
       <Filter>Header Files\codegen</Filter>
     </ClInclude>

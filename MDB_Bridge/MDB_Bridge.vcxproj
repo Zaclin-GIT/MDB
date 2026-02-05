@@ -101,9 +101,6 @@
       <Filter>Source Files\il2cpp</Filter>
     </ClCompile>
     <!-- Codegen -->
-    <ClCompile Include="src\codegen\wrapper_generator.cpp">
-      <Filter>Source Files\codegen</Filter>
-    </ClCompile>
     <ClCompile Include="src\codegen\build_trigger.cpp">
       <Filter>Source Files\codegen</Filter>
     </ClCompile>
@@ -136,7 +133,6 @@
     <ClInclude Include="src\il2cpp\il2cpp_resolver.hpp" />
     <ClInclude Include="src\il2cpp\il2cpp_dumper.hpp" />
     <!-- Codegen headers -->
-    <ClInclude Include="src\codegen\wrapper_generator.hpp" />
     <ClInclude Include="src\codegen\build_trigger.hpp" />
     <!-- ImGui headers -->
     <ClInclude Include="src\imgui\imgui_integration.h" />
