@@ -1,0 +1,170 @@
+---
+layout: default
+title: API Reference
+---
+
+# API Reference
+
+Complete reference documentation for all MDB Framework APIs.
+
+---
+
+## Core APIs
+
+### Mod System
+
+- **[ModBase](modbase)** - Base class for all mods with lifecycle callbacks
+- **[ModAttribute](modattribute)** - Metadata attribute for declaring mods
+- **[ModLogger](logger)** - Logging system with color-coded console output
+
+### Patching System
+
+- **[Patch Attributes](patch-attributes)** - Declarative method hooking (Harmony-style)
+  - `[Patch]` - Target a class for patching
+  - `[PatchMethod]` - Target a specific method
+  - `[PatchRva]` - Target by RVA (for obfuscated methods)
+  - `[Prefix]` - Run before original method
+  - `[Postfix]` - Run after original method
+  - `[Finalizer]` - Run even if original throws
+- **[HookManager](hookmanager)** - Manual hooking API for runtime method hooks
+
+### IL2CPP Bridge
+
+- **[Il2CppBridge](il2cpp-bridge)** - P/Invoke declarations for IL2CPP runtime access
+  - Class resolution
+  - Method invocation
+  - Field access
+  - Type system queries
+  - String marshaling
+  - Array helpers
+  - Unity-specific helpers
+
+### ImGui Integration
+
+- **[ImGuiManager](imgui-manager)** - Callback registration and window management
+- **[ImGui](imgui)** - Dear ImGui API bindings
+  - Windows and layouts
+  - Widgets (buttons, inputs, sliders, etc.)
+  - Trees and lists
+  - Menus and popups
+  - Drawing primitives
+  - Styling and theming
+
+---
+
+## API Categories
+
+### By Difficulty
+
+#### 🟢 Beginner-Friendly
+- [ModBase](modbase) - Simple lifecycle and logging
+- [ModLogger](logger) - Easy logging
+- [ImGuiManager](imgui-manager) - Basic UI registration
+
+#### 🟡 Intermediate
+- [Patch Attributes](patch-attributes) - Declarative hooks
+- [ImGui](imgui) - UI construction
+
+#### 🔴 Advanced
+- [HookManager](hookmanager) - Manual hooking
+- [Il2CppBridge](il2cpp-bridge) - Direct IL2CPP access
+
+---
+
+## Quick Reference
+
+### Mod Lifecycle
+
+```csharp
+[Mod("Author.ModName", "Display Name", "1.0.0")]
+public class MyMod : ModBase
+{
+    public override void OnLoad() { }           // Called once on load
+    public override void OnUpdate() { }         // Every frame
+    public override void OnFixedUpdate() { }    // Physics tick
+    public override void OnLateUpdate() { }     // After all updates
+    public override void OnGUI() { }            // ImGui rendering
+}
+```
+
+### Logging
+
+```csharp
+Logger.Info("Info message");
+Logger.Warning("Warning message");
+Logger.Error("Error message");
+Logger.Debug("Debug message");
+```
+
+### Patching
+
+```csharp
+[Patch("Namespace", "ClassName")]
+[PatchMethod("MethodName", 2)]  // 2 parameters
+public static class MyPatch
+{
+    [Prefix]
+    public static bool Prefix(IntPtr __instance, int __0, float __1)
+    {
+        // Return false to skip original
+        return true;
+    }
+    
+    [Postfix]
+    public static void Postfix(ref int __result)
+    {
+        // Modify return value
+    }
+}
+```
+
+### ImGui UI
+
+```csharp
+public override void OnLoad()
+{
+    ImGuiManager.RegisterCallback(DrawUI, "My Window");
+}
+
+private void DrawUI()
+{
+    if (ImGui.Begin("My Window"))
+    {
+        ImGui.Text("Hello!");
+        if (ImGui.Button("Click"))
+            Logger.Info("Clicked!");
+    }
+    ImGui.End();
+}
+```
+
+### IL2CPP Bridge
+
+```csharp
+// Find a class
+IntPtr klass = Il2CppBridge.mdb_find_class("Assembly-CSharp", "Game", "Player");
+
+// Get a method
+IntPtr method = Il2CppBridge.mdb_get_method(klass, "TakeDamage", 1);
+
+// Get a field value
+IntPtr field = Il2CppBridge.mdb_get_field(klass, "health");
+float health = Il2CppBridge.mdb_field_get_value<float>(instance, field);
+```
+
+---
+
+## Navigation
+
+- [ModBase - Mod Lifecycle](modbase)
+- [ModAttribute - Mod Metadata](modattribute)
+- [ModLogger - Logging System](logger)
+- [Patch Attributes - Declarative Hooks](patch-attributes)
+- [HookManager - Manual Hooks](hookmanager)
+- [Il2CppBridge - IL2CPP Runtime Access](il2cpp-bridge)
+- [ImGuiManager - UI Management](imgui-manager)
+- [ImGui - UI Construction](imgui)
+
+---
+
+[← Back to Home](../index) | [Getting Started →](../getting-started)
