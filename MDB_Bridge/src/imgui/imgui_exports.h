@@ -40,6 +40,8 @@ IMGUI_EXPORT bool igCheckbox(const char* label, bool* v);
 // ===== Widgets: Input =====
 IMGUI_EXPORT bool igInputText(const char* label, char* buf, size_t buf_size, ImGuiInputTextFlags flags, ImGuiInputTextCallback callback, void* user_data);
 IMGUI_EXPORT bool igInputTextWithHint(const char* label, const char* hint, char* buf, size_t buf_size, ImGuiInputTextFlags flags, ImGuiInputTextCallback callback, void* user_data);
+IMGUI_EXPORT bool igInputFloat(const char* label, float* v, float step, float step_fast, const char* format, ImGuiInputTextFlags flags);
+IMGUI_EXPORT bool igInputInt(const char* label, int* v, int step, int step_fast, ImGuiInputTextFlags flags);
 
 // ===== Widgets: Trees =====
 IMGUI_EXPORT bool igTreeNode_Str(const char* label);
@@ -50,6 +52,8 @@ IMGUI_EXPORT bool igCollapsingHeader_TreeNodeFlags(const char* label, ImGuiTreeN
 // ===== Widgets: Menus =====
 IMGUI_EXPORT bool igBeginMainMenuBar();
 IMGUI_EXPORT void igEndMainMenuBar();
+IMGUI_EXPORT bool igBeginMenuBar();
+IMGUI_EXPORT void igEndMenuBar();
 IMGUI_EXPORT bool igBeginMenu(const char* label, bool enabled);
 IMGUI_EXPORT void igEndMenu();
 IMGUI_EXPORT bool igMenuItem_Bool(const char* label, const char* shortcut, bool selected, bool enabled);
@@ -57,6 +61,8 @@ IMGUI_EXPORT bool igMenuItem_Bool(const char* label, const char* shortcut, bool 
 // ===== Layout =====
 IMGUI_EXPORT void igSeparator();
 IMGUI_EXPORT void igSameLine(float offset_from_start_x, float spacing);
+IMGUI_EXPORT void igSpacing();
+IMGUI_EXPORT void igDummy(ImVec2 size);
 IMGUI_EXPORT void igIndent(float indent_w);
 IMGUI_EXPORT void igUnindent(float indent_w);
 IMGUI_EXPORT void igSetNextItemWidth(float item_width);
@@ -72,6 +78,8 @@ IMGUI_EXPORT bool igIsItemToggledOpen();
 
 // ===== Tooltips =====
 IMGUI_EXPORT void igSetTooltip(const char* fmt, ...);
+IMGUI_EXPORT bool igBeginTooltip();
+IMGUI_EXPORT void igEndTooltip();
 
 // ===== Widgets: Combo =====
 IMGUI_EXPORT bool igBeginCombo(const char* label, const char* preview_value, ImGuiComboFlags flags);

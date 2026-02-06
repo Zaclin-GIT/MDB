@@ -90,6 +90,16 @@ IMGUI_EXPORT bool igInputTextWithHint(const char* label, const char* hint, char*
     return ImGui::InputTextWithHint(label, hint, buf, buf_size, flags, callback, user_data);
 }
 
+IMGUI_EXPORT bool igInputFloat(const char* label, float* v, float step, float step_fast, const char* format, ImGuiInputTextFlags flags)
+{
+    return ImGui::InputFloat(label, v, step, step_fast, format, flags);
+}
+
+IMGUI_EXPORT bool igInputInt(const char* label, int* v, int step, int step_fast, ImGuiInputTextFlags flags)
+{
+    return ImGui::InputInt(label, v, step, step_fast, flags);
+}
+
 // ===== Widgets: Trees =====
 
 IMGUI_EXPORT bool igTreeNode_Str(const char* label)
@@ -122,6 +132,16 @@ IMGUI_EXPORT bool igBeginMainMenuBar()
 IMGUI_EXPORT void igEndMainMenuBar()
 {
     ImGui::EndMainMenuBar();
+}
+
+IMGUI_EXPORT bool igBeginMenuBar()
+{
+    return ImGui::BeginMenuBar();
+}
+
+IMGUI_EXPORT void igEndMenuBar()
+{
+    ImGui::EndMenuBar();
 }
 
 IMGUI_EXPORT bool igBeginMenu(const char* label, bool enabled)
@@ -159,6 +179,16 @@ IMGUI_EXPORT void igIndent(float indent_w)
 IMGUI_EXPORT void igUnindent(float indent_w)
 {
     ImGui::Unindent(indent_w);
+}
+
+IMGUI_EXPORT void igSpacing()
+{
+    ImGui::Spacing();
+}
+
+IMGUI_EXPORT void igDummy(ImVec2 size)
+{
+    ImGui::Dummy(size);
 }
 
 IMGUI_EXPORT void igSetNextItemWidth(float item_width)
@@ -204,7 +234,15 @@ IMGUI_EXPORT void igSetTooltip(const char* fmt, ...)
     ImGui::SetTooltipV(fmt, args);
     va_end(args);
 }
+IMGUI_EXPORT bool igBeginTooltip()
+{
+    return ImGui::BeginTooltip();
+}
 
+IMGUI_EXPORT void igEndTooltip()
+{
+    ImGui::EndTooltip();
+}
 // ===== Widgets: Combo =====
 
 IMGUI_EXPORT bool igBeginCombo(const char* label, const char* preview_value, ImGuiComboFlags flags)

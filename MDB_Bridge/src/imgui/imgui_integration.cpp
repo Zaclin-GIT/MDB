@@ -348,6 +348,16 @@ MDB_IMGUI_API bool mdb_imgui_init() {
         return true;
     }
 
+    // Ensure MinHook is initialized (needed for DX Present hooking)
+    static bool s_mhInitialized = false;
+    if (!s_mhInitialized) {
+        MH_STATUS status = MH_Initialize();
+        if (status != MH_OK && status != MH_ERROR_ALREADY_INITIALIZED) {
+            return false;
+        }
+        s_mhInitialized = true;
+    }
+
     // Detect DirectX version
     g_dxVersion.store(DetectDxVersion());
 
