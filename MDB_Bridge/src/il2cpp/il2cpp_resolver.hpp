@@ -155,6 +155,9 @@ namespace il2cpp {
 				void* m_pMonitor = nullptr;
 			};
 
+			// Forward declarations for generic structs (circular with il2cppType)
+			struct il2cppGenericClass;
+
 			struct il2cppType {
 				union {
 					void* m_pDummy;
@@ -162,13 +165,30 @@ namespace il2cpp {
 					il2cppType* m_pType;
 					void* m_pArray;
 					unsigned int m_uGenericParameterIndex;
-					void* m_pGenericClass;
+					il2cppGenericClass* m_pGenericClass;
 				};
 				unsigned int m_uAttributes : 16;
 				unsigned int m_uType : 8;
 				unsigned int m_uMods : 6;
 				unsigned int m_uByref : 1;
 				unsigned int m_uPinned : 1;
+			};
+
+			// Generic instantiation structures (after il2cppType so we can use il2cppType*)
+			struct il2cppGenericInst {
+				uint32_t        m_uTypeArgc;      // Number of generic type arguments
+				il2cppType**    m_pTypeArgv;       // Array of pointers to il2cppType
+			};
+
+			struct il2cppGenericContext {
+				il2cppGenericInst* m_pClassInst;   // Class-level generic args
+				il2cppGenericInst* m_pMethodInst;  // Method-level generic args
+			};
+
+			struct il2cppGenericClass {
+				uint32_t              m_uTypeDefinitionIndex;
+				il2cppGenericContext   m_Context;
+				il2cppClass*          m_pCachedClass;
 			};
 
 			struct il2cppFieldInfo {

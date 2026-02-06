@@ -48,6 +48,19 @@ static bool ShouldSkipNamespace(const std::string& ns) {
     return false;
 }
 
+// Set of fully-qualified type names that will be emitted (populated between Phase 1 and Phase 2)
+static std::set<std::string> g_knownTypes;
+
+// Namespaces whose types are not available in .NET Framework 4.7.2
+static bool IsBlockedNamespace(const std::string& ns) {
+    if (ns == "Mono" || ns.rfind("Mono.", 0) == 0) return true;
+    if (ns == "Internal" || ns.rfind("Internal.", 0) == 0) return true;
+    if (ns == "UnityEngineInternal" || ns == "UnityEngine.Internal") return true;
+    if (ns == "System.IO.Enumeration") return true;
+    if (ns == "System.Net.Http") return true;
+    return false;
+}
+
 // ============================================================================
 // IL2CPP Type-Name Helpers
 // ============================================================================
@@ -87,6 +100,13 @@ static std::string PrimitiveTypeName(unsigned int typeEnum) {
     }
 }
 
+/// Strip backtick+arity suffix from IL2CPP generic type names for use as C# identifiers.
+/// e.g. "List`1" -> "List", "Dictionary`2" -> "Dictionary"
+static std::string SanitizeTypeName(const std::string& name) {
+    auto pos = name.find('`');
+    return (pos != std::string::npos) ? name.substr(0, pos) : name;
+}
+
 // Forward declarations for mutual recursion
 static std::string GetFullyQualifiedTypeName(const il2cppType* type, const std::string& currentNamespace);
 static std::string GetFullyQualifiedClassName(il2cppClass* klass, const std::string& currentNamespace);
@@ -94,6 +114,7 @@ static std::string GetFullyQualifiedClassName(il2cppClass* klass, const std::str
 /// Get the fully-qualified C# type name from an il2cppClass.
 /// If the type lives in `currentNamespace`, returns the short name.
 /// Otherwise, returns `global::Full.Namespace.TypeName`.
+/// Validates game types against g_knownTypes registry when populated.
 static std::string GetFullyQualifiedClassName(il2cppClass* klass, const std::string& currentNamespace) {
     if (!klass) return "object";
 
@@ -125,20 +146,67 @@ static std::string GetFullyQualifiedClassName(il2cppClass* klass, const std::str
         if (nameStr == "UIntPtr")   return "UIntPtr";
     }
 
+    // Block types from namespaces not available in .NET Framework
+    if (IsBlockedNamespace(nsStr)) return "object";
+
+    // Sanitize generic backtick names for C# identifiers
+    std::string safeName = SanitizeTypeName(nameStr);
+
+    // Compiler-generated types (fixed buffers, display classes, state machines)
+    // contain <> and are not valid C# identifiers - fall back to object
+    if (safeName.find('<') != std::string::npos || safeName.find('>') != std::string::npos) {
+        return "object";
+    }
+
+    // Determine if this is a system/framework type or a game type
+    bool isSystemType = ShouldSkipNamespace(nsStr);
+
+    // Block specific system types not available in .NET Framework 4.7.2
+    if (isSystemType) {
+        if (nsStr == "System.Threading.Tasks" && nameStr.rfind("ValueTask", 0) == 0) return "object";
+        if (nsStr == "System.Buffers" || nsStr == "System.Memory") return "object";
+    }
+
+    // For system types with generic arity, add <object, ...> since the real .NET type is generic
+    if (isSystemType) {
+        auto backtickPos = nameStr.find('`');
+        if (backtickPos != std::string::npos) {
+            try {
+                int arity = std::stoi(nameStr.substr(backtickPos + 1));
+                if (arity > 0) {
+                    safeName += "<";
+                    for (int a = 0; a < arity; ++a) {
+                        if (a > 0) safeName += ", ";
+                        safeName += "object";
+                    }
+                    safeName += ">";
+                }
+            } catch (...) {}
+        }
+    }
+
+    // For game types, validate against known types registry
+    if (!isSystemType && !g_knownTypes.empty()) {
+        std::string fqn = nsStr.empty() ? safeName : (nsStr + "." + safeName);
+        if (g_knownTypes.find(fqn) == g_knownTypes.end()) {
+            return "object";
+        }
+    }
+
     // For types whose namespace matches the file we're generating, use short name
     // Handle the "Global" bucket: empty namespace -> "Global"
     std::string effectiveNs = nsStr.empty() ? "Global" : nsStr;
     if (effectiveNs == currentNamespace) {
-        return nameStr;
+        return safeName;
     }
 
     // For empty namespace types referenced from elsewhere
     if (nsStr.empty()) {
-        return "global::Global." + nameStr;
+        return "global::Global." + safeName;
     }
 
     // Fully qualify with global:: prefix
-    return "global::" + nsStr + "." + nameStr;
+    return "global::" + nsStr + "." + safeName;
 }
 
 /// Get the fully-qualified C# type name from an il2cppType.
@@ -149,6 +217,16 @@ static std::string GetFullyQualifiedTypeName(const il2cppType* type, const std::
     std::string prim = PrimitiveTypeName(type->m_uType);
     if (!prim.empty()) return prim;
 
+    // Generic type parameters (T, T0, T1, TResult, etc.) → erase to object
+    if (type->m_uType == IL2CPP_TYPE_VAR || type->m_uType == IL2CPP_TYPE_MVAR) {
+        return "object";
+    }
+
+    // Pointer types (e.g., System.Int64*) → erase to IntPtr
+    if (type->m_uType == IL2CPP_TYPE_PTR) {
+        return "IntPtr";
+    }
+
     // For SZARRAY (T[])
     if (type->m_uType == IL2CPP_TYPE_SZARRAY) {
         auto elemType = type->m_pType;
@@ -158,62 +236,118 @@ static std::string GetFullyQualifiedTypeName(const il2cppType* type, const std::
     }
 
     // For GENERICINST (e.g., List<T>, Dictionary<K,V>)
-    // IL2CPP doesn't expose a clean way to get generic type arguments,
-    // so we fall back to getting the class name which includes the arity
-    // and map known generic types to their C# equivalents.
-
-    // Fall back to class-based resolution
-    auto* klass = api::il2cpp_class_from_type(type);
-    if (!klass) return "object";
-
-    const char* name = api::il2cpp_class_get_name(klass);
-    const char* ns   = api::il2cpp_class_get_namespace(klass);
-    std::string nameStr(name ? name : "");
-    std::string nsStr(ns ? ns : "");
-
-    // Handle generic collections by mapping known generic type names
-    // IL2CPP class names for generics look like "List`1", "Dictionary`2", etc.
-    // For wrapper generation, we use the object-erased forms.
+    // Walk the Il2CppGenericClass → Il2CppGenericInst → type_argv to get actual type args.
     if (type->m_uType == IL2CPP_TYPE_GENERICINST) {
-        // Check if this is a well-known generic collection
-        if (nsStr == "System.Collections.Generic") {
-            if (nameStr.rfind("List`1", 0) == 0) return "List<object>";
-            if (nameStr.rfind("Dictionary`2", 0) == 0) return "Dictionary<object, object>";
-            if (nameStr.rfind("IList`1", 0) == 0) return "IList<object>";
-            if (nameStr.rfind("IEnumerable`1", 0) == 0) return "IEnumerable<object>";
-            if (nameStr.rfind("ICollection`1", 0) == 0) return "ICollection<object>";
-            if (nameStr.rfind("IDictionary`2", 0) == 0) return "IDictionary<object, object>";
-            if (nameStr.rfind("IReadOnlyList`1", 0) == 0) return "IReadOnlyList<object>";
-            if (nameStr.rfind("IReadOnlyCollection`1", 0) == 0) return "IReadOnlyCollection<object>";
-            if (nameStr.rfind("IEnumerator`1", 0) == 0) return "IEnumerator<object>";
-            if (nameStr.rfind("KeyValuePair`2", 0) == 0) return "KeyValuePair<object, object>";
-            if (nameStr.rfind("HashSet`1", 0) == 0) return "HashSet<object>";
-            if (nameStr.rfind("Queue`1", 0) == 0) return "Queue<object>";
-            if (nameStr.rfind("Stack`1", 0) == 0) return "Stack<object>";
-            if (nameStr.rfind("LinkedList`1", 0) == 0) return "LinkedList<object>";
-        }
+        auto* genericClass = type->m_pGenericClass;
+        
+        // Fall back to class-based resolution to get the base type name
+        auto* klass = api::il2cpp_class_from_type(type);
+        if (!klass) return "object";
+
+        const char* name = api::il2cpp_class_get_name(klass);
+        const char* ns   = api::il2cpp_class_get_namespace(klass);
+        std::string nameStr(name ? name : "");
+        std::string nsStr(ns ? ns : "");
+
+        // --- Special cases: types that should be erased entirely ---
         if (nsStr == "System") {
             if (nameStr.rfind("Nullable`1", 0) == 0) return "object";
-            if (nameStr.rfind("Action`", 0) == 0) return "Action";
             if (nameStr.rfind("Func`", 0) == 0) return "object";
             if (nameStr.rfind("Tuple`", 0) == 0) return "object";
             if (nameStr.rfind("ValueTuple`", 0) == 0) return "object";
+            if (nameStr.rfind("Span`1", 0) == 0) return "object";
+            if (nameStr.rfind("ReadOnlySpan`1", 0) == 0) return "object";
+            if (nameStr.rfind("Memory`1", 0) == 0) return "object";
+            if (nameStr.rfind("ReadOnlyMemory`1", 0) == 0) return "object";
         }
         if (nsStr == "System.Threading.Tasks") {
-            if (nameStr.rfind("Task`1", 0) == 0) return "Task<object>";
+            if (nameStr.rfind("ValueTask`1", 0) == 0) return "object";
         }
         if (nsStr == "Cysharp.Threading.Tasks") {
             if (nameStr.rfind("UniTask`1", 0) == 0) return "object";
         }
+        // Types from namespaces blocked or unavailable in .NET Framework 4.7.2
+        if (IsBlockedNamespace(nsStr)) return "object";
+        if (nsStr == "System.Runtime.CompilerServices") {
+            if (nameStr.rfind("CallSite`", 0) == 0) return "object";
+        }
 
-        // Generic type not specifically handled - strip the arity suffix
-        // and return object-erased form
-        auto backtickPos = nameStr.find('`');
-        if (backtickPos != std::string::npos) {
-            // Unknown generic → just use object
+        // --- Try to resolve actual generic type arguments ---
+        std::vector<std::string> typeArgs;
+        bool resolvedArgs = false;
+
+        if (genericClass) {
+            auto* classInst = genericClass->m_Context.m_pClassInst;
+            if (classInst && classInst->m_uTypeArgc > 0 && classInst->m_pTypeArgv) {
+                resolvedArgs = true;
+                for (uint32_t i = 0; i < classInst->m_uTypeArgc; ++i) {
+                    auto* argType = classInst->m_pTypeArgv[i];
+                    if (argType) {
+                        std::string resolved = GetFullyQualifiedTypeName(argType, currentNamespace);
+                        // void is not a valid generic type argument — erase to object
+                        if (resolved == "void") resolved = "object";
+                        typeArgs.push_back(resolved);
+                    } else {
+                        typeArgs.push_back("object");
+                    }
+                }
+            }
+        }
+
+        // If we couldn't resolve the args, fall back to object-erased form
+        if (!resolvedArgs) {
+            auto backtickPos = nameStr.find('`');
+            if (backtickPos != std::string::npos) {
+                try {
+                    int arity = std::stoi(nameStr.substr(backtickPos + 1));
+                    for (int a = 0; a < arity; ++a) typeArgs.push_back("object");
+                } catch (...) {
+                    typeArgs.push_back("object");
+                }
+            }
+        }
+
+        // Build the final type name
+        if (typeArgs.empty()) {
+            // Non-generic or failed to determine arity — use class resolution
+            return GetFullyQualifiedClassName(klass, currentNamespace);
+        }
+
+        // For system types, produce a simple name (List<X>, Dictionary<X,Y>, etc.)
+        bool isSystemType = ShouldSkipNamespace(nsStr);
+        std::string baseName;
+        if (isSystemType) {
+            baseName = SanitizeTypeName(nameStr);
+            // For Action`N with resolved args, use Action<...> form
+            if (nsStr == "System" && nameStr.rfind("Action`", 0) == 0) {
+                baseName = "Action";
+            }
+        } else {
+            // Game types: our wrappers are emitted WITHOUT generic type parameters
+            // (we erase T→object in class definitions), so we cannot reference them
+            // with type args. Just return the plain class name.
+            return GetFullyQualifiedClassName(klass, currentNamespace);
+        }
+
+        // If the base name resolved to "object" (blocked namespace, unknown type, etc.)
+        // don't append generic type args — just return "object"
+        if (baseName == "object") {
             return "object";
         }
+
+        baseName += "<";
+        for (size_t i = 0; i < typeArgs.size(); ++i) {
+            if (i > 0) baseName += ", ";
+            baseName += typeArgs[i];
+        }
+        baseName += ">";
+
+        return baseName;
     }
+
+    // Fall back to class-based resolution for all other types
+    auto* klass = api::il2cpp_class_from_type(type);
+    if (!klass) return "object";
 
     return GetFullyQualifiedClassName(klass, currentNamespace);
 }
@@ -304,7 +438,7 @@ static bool IsDelegate(il2cppClass* klass) {
 static ClassInfo ClassifyType(il2cppClass* klass, const std::string& dllName, const std::string& effectiveNamespace) {
     ClassInfo info{};
     info.klass = klass;
-    info.name = api::il2cpp_class_get_name(klass) ? api::il2cpp_class_get_name(klass) : "";
+    info.name = SanitizeTypeName(api::il2cpp_class_get_name(klass) ? api::il2cpp_class_get_name(klass) : "");
     const char* rawNs = api::il2cpp_class_get_namespace(klass);
     info.rawNs = rawNs ? rawNs : "";
     info.ns = effectiveNamespace;
@@ -346,6 +480,9 @@ static ClassInfo ClassifyType(il2cppClass* klass, const std::string& dllName, co
                 if (pNs == "System" && (pName == "ValueType" || pName == "Enum" ||
                     pName == "MulticastDelegate" || pName == "Delegate")) {
                     info.base_class = "";
+                } else if (ShouldSkipNamespace(pNs)) {
+                    // System/framework types don't have IL2CPP wrapper IntPtr constructors
+                    info.base_class = "";
                 } else {
                     info.base_class = GetFullyQualifiedClassName(parent, effectiveNamespace);
                 }
@@ -379,7 +516,7 @@ static std::string GenerateDelegate(il2cppClass* klass, const std::string& curre
     }
 
     std::string vis = GetVisibility(api::il2cpp_class_get_flags(klass));
-    const char* delegateName = api::il2cpp_class_get_name(klass);
+    std::string delegateName = SanitizeTypeName(api::il2cpp_class_get_name(klass) ? api::il2cpp_class_get_name(klass) : "");
 
     if (!invokeMethod) {
         // Fallback
@@ -398,7 +535,7 @@ static std::string GenerateDelegate(il2cppClass* klass, const std::string& curre
         auto param = api::il2cpp_method_get_param(invokeMethod, i);
         std::string paramTypeName = GetFullyQualifiedTypeName(param, currentNamespace);
         const char* paramName = api::il2cpp_method_get_param_name(invokeMethod, i);
-        ss << paramTypeName << " " << (paramName ? paramName : ("arg" + std::to_string(i)));
+        ss << paramTypeName << " " << ((paramName && paramName[0] != '\0') ? paramName : ("arg" + std::to_string(i)));
     }
 
     ss << ");\n";
@@ -413,8 +550,34 @@ static std::string GenerateEnum(il2cppClass* klass) {
     std::stringstream ss;
 
     std::string vis = GetVisibility(api::il2cpp_class_get_flags(klass));
-    ss << "    " << vis << " enum " << api::il2cpp_class_get_name(klass) << "\n";
-    ss << "    {\n";
+    ss << "    " << vis << " enum " << SanitizeTypeName(api::il2cpp_class_get_name(klass));
+
+    // Detect enum backing type from value__ field
+    void* btIter = nullptr;
+    unsigned int backingTypeEnum = IL2CPP_TYPE_I4; // default to int
+    bool isUnsigned = false;
+    while (auto btField = api::il2cpp_class_get_fields(klass, &btIter)) {
+        const char* fn = api::il2cpp_field_get_name(btField);
+        if (fn && std::string(fn) == "value__") {
+            auto ftype = api::il2cpp_field_get_type(btField);
+            if (ftype) {
+                backingTypeEnum = ftype->m_uType;
+                switch (backingTypeEnum) {
+                case IL2CPP_TYPE_U4: ss << " : uint"; isUnsigned = true; break;
+                case IL2CPP_TYPE_I8: ss << " : long"; break;
+                case IL2CPP_TYPE_U8: ss << " : ulong"; isUnsigned = true; break;
+                case IL2CPP_TYPE_I2: ss << " : short"; break;
+                case IL2CPP_TYPE_U2: ss << " : ushort"; isUnsigned = true; break;
+                case IL2CPP_TYPE_I1: ss << " : sbyte"; break;
+                case IL2CPP_TYPE_U1: ss << " : byte"; isUnsigned = true; break;
+                default: break; // int is default
+                }
+            }
+            break;
+        }
+    }
+
+    ss << "\n    {\n";
 
     void* iter = nullptr;
     bool first = true;
@@ -427,7 +590,20 @@ static std::string GenerateEnum(il2cppClass* klass) {
 
         uint64_t val = 0;
         api::il2cpp_field_static_get_value(field, &val);
-        ss << "        " << api::il2cpp_field_get_name(field) << " = " << std::dec << (int64_t)val;
+        ss << "        " << api::il2cpp_field_get_name(field) << " = ";
+        if (isUnsigned) {
+            ss << std::dec << val;
+        } else {
+            // Sign-extend based on backing type width
+            int64_t signedVal;
+            switch (backingTypeEnum) {
+            case IL2CPP_TYPE_I1: signedVal = (int64_t)(int8_t)(val & 0xFF); break;
+            case IL2CPP_TYPE_I2: signedVal = (int64_t)(int16_t)(val & 0xFFFF); break;
+            case IL2CPP_TYPE_I8: signedVal = (int64_t)val; break;
+            default: signedVal = (int64_t)(int32_t)(val & 0xFFFFFFFF); break;
+            }
+            ss << std::dec << signedVal;
+        }
     }
 
     if (!first) ss << "\n";
@@ -442,7 +618,7 @@ static std::string GenerateEnum(il2cppClass* klass) {
 static std::string GenerateInterface(il2cppClass* klass) {
     std::stringstream ss;
     std::string vis = GetVisibility(api::il2cpp_class_get_flags(klass));
-    ss << "    " << vis << " interface " << api::il2cpp_class_get_name(klass) << "\n";
+    ss << "    " << vis << " interface " << SanitizeTypeName(api::il2cpp_class_get_name(klass)) << "\n";
     ss << "    {\n";
     ss << "        // Stub interface\n";
     ss << "    }\n";
@@ -456,7 +632,7 @@ static std::string GenerateInterface(il2cppClass* klass) {
 static std::string GenerateStruct(il2cppClass* klass, const std::string& currentNamespace) {
     std::stringstream ss;
     std::string vis = GetVisibility(api::il2cpp_class_get_flags(klass));
-    std::string name = api::il2cpp_class_get_name(klass);
+    std::string name = SanitizeTypeName(api::il2cpp_class_get_name(klass));
 
     ss << "    " << vis << " struct " << name << "\n";
     ss << "    {\n";
@@ -476,6 +652,8 @@ static std::string GenerateStruct(il2cppClass* klass, const std::string& current
         if (!fieldName) continue;
         // Skip compiler-generated backing fields
         if (fieldName[0] == '<') continue;
+        // Skip fields whose type is compiler-generated (e.g. <buffer>e__FixedBuffer)
+        if (fieldTypeName.find('<') != std::string::npos || fieldTypeName.find('>') != std::string::npos) continue;
 
         ss << "        public " << fieldTypeName << " " << fieldName << ";\n";
         hasFields = true;
@@ -497,6 +675,7 @@ static std::string GenerateStruct(il2cppClass* klass, const std::string& current
 static std::string GenerateClassFields(il2cppClass* klass, const std::string& currentNamespace) {
     std::stringstream ss;
     bool hasFields = false;
+    std::set<std::string> emittedFieldNames;
 
     void* iter = nullptr;
     while (auto field = api::il2cpp_class_get_fields(klass, &iter)) {
@@ -513,9 +692,14 @@ static std::string GenerateClassFields(il2cppClass* klass, const std::string& cu
         // Skip backing fields
         if (fieldName[0] == '<') continue;
 
+        // Skip duplicate field names
+        if (!emittedFieldNames.insert(std::string(fieldName)).second) continue;
+
         std::string vis = GetFieldVisibility(attrs);
         auto fieldType = api::il2cpp_field_get_type(field);
         std::string typeName = GetFullyQualifiedTypeName(fieldType, currentNamespace);
+        // Skip fields whose type is compiler-generated (e.g. <buffer>e__FixedBuffer)
+        if (typeName.find('<') != std::string::npos || typeName.find('>') != std::string::npos) continue;
 
         if (!hasFields) {
             ss << "\n        // Fields\n";
@@ -544,6 +728,9 @@ static std::string GenerateClassProperties(il2cppClass* klass, const std::string
     std::string className(classNameRaw ? classNameRaw : "");
     std::string staticNs = classNs.empty() ? "Global" : classNs;
 
+    // Track emitted property names to avoid CS0102 duplicates (e.g., multiple 'Item' indexers)
+    std::set<std::string> emittedPropNames;
+
     void* iter = nullptr;
     while (auto prop_const = api::il2cpp_class_get_properties(klass, &iter)) {
         auto prop = const_cast<il2cppPropertyInfo*>(prop_const);
@@ -551,6 +738,23 @@ static std::string GenerateClassProperties(il2cppClass* klass, const std::string
         auto set = api::il2cpp_property_get_set_method(prop);
         auto propName = api::il2cpp_property_get_name(prop);
         if (!propName) continue;
+
+        // Skip explicit interface implementation properties
+        std::string propNameStr(propName);
+        if (propNameStr.find('.') != std::string::npos) continue;
+
+        // Skip duplicate property names (e.g., multiple 'Item' indexers)
+        if (!emittedPropNames.insert(propNameStr).second) continue;
+
+        // Also skip if getter/setter method names indicate explicit interface impl
+        if (get) {
+            const char* getName = api::il2cpp_method_get_name(get);
+            if (getName && std::string(getName).find('.') != std::string::npos) continue;
+        }
+        if (set) {
+            const char* setName = api::il2cpp_method_get_name(set);
+            if (setName && std::string(setName).find('.') != std::string::npos) continue;
+        }
 
         std::string propTypeName;
         std::string vis;
@@ -639,6 +843,9 @@ static std::string GenerateClassMethods(il2cppClass* klass, const std::string& c
     std::string className(classNameRaw ? classNameRaw : "");
     std::string staticNs = classNs.empty() ? "Global" : classNs;
 
+    // Track emitted method signatures to avoid CS0111 duplicates after type erasure
+    std::set<std::string> emittedMethodSigs;
+
     void* iter = nullptr;
     while (auto method = api::il2cpp_class_get_methods(klass, &iter)) {
         const char* methodName = api::il2cpp_method_get_name(method);
@@ -648,6 +855,11 @@ static std::string GenerateClassMethods(il2cppClass* klass, const std::string& c
         // Skip constructors, finalizers, and property accessors
         if (methodNameStr == ".ctor" || methodNameStr == ".cctor" || methodNameStr == "Finalize") continue;
         if (propertyMethods.count(methodNameStr)) continue;
+        // Skip compiler-generated methods (local functions, state machines, etc.)
+        if (methodNameStr.find('<') != std::string::npos || methodNameStr.find('>') != std::string::npos) continue;
+        // Skip explicit interface implementations (e.g., IResolvedStyle.get_maxHeight)
+        // These contain a '.' that isn't at position 0 (unlike .ctor/.cctor)
+        if (methodNameStr.find('.') != std::string::npos) continue;
 
         uint32_t iflags = 0;
         auto flags = api::il2cpp_method_get_flags(method, &iflags);
@@ -670,8 +882,42 @@ static std::string GenerateClassMethods(il2cppClass* klass, const std::string& c
         std::string returnTypeName = GetFullyQualifiedTypeName(returnType, currentNamespace);
         bool isVoid = (returnTypeName == "void");
 
-        // Parameters
+        // Collect parameters first (before writing) for dedup check
         auto paramCount = api::il2cpp_method_get_param_count(method);
+        std::vector<std::string> paramNames;
+        std::vector<std::string> paramTypeNames;
+        std::vector<bool> paramIsByRef;
+        std::vector<std::string> paramRefKind;  // "", "out ", "in ", "ref "
+        for (uint32_t i = 0; i < paramCount; ++i) {
+            auto param = api::il2cpp_method_get_param(method, i);
+            std::string pTypeName = GetFullyQualifiedTypeName(param, currentNamespace);
+            const char* pName = api::il2cpp_method_get_param_name(method, i);
+            std::string pNameStr = (pName && pName[0] != '\0') ? pName : ("arg" + std::to_string(i));
+            paramNames.push_back(pNameStr);
+            paramTypeNames.push_back(pTypeName);
+
+            std::string refKind = "";
+            if (_il2cpp_type_is_byref(param)) {
+                auto pAttrs = param->m_uAttributes;
+                if (pAttrs & PARAM_ATTRIBUTE_OUT && !(pAttrs & PARAM_ATTRIBUTE_IN)) {
+                    refKind = "out ";
+                } else if (pAttrs & PARAM_ATTRIBUTE_IN && !(pAttrs & PARAM_ATTRIBUTE_OUT)) {
+                    refKind = "in ";
+                } else {
+                    refKind = "ref ";
+                }
+            }
+            paramRefKind.push_back(refKind);
+        }
+
+        // Build signature key for dedup (methodName + param types)
+        std::string sigKey = methodNameStr + "(";
+        for (uint32_t i = 0; i < paramCount; ++i) {
+            if (i > 0) sigKey += ",";
+            sigKey += paramTypeNames[i];
+        }
+        sigKey += ")";
+        if (!emittedMethodSigs.insert(sigKey).second) continue;  // skip duplicate
 
         if (!hasMethods) {
             ss << "\n        // Methods\n";
@@ -682,40 +928,26 @@ static std::string GenerateClassMethods(il2cppClass* klass, const std::string& c
         ss << "        " << vis;
         if (isStatic) ss << " static";
         ss << " " << returnTypeName << " " << methodNameStr << "(";
-
-        std::vector<std::string> paramNames;
-        std::vector<std::string> paramTypeNames;
         for (uint32_t i = 0; i < paramCount; ++i) {
             if (i > 0) ss << ", ";
-            auto param = api::il2cpp_method_get_param(method, i);
-            std::string pTypeName = GetFullyQualifiedTypeName(param, currentNamespace);
-            const char* pName = api::il2cpp_method_get_param_name(method, i);
-            std::string pNameStr = pName ? pName : ("arg" + std::to_string(i));
-            paramNames.push_back(pNameStr);
-            paramTypeNames.push_back(pTypeName);
-
-            // Handle ref/out/in
-            if (_il2cpp_type_is_byref(param)) {
-                auto pAttrs = param->m_uAttributes;
-                if (pAttrs & PARAM_ATTRIBUTE_OUT && !(pAttrs & PARAM_ATTRIBUTE_IN)) {
-                    ss << "out ";
-                } else if (pAttrs & PARAM_ATTRIBUTE_IN && !(pAttrs & PARAM_ATTRIBUTE_OUT)) {
-                    ss << "in ";
-                } else {
-                    ss << "ref ";
-                }
-            }
-            ss << pTypeName << " " << pNameStr;
+            ss << paramRefKind[i] << paramTypeNames[i] << " " << paramNames[i];
         }
         ss << ")\n";
         ss << "        {\n";
+
+        // Emit default assignments for 'out' parameters (CS0269/CS0177)
+        for (uint32_t i = 0; i < paramCount; ++i) {
+            if (paramRefKind[i] == "out ") {
+                ss << "            " << paramNames[i] << " = default;\n";
+            }
+        }
 
         // Build Type[] expression
         std::string typeArrayExpr;
         if (paramCount == 0) {
             typeArrayExpr = "global::System.Type.EmptyTypes";
         } else {
-            typeArrayExpr = "new Type[] { ";
+            typeArrayExpr = "new global::System.Type[] { ";
             for (uint32_t i = 0; i < paramCount; ++i) {
                 if (i > 0) typeArrayExpr += ", ";
                 typeArrayExpr += "typeof(" + paramTypeNames[i] + ")";
@@ -916,6 +1148,37 @@ DumpResult DumpIL2CppRuntime(const std::string& output_directory) {
     }
     result.total_classes = totalClasses;
 
+    // ---- Phase 1.5: Build known types registry ----
+    g_knownTypes.clear();
+    for (const auto& [regNs, regTypes] : typesByNamespace) {
+        for (const auto& regInfo : regTypes) {
+            std::string fqn = regInfo.rawNs.empty() ? regInfo.name : (regInfo.rawNs + "." + regInfo.name);
+            g_knownTypes.insert(fqn);
+        }
+    }
+
+    // Re-validate base classes against known types registry
+    for (auto& [valNs, valTypes] : typesByNamespace) {
+        for (auto& valInfo : valTypes) {
+            if (valInfo.kind == TypeKind::Class && !valInfo.base_class.empty() && valInfo.base_class != "Il2CppObject") {
+                auto* parent = api::il2cpp_class_get_parent(valInfo.klass);
+                if (parent) {
+                    valInfo.base_class = GetFullyQualifiedClassName(parent, valInfo.ns);
+                    if (valInfo.base_class.empty() || valInfo.base_class == "object") {
+                        valInfo.base_class = "Il2CppObject";
+                    }
+                    // Detect circular base type (e.g., FancyScrollView<T,U> extends FancyScrollView<T>)
+                    std::string baseTail = valInfo.base_class;
+                    auto lastDot = baseTail.rfind('.');
+                    if (lastDot != std::string::npos) baseTail = baseTail.substr(lastDot + 1);
+                    if (baseTail == valInfo.name) {
+                        valInfo.base_class = "Il2CppObject";
+                    }
+                }
+            }
+        }
+    }
+
     // ---- Phase 2: Generate .cs files per namespace ----
     std::filesystem::create_directories(output_directory);
 
@@ -928,6 +1191,7 @@ DumpResult DumpIL2CppRuntime(const std::string& output_directory) {
         file << "// Auto-generated Il2Cpp wrapper classes\n";
         file << "// Namespace: " << ns << "\n";
         file << "// Do not edit manually\n\n";
+        file << "#pragma warning disable 0108, 0114, 0162, 0168, 0219\n\n";
 
         // Using statements
         file << BuildUsingStatements(ns) << "\n";
@@ -941,7 +1205,13 @@ DumpResult DumpIL2CppRuntime(const std::string& output_directory) {
             return static_cast<int>(a.kind) < static_cast<int>(b.kind);
         });
 
+        // Track emitted type names to avoid CS0101 duplicate definitions
+        std::set<std::string> emittedTypes;
+
         for (const auto& info : types) {
+            // Skip duplicate type names within the same namespace
+            if (!emittedTypes.insert(info.name).second) continue;
+
             switch (info.kind) {
             case TypeKind::Delegate:
                 file << GenerateDelegate(info.klass, ns) << "\n";

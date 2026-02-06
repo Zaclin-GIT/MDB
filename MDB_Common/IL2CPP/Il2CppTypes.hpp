@@ -17,6 +17,8 @@ typedef struct Il2CppClass Il2CppClass;
 typedef struct Il2CppArrayBounds Il2CppArrayBounds;
 typedef struct Il2CppArrayType Il2CppArrayType;
 typedef struct Il2CppGenericClass Il2CppGenericClass;
+typedef struct Il2CppGenericInst Il2CppGenericInst;
+typedef struct Il2CppType Il2CppType;
 typedef struct Il2CppReflectionType Il2CppReflectionType;
 typedef struct MonitorData MonitorData;
 typedef Il2CppClass Il2CppVTable;
@@ -133,6 +135,32 @@ typedef struct Il2CppType {
     unsigned int byref : 1;
     unsigned int pinned : 1;
 } Il2CppType;
+
+// ============================================================================
+// Generic instantiation structures (must come after Il2CppType)
+// ============================================================================
+
+/// Represents a concrete set of generic type arguments.
+/// e.g. for List<string>, type_argc=1 and type_argv[0] is the Il2CppType for string.
+typedef struct Il2CppGenericInst {
+    uint32_t          type_argc;     // Number of generic type arguments
+    const Il2CppType** type_argv;    // Array of pointers to Il2CppType (the actual type args)
+} Il2CppGenericInst;
+
+/// Context holding both class-level and method-level generic instantiation info.
+typedef struct Il2CppGenericContext {
+    const Il2CppGenericInst* class_inst;   // Generic arguments for the class (e.g. <string> in List<string>)
+    const Il2CppGenericInst* method_inst;  // Generic arguments for the method (e.g. <int> in Foo.Bar<int>())
+} Il2CppGenericContext;
+
+/// Represents a generic class instantiation.
+/// When Il2CppType.type == IL2CPP_TYPE_GENERICINST, Il2CppType.data.generic_class
+/// points to one of these.
+typedef struct Il2CppGenericClass {
+    int32_t               typeDefinitionIndex;  // Index of the generic type definition
+    Il2CppGenericContext  context;              // The actual type arguments
+    Il2CppClass*          cached_class;         // Runtime-resolved Il2CppClass* (may be null)
+} Il2CppGenericClass;
 
 // Method info structure
 typedef struct MethodInfo {

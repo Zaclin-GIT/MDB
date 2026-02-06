@@ -21,36 +21,9 @@ static std::string ReadPipeToString(HANDLE hReadPipe) {
 }
 
 std::string FindMSBuild() {
-    // Try to find MSBuild in standard locations
-    std::vector<std::string> search_paths = {
-        // Visual Studio 2022
-        "C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\MSBuild\\Current\\Bin\\MSBuild.exe",
-        "C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\MSBuild\\Current\\Bin\\MSBuild.exe",
-        "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\MSBuild.exe",
-        "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\MSBuild\\Current\\Bin\\MSBuild.exe",
-        
-        // Visual Studio 2019
-        "C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Enterprise\\MSBuild\\Current\\Bin\\MSBuild.exe",
-        "C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Professional\\MSBuild\\Current\\Bin\\MSBuild.exe",
-        "C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\MSBuild\\Current\\Bin\\MSBuild.exe",
-        "C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\BuildTools\\MSBuild\\Current\\Bin\\MSBuild.exe",
-        
-        // Older MSBuild locations
-        "C:\\Program Files (x86)\\MSBuild\\14.0\\Bin\\MSBuild.exe",
-        "C:\\Windows\\Microsoft.NET\\Framework64\\v4.0.30319\\MSBuild.exe",
-        "C:\\Windows\\Microsoft.NET\\Framework\\v4.0.30319\\MSBuild.exe",
-    };
-    
-    for (const auto& path : search_paths) {
-        if (std::filesystem::exists(path)) {
-            return path;
-        }
-    }
-    
-    // Try using vswhere to find MSBuild (most reliable method)
+    // Try vswhere first — most reliable method, works for any VS version/edition
     std::string vswhere_path = "C:\\Program Files (x86)\\Microsoft Visual Studio\\Installer\\vswhere.exe";
     if (std::filesystem::exists(vswhere_path)) {
-        // Use vswhere to find the installation path
         // Note: vswhere_path is hardcoded and trusted, command is properly quoted
         std::string command = "\"" + vswhere_path + "\" -latest -requires Microsoft.Component.MSBuild -find MSBuild\\**\\Bin\\MSBuild.exe";
         
@@ -89,6 +62,29 @@ std::string FindMSBuild() {
         }
     }
     
+    // Fallback: check hardcoded paths for modern VS installations
+    // NOTE: Do NOT include old .NET Framework MSBuild (v4.0.30319) — it cannot
+    // build SDK-style projects and will fail with MSB4041.
+    std::vector<std::string> search_paths = {
+        // Visual Studio 2022
+        "C:\\Program Files\\Microsoft Visual Studio\\2022\\Enterprise\\MSBuild\\Current\\Bin\\MSBuild.exe",
+        "C:\\Program Files\\Microsoft Visual Studio\\2022\\Professional\\MSBuild\\Current\\Bin\\MSBuild.exe",
+        "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\MSBuild\\Current\\Bin\\MSBuild.exe",
+        "C:\\Program Files (x86)\\Microsoft Visual Studio\\2022\\BuildTools\\MSBuild\\Current\\Bin\\MSBuild.exe",
+        
+        // Visual Studio 2019
+        "C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Enterprise\\MSBuild\\Current\\Bin\\MSBuild.exe",
+        "C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Professional\\MSBuild\\Current\\Bin\\MSBuild.exe",
+        "C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\Community\\MSBuild\\Current\\Bin\\MSBuild.exe",
+        "C:\\Program Files (x86)\\Microsoft Visual Studio\\2019\\BuildTools\\MSBuild\\Current\\Bin\\MSBuild.exe",
+    };
+    
+    for (const auto& path : search_paths) {
+        if (std::filesystem::exists(path)) {
+            return path;
+        }
+    }
+    
     return "";
 }
 
@@ -114,6 +110,7 @@ BuildResult TriggerBuild(const std::string& project_path) {
     // not user input, so command injection is not a concern.
     std::stringstream cmd;
     cmd << "\"" << msbuild_path << "\" \"" << project_path << "\" "
+        << "/restore "
         << "/p:Configuration=Release "
         << "/p:Platform=AnyCPU "
         << "/v:minimal "

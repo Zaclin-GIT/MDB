@@ -282,6 +282,38 @@ static void shutdown_clr() {
     }
 }
 
+// Create the expected directory structure next to the game executable.
+// Returns true if all directories exist (or were created), false on failure.
+static bool ensure_directory_structure() {
+    std::wstring mdb_dir = get_mdb_directory();
+    std::filesystem::path mdb(mdb_dir);
+    std::filesystem::path game_dir = mdb.parent_path();
+    
+    // Directories that must exist at runtime
+    const std::filesystem::path dirs[] = {
+        mdb,                                    // MDB/
+        mdb / L"Logs",                          // MDB/Logs/
+        mdb / L"Managed",                       // MDB/Managed/  (build output)
+        mdb / L"Mods",                          // MDB/Mods/     (user mods)
+        game_dir / L"MDB_Core",                 // MDB_Core/     (project sources)
+        game_dir / L"MDB_Core" / L"Generated",  // MDB_Core/Generated/  (generated wrappers)
+    };
+    
+    for (const auto& dir : dirs) {
+        try {
+            if (!std::filesystem::exists(dir)) {
+                std::filesystem::create_directories(dir);
+                LOG_INFO("Created directory: %ls", dir.c_str());
+            }
+        } catch (const std::exception& e) {
+            LOG_ERROR("Failed to create directory %ls: %s", dir.c_str(), e.what());
+            return false;
+        }
+    }
+    
+    return true;
+}
+
 // Prepare game SDK by dumping and generating wrappers if needed
 static bool prepare_game_sdk() {
     std::wstring mdb_dir = get_mdb_directory();
@@ -291,17 +323,12 @@ static bool prepare_game_sdk() {
     auto generated_dir = mdb_path.parent_path() / L"MDB_Core" / L"Generated";
     auto core_project = mdb_path.parent_path() / L"MDB_Core" / L"MDB_Core.csproj";
     
-    // Validate that MDB_Core directory exists
-    auto core_dir = mdb_path.parent_path() / L"MDB_Core";
-    if (!std::filesystem::exists(core_dir)) {
-        LOG_ERROR("MDB_Core directory not found at: %ls", core_dir.c_str());
-        LOG_ERROR("Expected structure: <GameFolder>/MDB/ and <GameFolder>/MDB_Core/");
-        return false;
-    }
+    auto managed_dll = mdb_path / L"Managed" / L"GameSDK.ModHost.dll";
     
     // Validate that MDB_Core.csproj exists
     if (!std::filesystem::exists(core_project)) {
         LOG_ERROR("MDB_Core.csproj not found at: %ls", core_project.c_str());
+        LOG_ERROR("Please deploy the MDB_Core project to: %ls", (mdb_path.parent_path() / L"MDB_Core").c_str());
         return false;
     }
     
@@ -309,43 +336,55 @@ static bool prepare_game_sdk() {
     std::string generated_dir_str = generated_dir.string();
     std::string core_project_str = core_project.string();
     
-    // Check if wrappers already exist and are fresh
-    if (MDB::Dumper::AreWrappersFresh(generated_dir_str)) {
-        LOG_INFO("Game SDK wrappers are up to date, skipping generation");
+    bool dll_exists = std::filesystem::exists(managed_dll);
+    
+    // Check if wrappers already exist and are fresh AND the built DLL exists
+    if (MDB::Dumper::AreWrappersFresh(generated_dir_str) && dll_exists) {
+        LOG_INFO("Game SDK wrappers and managed DLL are up to date, skipping");
         return true;
     }
     
+    bool need_dump = !MDB::Dumper::AreWrappersFresh(generated_dir_str);
+    bool need_build = need_dump || !dll_exists;
+    
     LOG_INFO("=== Game SDK Preparation ===");
-    LOG_INFO("Step 1/2: Dumping IL2CPP metadata & generating C# wrappers...");
     
-    // Step 1: Dump IL2CPP metadata and generate buildable C# wrappers directly
-    auto dump_result = MDB::Dumper::DumpIL2CppRuntime(generated_dir_str);
-    if (!dump_result.success) {
-        LOG_ERROR("Failed to dump/generate: %s", dump_result.error_message.c_str());
-        return false;
+    // Step 1: Dump IL2CPP metadata and generate buildable C# wrappers (if needed)
+    if (need_dump) {
+        LOG_INFO("Step 1/2: Dumping IL2CPP metadata & generating C# wrappers...");
+        
+        auto dump_result = MDB::Dumper::DumpIL2CppRuntime(generated_dir_str);
+        if (!dump_result.success) {
+            LOG_ERROR("Failed to dump/generate: %s", dump_result.error_message.c_str());
+            return false;
+        }
+        
+        LOG_INFO("  Dumped %zu classes from %zu assemblies", 
+                 dump_result.total_classes, dump_result.total_assemblies);
+        LOG_INFO("  Generated %zu wrapper files (%zu classes)",
+                 dump_result.generated_files.size(), dump_result.total_wrappers_generated);
+    } else {
+        LOG_INFO("Step 1/2: Wrappers up to date, skipping dump");
     }
-    
-    LOG_INFO("  Dumped %zu classes from %zu assemblies", 
-             dump_result.total_classes, dump_result.total_assemblies);
-    LOG_INFO("  Generated %zu wrapper files (%zu classes)",
-             dump_result.generated_files.size(), dump_result.total_wrappers_generated);
-    
-    LOG_INFO("Step 2/2: Building MDB_Core project...");
     
     // Step 2: Build MDB_Core project with MSBuild
-    auto build_result = MDB::Build::TriggerBuild(core_project_str);
-    
-    if (!build_result.success) {
-        LOG_ERROR("Failed to build MDB_Core: %s", build_result.error_message.c_str());
-        if (!build_result.build_output.empty()) {
-            LOG_ERROR("Build output:\n%s", build_result.build_output.c_str());
+    if (need_build) {
+        LOG_INFO("Step 2/2: Building MDB_Core project...");
+        
+        auto build_result = MDB::Build::TriggerBuild(core_project_str);
+        
+        if (!build_result.success) {
+            LOG_ERROR("Failed to build MDB_Core: %s", build_result.error_message.c_str());
+            if (!build_result.build_output.empty()) {
+                LOG_ERROR("Build output:\n%s", build_result.build_output.c_str());
+            }
+            return false;
         }
-        return false;
-    }
-    
-    LOG_INFO("  Build succeeded!");
-    if (!build_result.build_output.empty()) {
-        LOG_DEBUG("Build output:\n%s", build_result.build_output.c_str());
+        
+        LOG_INFO("  Build succeeded!");
+        if (!build_result.build_output.empty()) {
+            LOG_DEBUG("Build output:\n%s", build_result.build_output.c_str());
+        }
     }
     
     LOG_INFO("=== Game SDK Ready ===");
@@ -371,6 +410,12 @@ static DWORD WINAPI initialization_thread(LPVOID lpParam) {
     }
     
     LOG_DEBUG("GameAssembly.dll found at: 0x%p", hGameAssembly);
+    
+    // Ensure the expected directory structure exists
+    if (!ensure_directory_structure()) {
+        LOG_ERROR("Failed to create required directory structure");
+        return 1;
+    }
     
     // Initialize IL2CPP bridge
     LOG_INFO("Initializing IL2CPP bridge...");

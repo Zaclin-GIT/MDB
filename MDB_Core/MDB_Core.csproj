@@ -10,6 +10,7 @@
     <NoWarn>SYSLIB0011</NoWarn>
     <AssemblyName>GameSDK.ModHost</AssemblyName>
     <RootNamespace>GameSDK</RootNamespace>
+    <OutputPath>..\MDB\Managed\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>
 
