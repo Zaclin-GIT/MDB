@@ -1,0 +1,69 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build MDB_Bridge (Release)",
+            "type": "shell",
+            "command": "msbuild",
+            "args": [
+                "${workspaceFolder}/MDB_Bridge/MDB_Bridge.vcxproj",
+                "/p:Configuration=Release",
+                "/p:Platform=x64",
+                "/m"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": "$msCompile",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Build MDB_Bridge (Debug)",
+            "type": "shell",
+            "command": "msbuild",
+            "args": [
+                "${workspaceFolder}/MDB_Bridge/MDB_Bridge.vcxproj",
+                "/p:Configuration=Debug",
+                "/p:Platform=x64",
+                "/m"
+            ],
+            "group": "build",
+            "problemMatcher": "$msCompile",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Build MDB_Core (Release)",
+            "type": "shell",
+            "command": "dotnet",
+            "args": [
+                "build",
+                "${workspaceFolder}/MDB_Core/MDB_Core.csproj",
+                "-c",
+                "Release"
+            ],
+            "group": "build",
+            "problemMatcher": "$msCompile",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Build All",
+            "dependsOn": [
+                "Build MDB_Bridge (Release)",
+                "Build MDB_Core (Release)"
+            ],
+            "dependsOrder": "sequence",
+            "group": "build",
+            "problemMatcher": []
+        }
+    ]
+}

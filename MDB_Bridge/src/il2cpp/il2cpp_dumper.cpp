@@ -4,6 +4,7 @@
 #include <Il2CppTableDefine.hpp>
 #include <Il2CppTypes.hpp>
 
+#define NOMINMAX
 #include <Windows.h>
 #include <fstream>
 #include <sstream>
@@ -1031,7 +1032,7 @@ bool AreWrappersFresh(const std::string& output_directory) {
 
     try {
         auto gaTime = std::filesystem::last_write_time(gaPath);
-        std::filesystem::file_time_type oldestWrapper = std::filesystem::file_time_type::max();
+        std::filesystem::file_time_type oldestWrapper = (std::filesystem::file_time_type::max)();
 
         for (const auto& entry : std::filesystem::directory_iterator(output_directory)) {
             if (entry.path().extension() == ".cs") {

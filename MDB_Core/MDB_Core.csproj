@@ -1,15 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net481</TargetFramework>
+    <TargetFrameworks>net472;net481</TargetFrameworks>
     <LangVersion>9.0</LangVersion>
     <ImplicitUsings>disable</ImplicitUsings>
     <Nullable>disable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <NoWarn>SYSLIB0011</NoWarn>
-    <AssemblyName>GameSDK.Core</AssemblyName>
+    <AssemblyName>GameSDK.ModHost</AssemblyName>
     <RootNamespace>GameSDK</RootNamespace>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>
 
   <ItemGroup>
@@ -22,7 +23,7 @@
     <Compile Include="ModHost\*.cs" />
     <Compile Include="ModHost\Patching\*.cs" />
     <Compile Include="ModHost\Examples\*.cs" />
-    <Compile Include="Generated\GameSDK.*.cs" />
+    <Compile Include="Generated\*.cs" />
   </ItemGroup>
 
 </Project>
