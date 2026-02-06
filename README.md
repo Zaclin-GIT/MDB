@@ -1,281 +1,167 @@
-# MDB - IL2CPP Modding Framework
+# MDB Framework
 
-> **⚠️ EXTREMELY EARLY DEVELOPMENT WARNING ⚠️**
-> 
-> This framework is in very early stages of development. Expect bugs, breaking changes, and incomplete features. **If it works for your game, consider yourself lucky.**
+**Runtime IL2CPP modding framework for Unity games.** Dumps metadata, generates C# wrappers, builds an SDK, and loads mods — all automatically from a single DLL injection.
 
----
+Encrypted `global-metadata.dat`? Don't care. 
+
+> [!WARNING]
+> Early development. Expect breaking changes. x64 only. See [Disclaimer](#disclaimer).
 
 <a href="https://buymeacoffee.com/winnforge">
   <img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-%23FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy Me A Coffee">
 </a>
 
-## What Is This?
+---
 
-MDB Framework enables modding of Unity IL2CPP games by **dumping metadata at runtime** - bypassing encrypted `global-metadata.dat` files entirely. It then generates C# wrapper classes that let you interact with game objects using familiar syntax.
+## How It Works
 
-**TL;DR:** Encrypted metadata? Don't care.
+Inject `MDB_Bridge.dll` into a running Unity IL2CPP game. The framework handles everything else:
+
+```
+Inject MDB_Bridge.dll
+  → Wait for GameAssembly.dll
+  → Resolve IL2CPP API exports
+  → Dump all classes/methods/fields with generic type resolution
+  → Generate C# wrapper source files
+  → Invoke MSBuild to compile GameSDK.ModHost.dll
+  → Host .NET CLR (v4.0.30319)
+  → Auto-discover and apply [Patch] hooks
+  → Load mods from MDB/Mods/
+  → Start update loop (~60Hz)
+```
+
+Subsequent launches skip the dump & build if nothing has changed.
 
 ---
 
-## Table of Contents
-
-- [Quick Start](#quick-start)
-- [Architecture Overview](#architecture-overview)
-- [Creating a Mod](#creating-a-mod)
-- [Method Hooking](#method-hooking)
-- [ImGui Integration](#imgui-integration)
-- [API Reference](#api-reference)
-- [Building](#building)
-- [Troubleshooting](#troubleshooting)
-- [Limitations](#limitations)
-
----
-
-## Quick Start
-
-### Deployment Structure
+## Deployment
 
 ```
 <GameFolder>/
-├── MDB_Bridge.dll
-└── MDB/
-    ├── Dump/
-    │   ├── dump.cs                 # IL2CPP metadata dump
-    │   └── wrapper_generator.py    # Parser script
-    ├── Managed/
-    │   └── GameSDK.Core.dll        # Compiled SDK + wrappers
-    ├── Mods/
-    │   └── YourMod.dll             # Your mods here
-    └── Logs/
-        └── Mods.log                # Mod logs
-```
-
-### Workflow
-
-1. **Inject the dumper** → Generates `dump.cs` with all game types
-2. **Create your mod** → Reference `GameSDK.Core.dll`, write C# code
-3. **Deploy** → Copy mod DLL to `MDB/Mods/`
-4. **Launch game and Inject MDB_Bridge.dll** → Mods load automatically
-
----
-
-## Architecture Overview
-
-```
-┌───────────────────────────────────────────────────────────────┐
-│                        Game Process                           │
-├───────────────────────────────────────────────────────────────┤
-│  IL2CPP Runtime          │         .NET CLR (v4.0)            │
-│  ┌─────────────────┐     │    ┌─────────────────────────────┐ │
-│  │ GameAssembly.dll│◄────┼────│ GameSDK.Core.dll            │ │
-│  │ (native code)   │  P/Invoke│ ├─ Generated Wrappers       │ │
-│  └────────┬────────┘     │    │ ├─ ModManager               │ │
-│           │              │    │ └─ Your Mods                │ │
-│  ┌────────▼────────┐     │    └─────────────────────────────┘ │
-│  │   MinHook       │     │                                    │
-│  │   (Hooking)     │     │    ┌─────────────────────────────┐ │
-│  └─────────────────┘     │    │ Dear ImGui Overlay          │ │
-│                          │    │ (DX11/DX12 auto-detect)     │ │
-│  MDB_Bridge.dll ─────────┼────└─────────────────────────────┘ │
-│  (CLR Host + IL2CPP)     │                                    │
-└───────────────────────────────────────────────────────────────┘
+├── MDB_Bridge.dll                    # Inject this
+├── MDB/
+│   ├── Logs/                         # MDB.log, Mods.log (auto-created)
+│   ├── Managed/
+│   │   └── GameSDK.ModHost.dll       # Auto-built SDK + wrappers
+│   └── Mods/
+│       └── YourMod.dll               # Drop mods here
+└── MDB_Core/
+    ├── MDB_Core.csproj               # Required for auto-build
+    ├── Core/                          # Runtime, Bridge, Types, ImGui
+    ├── Deobfuscation/                 # Name mapping support
+    ├── ModHost/                       # Mod loading + patching
+    └── Generated/                     # Auto-generated wrappers
 ```
 
 ---
 
 ## Creating a Mod
 
-### Step 1: Create Project
-
-Create a .NET Framework 4.8.1 class library referencing `GameSDK.Core.dll`.
-
-### Step 2: Write Your Mod
+Create a .NET Framework 4.7.2+ class library and add a reference to `GameSDK.ModHost.dll` — this is the SDK that the framework auto-generates and compiles on first launch. You'll find it at `<GameFolder>/MDB/Managed/GameSDK.ModHost.dll` after the first successful injection. It contains all the generated wrappers, the mod host API, patching system, and ImGui bindings.
 
 ```csharp
-using System;
-using GameSDK;
 using GameSDK.ModHost;
-using UnityEngine;
 
 namespace MyMod
 {
-    [Mod("My Awesome Mod", "1.0.0", "YourName")]
+    [Mod("AuthorName.MyMod", "My Mod", "1.0.0", Author = "You")]
     public class MyMod : ModBase
     {
         public override void OnLoad()
         {
-            Log.Info("Mod loaded!");
-            
-            // Find game objects
-            var player = GameObject.Find("Player");
-            if (player != null && player.IsValid)
-            {
-                Log.Info($"Found player at {player.transform.position}");
-            }
+            Logger.Info("Mod loaded successfully!");
+            Logger.Warning("This is a warning");
+            Logger.Error("This is an error");
         }
-        
-        public override void OnUpdate()
-        {
-            // Called every frame
-        }
+
+        public override void OnUpdate() { }       // Every frame
+        public override void OnFixedUpdate() { }   // Physics tick
+        public override void OnLateUpdate() { }    // After all updates
+        public override void OnGUI() { }           // ImGui rendering
     }
 }
 ```
 
-### Step 3: Deploy
+Each mod gets its own `Logger` instance (inherited from `ModBase`) that writes to `MDB/Logs/Mods.log` with color-coded console output — blue for info, yellow for warnings, red for errors.
 
-1. Build your mod DLL
-2. Copy to `<GameFolder>/MDB/Mods/`
-3. Launch game
+**Deploy:** Build your mod DLL and copy it to `<GameFolder>/MDB/Mods/`. The framework scans this folder on startup and loads every `.dll` it finds.
 
 ---
 
 ## Method Hooking
 
-Intercept game methods using HarmonyX-style attributes:
+HarmonyX-style attribute patching. Hooks are auto-discovered and applied on mod load.
 
 ```csharp
-[Mod("Hook Example", "1.0.0", "YourName")]
-public class HookMod : ModBase
-{
-    public override void OnLoad()
-    {
-        Log.Info("Patches applied automatically!");
-    }
-}
-
-[Patch("", "Player")]              // Target class
-[PatchMethod("TakeDamage", 1)]     // Target method
+[Patch("SomeNamespace", "Player")]
+[PatchMethod("TakeDamage", 1)]
 public static class PlayerPatch
 {
     [Prefix]
     public static bool Prefix(IntPtr __instance, int __0)
     {
-        // __0 = first parameter (damage amount)
-        // Return false to skip original method
+        // Return false to skip original
         return true;
     }
 
     [Postfix]
-    public static void Postfix(IntPtr __instance)
-    {
-        // Runs after original method
-    }
+    public static void Postfix(IntPtr __instance) { }
 }
 ```
 
-### Special Parameters (HarmonyX Compatible)
+### Targeting
+
+```csharp
+[Patch("Namespace", "ClassName")]     // By name
+[Patch(typeof(GeneratedWrapper))]     // By type
+[PatchMethod("MethodName", 2)]        // By name + param count
+[PatchRva(0x1A3B5C0)]                 // By RVA (obfuscated methods)
+```
+
+### Hook Types
+
+| Attribute | Behavior |
+|-----------|----------|
+| `[Prefix]` | Runs before original. Return `false` to skip it. |
+| `[Postfix]` | Runs after original. |
+| `[Finalizer]` | Runs even if original throws. |
+
+### Special Parameters
 
 | Parameter | Description |
 |-----------|-------------|
-| `IntPtr __instance` | The object instance (`IntPtr.Zero` for static methods) |
-| `__0`, `__1`, etc. | Original method parameters by index |
-| `ref __result` | The return value (modify via ref to change it) |
-| `__state` | Pass data from Prefix to Postfix |
-| `Exception __exception` | The exception thrown (Finalizer only) |
+| `IntPtr __instance` | Object instance (`IntPtr.Zero` for static) |
+| `__0`, `__1`, ... | Method parameters by index |
+| `ref __result` | Return value (modifiable) |
+| `__state` | Shared state between prefix and postfix |
+| `Exception __exception` | Exception (finalizer only) |
 
-### Controlling Return Values
-
-Use `ref __result` to control what the method returns when skipping the original:
-
-```csharp
-[Patch("", "Player")]
-[PatchMethod("IsAlive", 0)]
-public static class GodModePatch
-{
-    [Prefix]
-    public static bool Prefix(IntPtr __instance, ref bool __result)
-    {
-        __result = true;   // Force return value to true
-        return false;      // Skip original method
-    }
-}
-```
-
-Postfix can also modify the return value after the original runs:
-
-```csharp
-[Postfix]
-public static void Postfix(ref int __result)
-{
-    __result *= 2;  // Double the original return value
-}
-```
-
-### Patch Attributes
-
-```csharp
-[Patch("Namespace", "ClassName")]    // Target class
-[Patch(typeof(GeneratedWrapper))]    // Or by type
-
-[PatchMethod("MethodName", 2)]       // Target method (name, param count)
-[PatchRva(0x1A3B5C0)]                // Target by RVA offset
-
-[Prefix]     // Return false to skip original
-[Postfix]    // Runs after original
-[Finalizer]  // Runs even on exception
-```
-
-### Hook by RVA (for obfuscated methods)
-
-```csharp
-[PatchRva(0x1A3B5C0)]  // Target by memory offset
-public static class ObfuscatedPatch { ... }
-```
-
-### Hook Debugging
-
-Enable verbose logging to troubleshoot hook issues:
-
-```csharp
-using GameSDK.ModHost.Patching;
-
-// Enable debug mode before loading mods
-PatchProcessor.SetDebugEnabled(true);
-
-// Later, dump all active hooks to the log
-PatchProcessor.DumpAllHooks();
-```
-
-This logs detailed information about:
-- Parameter signatures (pointer/float/double detection)
-- Trampoline creation and validation
-- x64 calling convention details for float parameters
+The patching system is now float-aware — it analyzes IL2CPP parameter types and selects specialized detour delegates matching the exact x64 calling convention.
 
 ---
 
-## ImGui Integration
+## ImGui Overlay
 
-Create in-game overlay UIs with Dear ImGui:
+Built-in Dear ImGui integration with DX11/DX12 auto-detection. Toggle input capture with F2.
 
 ```csharp
-using MDB.Explorer.ImGui;
+using GameSDK.ModHost.ImGui;
 
-[Mod("ImGui Demo", "1.0.0", "YourName")]
-public class ImGuiMod : ModBase
+[Mod("MyMod.UI", "UI Demo", "1.0.0")]
+public class UIMod : ModBase
 {
-    private ImGuiController _imgui;
-    private bool _showWindow = true;
-    private float _speed = 1.0f;
-
     public override void OnLoad()
     {
-        _imgui = new ImGuiController();
-        _imgui.OnDraw = DrawUI;
-        _imgui.Initialize();
-        Log.Info("Press F2 to toggle input capture");
+        ImGuiManager.RegisterCallback(Draw, "My Window", ImGuiCallbackPriority.Normal);
     }
 
-    private void DrawUI()
+    private void Draw()
     {
-        if (ImGui.Begin("My Menu", ref _showWindow))
+        if (ImGui.Begin("My Window"))
         {
-            ImGui.Text("Hello from ImGui!");
-            ImGui.SliderFloat("Speed", ref _speed, 0.1f, 10.0f);
-            
-            if (ImGui.Button("Apply"))
-                Log.Info($"Speed set to {_speed}");
+            ImGui.Text("Hello!");
+            if (ImGui.Button("Click Me"))
+                Logger.Info("Clicked!");
         }
         ImGui.End();
     }
@@ -284,66 +170,50 @@ public class ImGuiMod : ModBase
 
 ---
 
-## API Reference
+## Generic Type Resolution
 
-### ModBase
+The dumper walks `Il2CppGenericInst` structs at runtime to resolve actual generic type arguments instead of erasing everything to `object`:
 
-```csharp
-[Mod("Name", "Version", "Author")]
-public class MyMod : ModBase
-{
-    protected ModLogger Log { get; }           // Logger instance
-    
-    public virtual void OnLoad() { }           // Called once when mod loads
-    public virtual void OnUpdate() { }         // Called every frame
-    public virtual void OnFixedUpdate() { }    // Called on physics tick
-    public virtual void OnLateUpdate() { }     // Called after all Updates
-}
-```
-
-### ModLogger
-
-```csharp
-Log.Info("Message");                           // Blue - normal info
-Log.Warning("Message");                        // Yellow - warnings
-Log.Error("Message");                          // Red - errors
-Log.Error("Message", exception);               // Red - with exception details
-```
+- **System types** resolve fully: `List<string>`, `Dictionary<string, int>`, `Action<bool, float>`
+- **Game types** fall back to their plain class name (wrappers don't emit generic parameters)
+- **Unavailable types** (`Span<T>`, `ReadOnlySpan<T>`, `Memory<T>`, `CallSite<T>`) are safely erased to `object`
 
 ---
 
-## Troubleshooting
+## Obfuscated Names
 
-| Problem | Solution |
-|---------|----------|
-| **SDK Build Failed** | Check `MDB/Dump/@Logs/` for details. Parser may need game-specific fixes. |
-| **"Method not found"** | Check `dump.cs` for exact method name/signature. May be obfuscated. |
-| **"Class not found"** | Use exact namespace from `dump.cs`. Try empty namespace `""`. |
-| **Mod doesn't load** | Check `MDB/Logs/Mods.log`. Verify `[Mod]` attribute and `ModBase` inheritance. |
-| **Game crashes** | Check Event Viewer. May be architecture mismatch or anti-cheat. |
+Unicode and obfuscated class/method names are handled automatically:
 
-### Unicode/Obfuscated Names
-
-Games with Unicode obfuscation (e.g., Malayalam script) are handled automatically:
-- Names become `unicode_method_1`, `unicode_class_2`, etc.
-- Methods use RVA-based calling instead of name lookup
-- Original names stored for IL2CPP class resolution
+- Sanitized to `unicode_class_1`, `unicode_method_2`, etc.
+- Methods use RVA-based calling — name doesn't matter
+- Original IL2CPP names preserved for runtime resolution
 
 ---
 
-## Current Limitations
+## Known Limitations
 
-- **Universal but not perfect** - The parser handles most games automatically, but some edge cases may require adding types to skip lists
-- **No automatic injection** - You need to bring your own DLL injector or use the version.dll proxy method - Doesnt work for every game. Actually, most games that go through the effort of encrypting the metadata also have anti-cheat the prevents side-loading.
-- **No hot reload** - Restart the game to reload mods
-- **Generic methods are tricky** - IL2CPP erases generics, so `List<Player>` becomes `List<object>` - Working on improving this.
-- **Some games may detect injection** - Anti-cheat protected games will likely block this
-- **ImGui DirectX only** - OpenGL/Vulkan games not currently supported
-- **x64 only** - 32-bit games not supported
+- **x64 only** — no 32-bit game support
+- **DirectX only** — ImGui overlay requires DX11 or DX12
+- **No hot reload** — restart the game to reload mods
+- **Anti-cheat** — protected games will likely block injection
+- **Game-type generics** — game classes aren't emitted with generic parameters, so `GameClass<T>` resolves to `GameClass`
 
-## Contributing
+---
 
-Found a bug? Have an improvement? PRs welcome! If the parser fails on a new game, please include the error log - it helps improve universal compatibility.
+## Building
+
+**MDB_Bridge** (C++17, MSVC v143):
+```powershell
+msbuild MDB_Bridge.vcxproj /p:Configuration=Release /p:Platform=x64
+```
+
+**MDB_Core** (.NET Framework 4.7.2/4.8.1):
+```powershell
+dotnet build MDB_Core.csproj -c Release
+```
+Normally built automatically by the bridge at runtime via MSBuild.
+
+---
 
 ## Acknowledgments
 

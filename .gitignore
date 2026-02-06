@@ -92,3 +92,8 @@ MDB_Explorer_ImGui/
 /.venv
 /Rotmg Reversing
 /Mods/RotMGMod
+# Archive backups (local only)
+Archive/
+/ref/
+/ModDev/
+/.vscode/
