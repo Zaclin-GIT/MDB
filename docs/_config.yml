@@ -1,0 +1,46 @@
+title: MDB Framework
+description: Runtime IL2CPP modding framework for Unity games
+theme: jekyll-theme-cayman
+baseurl: /MDB
+url: https://zaclin-git.github.io
+
+# Navigation
+nav:
+  - title: Home
+    url: /
+  - title: Getting Started
+    url: /getting-started
+  - title: API Reference
+    url: /api
+  - title: Guides
+    url: /guides
+  - title: Examples
+    url: /examples
+
+# GitHub metadata
+repository: Zaclin-GIT/MDB
+
+# Markdown settings
+markdown: kramdown
+kramdown:
+  input: GFM
+  syntax_highlighter: rouge
+
+# Collections
+collections:
+  api:
+    output: true
+    permalink: /api/:name/
+  guides:
+    output: true
+    permalink: /guides/:name/
+  examples:
+    output: true
+    permalink: /examples/:name/
+
+# Defaults
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: default
