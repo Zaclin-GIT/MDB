@@ -64,34 +64,6 @@ desktop.ini
 # GitHub prompts (local only)
 .github/prompts/
 
-# Local documentation (not for repo)
-CHECKPOINT.md
-TO-DO.md
-RELEASE.md
-MDB_Parser\build_log.txt
-
-# Mod Development (user mods, not for repo)
-MBD_Explorer/
-MDB_Core/ModHost/Examples
-Mods
-UnityExplorer-Example
-Archive/
-MDB_Explorer_ImGui/
-/plan-universalIl2CppExportResolution.prompt.md
-/MDB_Mods
-/CHANGELOG-DeobfuscationToolset.md
-/plan-deobfuscationToolset.prompt.md
-/MDB_Parser/mappings.json
-/MDB_Parser/build_log.txt
-/README_OLD.md
-/MDB_Core/Deobfuscation/DeobfuscationTest.cs
-/MDB_Core/Deobfuscation/TestRunner.cs
-/docs
-/ROTMG-X34.2.1-main
-/ProdMafia-master
-/.venv
-/Rotmg Reversing
-/Mods/RotMGMod
 # Archive backups (local only)
 Archive/
 /ref/
