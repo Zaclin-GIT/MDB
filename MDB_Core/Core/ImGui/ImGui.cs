@@ -531,6 +531,17 @@ namespace GameSDK
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "igEndMainMenuBar")]
         public static extern void EndMainMenuBar();
 
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "igBeginMenuBar")]
+        private static extern byte igBeginMenuBar();
+
+        /// <summary>
+        /// Begin a menu bar inside the current window (requires ImGuiWindowFlags.MenuBar).
+        /// </summary>
+        public static bool BeginMenuBar() => igBeginMenuBar() != 0;
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "igEndMenuBar")]
+        public static extern void EndMenuBar();
+
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "igBeginMenu")]
         private static extern byte igBeginMenu([MarshalAs(UnmanagedType.LPStr)] string label, byte enabled);
 

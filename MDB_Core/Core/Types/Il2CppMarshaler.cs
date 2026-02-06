@@ -253,6 +253,22 @@ namespace GameSDK
                 return (T)(object)nativeValue;
             }
 
+            // Enums - boxed like primitives, read as underlying integer type
+            if (type.IsEnum)
+            {
+                IntPtr dataPtr = nativeValue + IL2CPP_OBJECT_HEADER_SIZE;
+                Type underlyingType = Enum.GetUnderlyingType(type);
+                int size = Marshal.SizeOf(underlyingType);
+
+                long rawValue;
+                if (size == 1) rawValue = Marshal.ReadByte(dataPtr);
+                else if (size == 2) rawValue = Marshal.ReadInt16(dataPtr);
+                else if (size == 4) rawValue = Marshal.ReadInt32(dataPtr);
+                else rawValue = Marshal.ReadInt64(dataPtr);
+
+                return (T)Enum.ToObject(type, rawValue);
+            }
+
             // Primitives - the return value is a BOXED primitive, skip object header
             if (type.IsPrimitive)
             {
