@@ -959,12 +959,12 @@ HookManager.RemoveAllHooks();
 
 ## See Also
 
-- [Patch Attributes](patch-attributes) - Declarative patching system
-- [IL2CPP Bridge](il2cpp-bridge) - Direct IL2CPP runtime access
-- [ModBase](modbase) - Mod lifecycle and base class
+- [Patch Attributes]({{ '/api/patch-attributes' | relative_url }}) - Declarative patching system
+- [IL2CPP Bridge]({{ '/api/il2cpp-bridge' | relative_url }}) - Direct IL2CPP runtime access
+- [ModBase]({{ '/api/modbase' | relative_url }}) - Mod lifecycle and base class
 - [Examples]({{ '/examples' | relative_url }}) - Working mod examples
 - [Getting Started]({{ '/getting-started' | relative_url }}) - Creating your first mod
 
 ---
 
-[← Back to API Index]({{ '/api' | relative_url }}) | [Patch Attributes →](patch-attributes)
+[← Back to API Index]({{ '/api' | relative_url }}) | [Patch Attributes →]({{ '/api/patch-attributes' | relative_url }})

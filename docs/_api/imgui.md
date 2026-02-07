@@ -1631,12 +1631,12 @@ ImGui.SetNextWindowPos(new Vector2(10, 10), ImGuiCond.Always);
 
 ## See Also
 
-- [ImGuiManager API](imgui-manager) - Callback management and initialization
-- [ModBase](modbase) - Base class with OnGUI callback
-- [Logger](logger) - Debugging UI issues
-- [Hello World Example](../../Documentation/Examples/HelloWorld/) - Complete working example
+- [ImGuiManager API]({{ '/api/imgui-manager' | relative_url }}) - Callback management and initialization
+- [ModBase]({{ '/api/modbase' | relative_url }}) - Base class with OnGUI callback
+- [Logger]({{ '/api/logger' | relative_url }}) - Debugging UI issues
+- [Hello World Example]({{ '/examples' | relative_url }}#helloworld) - Complete working example
 - [Dear ImGui Documentation](https://github.com/ocornut/imgui) - Official ImGui docs
 
 ---
 
-[← ImGuiManager](imgui-manager) | [Back to API Index]({{ '/api' | relative_url }})
+[← ImGuiManager]({{ '/api/imgui-manager' | relative_url }}) | [Back to API Index]({{ '/api' | relative_url }})

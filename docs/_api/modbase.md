@@ -61,7 +61,7 @@ public ModLogger Logger { get; internal set; }
 
 Logger instance for this mod. All messages are prefixed with the mod name and written to `MDB/Logs/Mods.log`.
 
-See [ModLogger API](logger) for details.
+See [ModLogger API]({{ '/api/logger' | relative_url }}) for details.
 
 ---
 
@@ -299,11 +299,11 @@ namespace ExampleMod
 
 ## See Also
 
-- [ModAttribute](modattribute) - Declaring mod metadata
-- [ModLogger](logger) - Logging API
-- [ImGuiManager](imgui-manager) - UI registration
+- [ModAttribute]({{ '/api/modattribute' | relative_url }}) - Declaring mod metadata
+- [ModLogger]({{ '/api/logger' | relative_url }}) - Logging API
+- [ImGuiManager]({{ '/api/imgui-manager' | relative_url }}) - UI registration
 - [Examples]({{ '/examples' | relative_url }}) - Working mod examples
 
 ---
 
-[← Back to API Index]({{ '/api' | relative_url }}) | [ModAttribute →](modattribute)
+[← Back to API Index]({{ '/api' | relative_url }}) | [ModAttribute →]({{ '/api/modattribute' | relative_url }})

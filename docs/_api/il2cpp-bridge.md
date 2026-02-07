@@ -2754,11 +2754,11 @@ if (klass == IntPtr.Zero)
 
 ## See Also
 
-- [HookManager API](hookmanager) - Managed hook lifecycle and control
-- [Patch Attributes](patch-attributes) - Declarative patching system
-- [ModBase API](modbase) - Mod lifecycle and base class
-- [Examples](/docs/examples) - Working mod examples
-- [Getting Started](/docs/getting-started) - Creating your first mod
+- [HookManager API]({{ '/api/hookmanager' | relative_url }}) - Managed hook lifecycle and control
+- [Patch Attributes]({{ '/api/patch-attributes' | relative_url }}) - Declarative patching system
+- [ModBase API]({{ '/api/modbase' | relative_url }}) - Mod lifecycle and base class
+- [Examples]({{ '/examples' | relative_url }}) - Working mod examples
+- [Getting Started]({{ '/getting-started' | relative_url }}) - Creating your first mod
 
 ---
 
@@ -2778,4 +2778,4 @@ if (klass == IntPtr.Zero)
 
 ---
 
-[← Back to API Index]({{ '/api' | relative_url }}) | [HookManager →](hookmanager)
+[← Back to API Index]({{ '/api' | relative_url }}) | [HookManager →]({{ '/api/hookmanager' | relative_url }})

@@ -270,10 +270,10 @@ public class MyMod : ModBase
 
 ## See Also
 
-- [ModBase](modbase) - Base class with lifecycle methods
-- [ModInfo](modbase#info) - Runtime metadata access
+- [ModBase]({{ '/api/modbase' | relative_url }}) - Base class with lifecycle methods
+- [ModInfo]({{ '/api/modbase' | relative_url }}#info) - Runtime metadata access
 - [Getting Started]({{ '/getting-started' | relative_url }}) - Creating your first mod
 
 ---
 
-[← Back to API Index]({{ '/api' | relative_url }}) | [ModLogger →](logger)
+[← Back to API Index]({{ '/api' | relative_url }}) | [ModLogger →]({{ '/api/logger' | relative_url }})

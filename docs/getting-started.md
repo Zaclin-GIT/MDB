@@ -283,17 +283,16 @@ Congratulations! You've created and loaded your first MDB mod. Here's what to ex
 
 ### Explore Examples
 
-- **[HelloWorld]({{ '/examples/helloworld' | relative_url }})** - Simple mod with ImGui
-- **[UnityDebugInterceptor]({{ '/examples/unity-debug-interceptor' | relative_url }})** - Method patching basics
-- **[GameStats]({{ '/examples/gamestats' | relative_url }})** - Advanced patching and IL2CPP Bridge
-- **[MDB_Explorer_ImGui]({{ '/examples/mdb-explorer' | relative_url }})** - Full-featured runtime inspector
+- **[HelloWorld]({{ '/examples' | relative_url }}#helloworld)** - Simple mod with ImGui
+- **[UnityDebugInterceptor]({{ '/examples' | relative_url }}#unity-debug-interceptor)** - Method patching basics
+- **[GameStats]({{ '/examples' | relative_url }}#gamestats)** - Advanced patching and IL2CPP Bridge
+- **[MDB_Explorer_ImGui]({{ '/examples' | relative_url }}#mdb-explorer)** - Full-featured runtime inspector
 
 ### Advanced Topics
 
-- **[Method Patching]({{ '/guides/patching' | relative_url }})** - Hook and modify game methods
-- **[IL2CPP Bridge]({{ '/guides/il2cpp-bridge' | relative_url }})** - Direct IL2CPP runtime access
-- **[Generic Type Resolution]({{ '/guides/generic-types' | relative_url }})** - Working with generic types
-- **[Deobfuscation]({{ '/guides/deobfuscation' | relative_url }})** - Handling obfuscated games
+- **[Patch Attributes]({{ '/api/patch-attributes' | relative_url }})** - Declarative method hooking
+- **[HookManager]({{ '/api/hookmanager' | relative_url }})** - Manual hook and modify game methods
+- **[IL2CPP Bridge]({{ '/api/il2cpp-bridge' | relative_url }})** - Direct IL2CPP runtime access
 
 ---
 
@@ -336,9 +335,8 @@ Congratulations! You've created and loaded your first MDB mod. Here's what to ex
 
 If you're still stuck:
 
-1. Check the [Troubleshooting Guide]({{ '/guides/troubleshooting' | relative_url }})
-2. Review the [FAQ]({{ '/guides/faq' | relative_url }})
-3. Look at the [Example Mods]({{ '/examples' | relative_url }})
+1. Look at the [Example Mods]({{ '/examples' | relative_url }})
+2. Browse the [API Reference]({{ '/api' | relative_url }})
 4. Open an issue on [GitHub](https://github.com/Zaclin-GIT/MDB/issues)
 
 ---

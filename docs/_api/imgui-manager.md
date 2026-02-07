@@ -789,12 +789,12 @@ private void DrawUI()
 
 ## See Also
 
-- [ImGui API](imgui) - Dear ImGui bindings documentation
-- [ModBase](modbase) - Base class with lifecycle callbacks
-- [Logger](logger) - Logging API for debugging UI issues
+- [ImGui API]({{ '/api/imgui' | relative_url }}) - Dear ImGui bindings documentation
+- [ModBase]({{ '/api/modbase' | relative_url }}) - Base class with lifecycle callbacks
+- [Logger]({{ '/api/logger' | relative_url }}) - Logging API for debugging UI issues
 - [Getting Started]({{ '/getting-started' | relative_url }}) - Basic mod setup
-- [Hello World Example](../../Documentation/Examples/HelloWorld/) - Complete ImGui example
+- [Hello World Example]({{ '/examples' | relative_url }}#helloworld) - Complete ImGui example
 
 ---
 
-[← Back to API Index]({{ '/api' | relative_url }}) | [Dear ImGui Bindings →](imgui)
+[← Back to API Index]({{ '/api' | relative_url }}) | [Dear ImGui Bindings →]({{ '/api/imgui' | relative_url }})
