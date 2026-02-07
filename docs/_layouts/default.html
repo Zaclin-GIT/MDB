@@ -17,8 +17,16 @@
     <div class="nav-container">
       <a href="{{ '/' | relative_url }}" class="nav-brand">⚡ MDB</a>
       {% for item in site.nav %}
+        {% assign nav_url = item.url | append: '' %}
+        {% if item.url == '/' %}
+          {% assign is_active = false %}
+          {% if page.url == '/' or page.url == '/index.html' %}{% assign is_active = true %}{% endif %}
+        {% else %}
+          {% assign is_active = false %}
+          {% if page.url contains nav_url %}{% assign is_active = true %}{% endif %}
+        {% endif %}
         <a href="{{ item.url | relative_url }}"
-           {% if page.url == item.url or page.url == item.url | append: '/' %}class="active"{% endif %}>
+           {% if is_active %}class="active"{% endif %}>
           {{ item.title }}
         </a>
       {% endfor %}
