@@ -13,24 +13,24 @@ Complete reference documentation for all MDB Framework APIs.
 
 ### Mod System
 
-- **[ModBase](modbase)** - Base class for all mods with lifecycle callbacks
-- **[ModAttribute](modattribute)** - Metadata attribute for declaring mods
-- **[ModLogger](logger)** - Logging system with color-coded console output
+- **[ModBase]({{ '/api/modbase' | relative_url }})** - Base class for all mods with lifecycle callbacks
+- **[ModAttribute]({{ '/api/modattribute' | relative_url }})** - Metadata attribute for declaring mods
+- **[ModLogger]({{ '/api/logger' | relative_url }})** - Logging system with color-coded console output
 
 ### Patching System
 
-- **[Patch Attributes](patch-attributes)** - Declarative method hooking (Harmony-style)
+- **[Patch Attributes]({{ '/api/patch-attributes' | relative_url }})** - Declarative method hooking (Harmony-style)
   - `[Patch]` - Target a class for patching
   - `[PatchMethod]` - Target a specific method
   - `[PatchRva]` - Target by RVA (for obfuscated methods)
   - `[Prefix]` - Run before original method
   - `[Postfix]` - Run after original method
   - `[Finalizer]` - Run even if original throws
-- **[HookManager](hookmanager)** - Manual hooking API for runtime method hooks
+- **[HookManager]({{ '/api/hookmanager' | relative_url }})** - Manual hooking API for runtime method hooks
 
 ### IL2CPP Bridge
 
-- **[Il2CppBridge](il2cpp-bridge)** - P/Invoke declarations for IL2CPP runtime access
+- **[Il2CppBridge]({{ '/api/il2cpp-bridge' | relative_url }})** - P/Invoke declarations for IL2CPP runtime access
   - Class resolution
   - Method invocation
   - Field access
@@ -41,8 +41,8 @@ Complete reference documentation for all MDB Framework APIs.
 
 ### ImGui Integration
 
-- **[ImGuiManager](imgui-manager)** - Callback registration and window management
-- **[ImGui](imgui)** - Dear ImGui API bindings
+- **[ImGuiManager]({{ '/api/imgui-manager' | relative_url }})** - Callback registration and window management
+- **[ImGui]({{ '/api/imgui' | relative_url }})** - Dear ImGui API bindings
   - Windows and layouts
   - Widgets (buttons, inputs, sliders, etc.)
   - Trees and lists
@@ -57,17 +57,17 @@ Complete reference documentation for all MDB Framework APIs.
 ### By Difficulty
 
 #### 🟢 Beginner-Friendly
-- [ModBase](modbase) - Simple lifecycle and logging
-- [ModLogger](logger) - Easy logging
-- [ImGuiManager](imgui-manager) - Basic UI registration
+- [ModBase]({{ '/api/modbase' | relative_url }}) - Simple lifecycle and logging
+- [ModLogger]({{ '/api/logger' | relative_url }}) - Easy logging
+- [ImGuiManager]({{ '/api/imgui-manager' | relative_url }}) - Basic UI registration
 
 #### 🟡 Intermediate
-- [Patch Attributes](patch-attributes) - Declarative hooks
-- [ImGui](imgui) - UI construction
+- [Patch Attributes]({{ '/api/patch-attributes' | relative_url }}) - Declarative hooks
+- [ImGui]({{ '/api/imgui' | relative_url }}) - UI construction
 
 #### 🔴 Advanced
-- [HookManager](hookmanager) - Manual hooking
-- [Il2CppBridge](il2cpp-bridge) - Direct IL2CPP access
+- [HookManager]({{ '/api/hookmanager' | relative_url }}) - Manual hooking
+- [Il2CppBridge]({{ '/api/il2cpp-bridge' | relative_url }}) - Direct IL2CPP access
 
 ---
 
@@ -156,14 +156,14 @@ float health = Il2CppBridge.mdb_field_get_value<float>(instance, field);
 
 ## Navigation
 
-- [ModBase - Mod Lifecycle](modbase)
-- [ModAttribute - Mod Metadata](modattribute)
-- [ModLogger - Logging System](logger)
-- [Patch Attributes - Declarative Hooks](patch-attributes)
-- [HookManager - Manual Hooks](hookmanager)
-- [Il2CppBridge - IL2CPP Runtime Access](il2cpp-bridge)
-- [ImGuiManager - UI Management](imgui-manager)
-- [ImGui - UI Construction](imgui)
+- [ModBase - Mod Lifecycle]({{ '/api/modbase' | relative_url }})
+- [ModAttribute - Mod Metadata]({{ '/api/modattribute' | relative_url }})
+- [ModLogger - Logging System]({{ '/api/logger' | relative_url }})
+- [Patch Attributes - Declarative Hooks]({{ '/api/patch-attributes' | relative_url }})
+- [HookManager - Manual Hooks]({{ '/api/hookmanager' | relative_url }})
+- [Il2CppBridge - IL2CPP Runtime Access]({{ '/api/il2cpp-bridge' | relative_url }})
+- [ImGuiManager - UI Management]({{ '/api/imgui-manager' | relative_url }})
+- [ImGui - UI Construction]({{ '/api/imgui' | relative_url }})
 
 ---
 
