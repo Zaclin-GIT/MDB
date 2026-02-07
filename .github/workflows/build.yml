@@ -1,0 +1,119 @@
+name: Build MDB Framework
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+  workflow_dispatch:
+
+jobs:
+  build-bridge:
+    name: Build MDB_Bridge (C++)
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Setup vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git
+          cd vcpkg
+          ./bootstrap-vcpkg.bat
+          ./vcpkg integrate install
+        shell: pwsh
+
+      - name: Install dependencies
+        run: |
+          ./vcpkg/vcpkg install minhook:x64-windows
+        shell: pwsh
+
+      - name: Build MDB_Bridge (Debug)
+        run: |
+          msbuild MDB_Bridge/MDB_Bridge.vcxproj /p:Configuration=Debug /p:Platform=x64
+        shell: pwsh
+
+      - name: Build MDB_Bridge (Release)
+        run: |
+          msbuild MDB_Bridge/MDB_Bridge.vcxproj /p:Configuration=Release /p:Platform=x64
+        shell: pwsh
+
+      - name: Upload MDB_Bridge artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: MDB_Bridge
+          path: |
+            MDB_Bridge/x64/Release/MDB_Bridge.dll
+            MDB_Bridge/x64/Release/MDB_Bridge.pdb
+
+  build-core:
+    name: Build MDB_Core (C#)
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.x'
+
+      - name: Restore dependencies
+        run: dotnet restore MDB_Core/MDB_Core.csproj
+
+      - name: Build MDB_Core (Debug)
+        run: dotnet build MDB_Core/MDB_Core.csproj -c Debug --no-restore
+
+      - name: Build MDB_Core (Release)
+        run: dotnet build MDB_Core/MDB_Core.csproj -c Release --no-restore
+
+      - name: Upload MDB_Core artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: MDB_Core
+          path: |
+            MDB/Managed/GameSDK.ModHost.dll
+            MDB/Managed/GameSDK.ModHost.pdb
+
+  build-examples:
+    name: Build Example Projects
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.x'
+
+      - name: Restore dependencies
+        run: dotnet restore MDB_Core/MDB_Core.csproj
+
+      - name: Build HelloWorld
+        run: dotnet build Documentation/Examples/HelloWorld/HelloWorld.csproj -c Release
+
+      - name: Build UnityDebugInterceptor
+        run: dotnet build Documentation/Examples/UnityDebugInterceptor/UnityDebugInterceptor.csproj -c Release
+
+      - name: Build GameStats
+        run: dotnet build Documentation/Examples/GameStats/GameStats.csproj -c Release
+
+      - name: Build MDB_Explorer_ImGui
+        run: dotnet build Documentation/Examples/MDB_Explorer_ImGui/MDB_Explorer_ImGui.csproj -c Release
