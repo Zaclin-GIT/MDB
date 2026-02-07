@@ -15,6 +15,9 @@ on:
       - '**.md'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build-bridge:
     name: Build MDB_Bridge (C++)
