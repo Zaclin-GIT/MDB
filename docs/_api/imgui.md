@@ -1639,4 +1639,4 @@ ImGui.SetNextWindowPos(new Vector2(10, 10), ImGuiCond.Always);
 
 ---
 
-[← ImGuiManager](imgui-manager) | [Back to API Index](../api)
+[← ImGuiManager](imgui-manager) | [Back to API Index]({{ '/api' | relative_url }})

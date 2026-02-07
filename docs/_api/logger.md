@@ -349,9 +349,9 @@ ModLogger.LogInternal(string level, string modName, string message, ConsoleColor
 ## See Also
 
 - [ModBase](modbase) - Base class that provides Logger property
-- [Getting Started](../getting-started#testing) - Testing and viewing logs
-- [Troubleshooting Guide](../guides/troubleshooting) - Common logging issues
+- [Getting Started]({{ '/getting-started#testing' | relative_url }}) - Testing and viewing logs
+- [Troubleshooting Guide]({{ '/guides/troubleshooting' | relative_url }}) - Common logging issues
 
 ---
 
-[← Back to API Index](../api) | [Patch Attributes →](patch-attributes)
+[← Back to API Index]({{ '/api' | relative_url }}) | [Patch Attributes →](patch-attributes)

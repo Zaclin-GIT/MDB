@@ -302,8 +302,8 @@ namespace ExampleMod
 - [ModAttribute](modattribute) - Declaring mod metadata
 - [ModLogger](logger) - Logging API
 - [ImGuiManager](imgui-manager) - UI registration
-- [Examples](../examples) - Working mod examples
+- [Examples]({{ '/examples' | relative_url }}) - Working mod examples
 
 ---
 
-[← Back to API Index](../api) | [ModAttribute →](modattribute)
+[← Back to API Index]({{ '/api' | relative_url }}) | [ModAttribute →](modattribute)

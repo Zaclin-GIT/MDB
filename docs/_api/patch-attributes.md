@@ -1142,9 +1142,9 @@ public static class GoodPatch
 - [ModAttribute](modattribute) - Mod metadata declaration
 - [HookManager](hookmanager) - Manual native hooking API
 - [IL2CPP Bridge](il2cpp-bridge) - Direct IL2CPP runtime access
-- [Examples](../examples) - Working mod examples
-- [Getting Started](../getting-started) - Creating your first mod
+- [Examples]({{ '/examples' | relative_url }}) - Working mod examples
+- [Getting Started]({{ '/getting-started' | relative_url }}) - Creating your first mod
 
 ---
 
-[← Back to API Index](../api) | [HookManager →](hookmanager)
+[← Back to API Index]({{ '/api' | relative_url }}) | [HookManager →](hookmanager)

@@ -272,8 +272,8 @@ public class MyMod : ModBase
 
 - [ModBase](modbase) - Base class with lifecycle methods
 - [ModInfo](modbase#info) - Runtime metadata access
-- [Getting Started](../getting-started) - Creating your first mod
+- [Getting Started]({{ '/getting-started' | relative_url }}) - Creating your first mod
 
 ---
 
-[← Back to API Index](../api) | [ModLogger →](logger)
+[← Back to API Index]({{ '/api' | relative_url }}) | [ModLogger →](logger)

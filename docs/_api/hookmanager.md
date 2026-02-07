@@ -962,9 +962,9 @@ HookManager.RemoveAllHooks();
 - [Patch Attributes](patch-attributes) - Declarative patching system
 - [IL2CPP Bridge](il2cpp-bridge) - Direct IL2CPP runtime access
 - [ModBase](modbase) - Mod lifecycle and base class
-- [Examples](../examples) - Working mod examples
-- [Getting Started](../getting-started) - Creating your first mod
+- [Examples]({{ '/examples' | relative_url }}) - Working mod examples
+- [Getting Started]({{ '/getting-started' | relative_url }}) - Creating your first mod
 
 ---
 
-[← Back to API Index](../api) | [Patch Attributes →](patch-attributes)
+[← Back to API Index]({{ '/api' | relative_url }}) | [Patch Attributes →](patch-attributes)

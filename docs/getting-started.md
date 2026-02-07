@@ -277,23 +277,23 @@ Congratulations! You've created and loaded your first MDB mod. Here's what to ex
 
 ### Learn the APIs
 
-- **[Mod Lifecycle](../api/modbase)** - Understanding OnLoad, OnUpdate, and other callbacks
-- **[Logger System](../api/logger)** - Advanced logging features
-- **[ImGui UI](../api/imgui)** - Creating complex user interfaces
+- **[Mod Lifecycle]({{ '/api/modbase' | relative_url }})** - Understanding OnLoad, OnUpdate, and other callbacks
+- **[Logger System]({{ '/api/logger' | relative_url }})** - Advanced logging features
+- **[ImGui UI]({{ '/api/imgui' | relative_url }})** - Creating complex user interfaces
 
 ### Explore Examples
 
-- **[HelloWorld](../examples/helloworld)** - Simple mod with ImGui
-- **[UnityDebugInterceptor](../examples/unity-debug-interceptor)** - Method patching basics
-- **[GameStats](../examples/gamestats)** - Advanced patching and IL2CPP Bridge
-- **[MDB_Explorer_ImGui](../examples/mdb-explorer)** - Full-featured runtime inspector
+- **[HelloWorld]({{ '/examples/helloworld' | relative_url }})** - Simple mod with ImGui
+- **[UnityDebugInterceptor]({{ '/examples/unity-debug-interceptor' | relative_url }})** - Method patching basics
+- **[GameStats]({{ '/examples/gamestats' | relative_url }})** - Advanced patching and IL2CPP Bridge
+- **[MDB_Explorer_ImGui]({{ '/examples/mdb-explorer' | relative_url }})** - Full-featured runtime inspector
 
 ### Advanced Topics
 
-- **[Method Patching](../guides/patching)** - Hook and modify game methods
-- **[IL2CPP Bridge](../guides/il2cpp-bridge)** - Direct IL2CPP runtime access
-- **[Generic Type Resolution](../guides/generic-types)** - Working with generic types
-- **[Deobfuscation](../guides/deobfuscation)** - Handling obfuscated games
+- **[Method Patching]({{ '/guides/patching' | relative_url }})** - Hook and modify game methods
+- **[IL2CPP Bridge]({{ '/guides/il2cpp-bridge' | relative_url }})** - Direct IL2CPP runtime access
+- **[Generic Type Resolution]({{ '/guides/generic-types' | relative_url }})** - Working with generic types
+- **[Deobfuscation]({{ '/guides/deobfuscation' | relative_url }})** - Handling obfuscated games
 
 ---
 
@@ -336,11 +336,11 @@ Congratulations! You've created and loaded your first MDB mod. Here's what to ex
 
 If you're still stuck:
 
-1. Check the [Troubleshooting Guide](../guides/troubleshooting)
-2. Review the [FAQ](../guides/faq)
-3. Look at the [Example Mods](../examples)
+1. Check the [Troubleshooting Guide]({{ '/guides/troubleshooting' | relative_url }})
+2. Review the [FAQ]({{ '/guides/faq' | relative_url }})
+3. Look at the [Example Mods]({{ '/examples' | relative_url }})
 4. Open an issue on [GitHub](https://github.com/Zaclin-GIT/MDB/issues)
 
 ---
 
-[← Back to Home](./) | [API Reference →](api)
+[← Back to Home]({{ '/' | relative_url }}) | [API Reference →]({{ '/api' | relative_url }})

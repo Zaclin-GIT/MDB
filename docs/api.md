@@ -167,4 +167,4 @@ float health = Il2CppBridge.mdb_field_get_value<float>(instance, field);
 
 ---
 
-[← Back to Home](./) | [Getting Started →](getting-started)
+[← Back to Home]({{ '/' | relative_url }}) | [Getting Started →]({{ '/getting-started' | relative_url }})

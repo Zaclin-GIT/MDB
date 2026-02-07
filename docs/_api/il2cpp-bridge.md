@@ -2778,4 +2778,4 @@ if (klass == IntPtr.Zero)
 
 ---
 
-[← Back to API Index](../api) | [HookManager →](hookmanager)
+[← Back to API Index]({{ '/api' | relative_url }}) | [HookManager →](hookmanager)
