@@ -167,4 +167,4 @@ float health = Il2CppBridge.mdb_field_get_value<float>(instance, field);
 
 ---
 
-[← Back to Home](../index) | [Getting Started →](../getting-started)
+[← Back to Home](./) | [Getting Started →](getting-started)

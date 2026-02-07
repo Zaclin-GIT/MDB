@@ -343,4 +343,4 @@ If you're still stuck:
 
 ---
 
-[← Back to Home](../index) | [API Reference →](../api)
+[← Back to Home](./) | [API Reference →](api)
