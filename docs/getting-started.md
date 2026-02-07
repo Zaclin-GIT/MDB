@@ -94,30 +94,19 @@ MDB requires a specific folder layout in your game directory:
 ```
 <GameFolder>/
 ├── GameName.exe
-├── GameName_Data/
 ├── MDB_Bridge.dll          ← Place the built bridge DLL here
 ├── MDB/
 │   ├── Logs/               ← Auto-created for logs
 │   ├── Managed/            ← Auto-created for SDK
-│   └── Mods/               ← Create this, place mod DLLs here
-└── MDB_Core/
-    ├── MDB_Core.csproj     ← Copy entire MDB_Core folder here
-    ├── Core/
-    ├── Deobfuscation/
-    └── ModHost/
+│   └── Mods/
+└── MDB_Core                ← Place the core project here
 ```
 
 ### Setup Steps
 
 1. **Copy MDB_Bridge.dll** to the game's root folder (where the .exe is)
 
-2. **Create MDB folder structure:**
-   ```powershell
-   mkdir MDB
-   mkdir MDB\Mods
-   ```
-
-3. **Copy MDB_Core folder** from the repository to the game folder:
+2. **Copy MDB_Core folder** from the repository to the game folder:
    ```powershell
    xcopy /E /I MDB_Core <GameFolder>\MDB_Core
    ```
@@ -142,7 +131,7 @@ MDB requires a specific folder layout in your game directory:
 
 After the first successful injection, subsequent launches are instant. The framework detects that nothing has changed and skips the dump/build phase.
 
-To force a rebuild, delete `MDB/Managed/GameSDK.ModHost.dll`.
+To force a full rebuild, delete `MDB/Managed/GameSDK.ModHost.dll` & all of the generated files in `MDB_Core/Managed/`.
 
 ---
 
@@ -260,11 +249,11 @@ copy bin\Release\net48\MyFirstMod.dll <GameFolder>\MDB\Mods\
 
 1. **Launch the game** with MDB_Bridge.dll injected (if not already running)
 
-2. **Press F2** to toggle ImGui input capture
+2. **Press F2** to toggle ImGui input capture (enabled by default)
 
 3. **Look for your window** - "My First Window" should appear
 
-4. **Check the logs:**
+4. **Check the console or logs:**
    ```
    MDB/Logs/Mods.log
    ```
@@ -277,7 +266,7 @@ copy bin\Release\net48\MyFirstMod.dll <GameFolder>\MDB\Mods\
 
 5. **Interact with the UI:**
    - Click the "Click Me!" button
-   - Check the logs for "Button was clicked!"
+   - Check the console or logs for "Button was clicked!"
 
 ---
 
@@ -331,8 +320,7 @@ Congratulations! You've created and loaded your first MDB mod. Here's what to ex
 
 ### ImGui window doesn't appear
 
-- Press F2 to toggle input capture
-- Check if the window is off-screen (drag from edges)
+- Press F2 to toggle input capture (enabled by default)
 - Verify `RegisterCallback` was called in `OnLoad`
 
 ### Game crashes on injection
