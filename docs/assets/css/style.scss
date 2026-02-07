@@ -1,0 +1,399 @@
+---
+---
+
+// Override Cayman SCSS variables before import
+$header-bg-color: #1a1040;
+$header-bg-color-secondary: #6e40c9;
+$header-heading-color: #e6edf3;
+$header-link-color: rgba(255, 255, 255, 0.7);
+$section-headings-color: #a371f7;
+$body-text-color: #e6edf3;
+$body-link-color: #a371f7;
+$blockquote-text-color: #8b949e;
+$code-bg-color: #161b22;
+$code-text-color: #e6edf3;
+$border-color: #30363d;
+$table-border-color: #30363d;
+$hr-border-color: #30363d;
+
+@import "jekyll-theme-cayman";
+
+// ==========================================
+// MDB Dark Blue & Purple Theme Overrides
+// ==========================================
+
+// --- Global ---
+body {
+  background-color: #0d1117;
+  color: #e6edf3;
+}
+
+// --- Page Header / Hero ---
+.page-header {
+  background-image: linear-gradient(135deg, #0d1117 0%, #1a1040 40%, #6e40c9 100%);
+  padding: 3rem 1rem;
+  position: relative;
+  overflow: hidden;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background:
+      radial-gradient(ellipse at 20% 50%, rgba(110, 64, 201, 0.15) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 20%, rgba(88, 166, 255, 0.1) 0%, transparent 40%);
+    pointer-events: none;
+  }
+}
+
+.project-name {
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  background: linear-gradient(135deg, #e6edf3 0%, #a371f7 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.project-tagline {
+  color: rgba(230, 237, 243, 0.7);
+  font-weight: 400;
+}
+
+// --- Header Buttons ---
+.btn {
+  color: rgba(230, 237, 243, 0.85);
+  background-color: rgba(110, 64, 201, 0.25);
+  border: 1px solid rgba(163, 113, 247, 0.4);
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  backdrop-filter: blur(4px);
+
+  &:hover {
+    color: #fff;
+    background-color: rgba(110, 64, 201, 0.45);
+    border-color: rgba(163, 113, 247, 0.7);
+    text-decoration: none;
+  }
+}
+
+// --- Navigation ---
+.site-nav {
+  background-color: #161b22;
+  border-bottom: 1px solid #30363d;
+  padding: 0;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  backdrop-filter: blur(12px);
+  background-color: rgba(22, 27, 34, 0.95);
+
+  .nav-container {
+    max-width: 64rem;
+    margin: 0 auto;
+    padding: 0 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0;
+  }
+
+  .nav-brand {
+    font-weight: 700;
+    font-size: 1rem;
+    color: #a371f7;
+    text-decoration: none;
+    padding: 0.75rem 1rem 0.75rem 0;
+    margin-right: 1rem;
+    border-right: 1px solid #30363d;
+    white-space: nowrap;
+
+    &:hover {
+      color: #c9a0ff;
+      text-decoration: none;
+    }
+  }
+
+  a {
+    color: #8b949e;
+    text-decoration: none;
+    padding: 0.75rem 0.85rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: color 0.15s ease;
+    position: relative;
+
+    &:hover {
+      color: #e6edf3;
+    }
+
+    &.active {
+      color: #a371f7;
+
+      &::after {
+        content: '';
+        position: absolute;
+        bottom: 0;
+        left: 0.85rem;
+        right: 0.85rem;
+        height: 2px;
+        background: #a371f7;
+        border-radius: 1px;
+      }
+    }
+  }
+}
+
+// --- Main Content ---
+.main-content {
+  background-color: #0d1117;
+
+  h1, h2, h3, h4, h5, h6 {
+    color: #e6edf3;
+  }
+
+  h1 {
+    border-bottom: 1px solid #30363d;
+    padding-bottom: 0.5em;
+  }
+
+  h2 {
+    color: #a371f7;
+    border-bottom: 1px solid #21262d;
+    padding-bottom: 0.4em;
+  }
+
+  h3 {
+    color: #c9a0ff;
+  }
+
+  p, li {
+    color: #c9d1d9;
+  }
+
+  strong {
+    color: #e6edf3;
+  }
+
+  a {
+    color: #a371f7;
+    text-decoration: none;
+    border-bottom: 1px solid transparent;
+    transition: all 0.15s ease;
+
+    &:hover {
+      color: #c9a0ff;
+      border-bottom-color: rgba(163, 113, 247, 0.4);
+    }
+  }
+}
+
+// --- Code Blocks ---
+pre {
+  background-color: #161b22 !important;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 1rem;
+
+  code {
+    color: #e6edf3;
+    background: transparent;
+  }
+}
+
+code {
+  background-color: rgba(110, 64, 201, 0.15);
+  color: #c9a0ff;
+  border-radius: 4px;
+  padding: 0.15em 0.4em;
+  font-size: 0.875em;
+  border: 1px solid rgba(110, 64, 201, 0.2);
+}
+
+// --- Syntax Highlighting (GitHub Dark) ---
+.highlight {
+  background-color: #161b22;
+  border-radius: 8px;
+
+  .c, .c1, .cm { color: #8b949e; }       // Comments
+  .k, .kd, .kn { color: #ff7b72; }       // Keywords
+  .s, .s1, .s2 { color: #a5d6ff; }       // Strings
+  .n, .na { color: #e6edf3; }            // Names
+  .nf { color: #d2a8ff; }                // Function names
+  .nc { color: #f0883e; }                // Class names
+  .kt { color: #7ee787; }                // Types
+  .mi, .mf { color: #79c0ff; }           // Numbers
+  .o, .p { color: #e6edf3; }             // Operators, punctuation
+  .nb { color: #79c0ff; }                // Built-ins
+  .kr { color: #ff7b72; }                // Keyword reserved
+  .cp { color: #8b949e; }                // Preprocessor
+  .err { color: #ffa198; }               // Errors
+}
+
+// --- Tables ---
+table {
+  background-color: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  overflow: hidden;
+
+  th {
+    background-color: #161b22;
+    color: #e6edf3;
+    font-weight: 600;
+    border: 1px solid #30363d;
+    padding: 0.6em 1em;
+  }
+
+  td {
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+    padding: 0.6em 1em;
+  }
+
+  tr:nth-child(even) {
+    background-color: rgba(22, 27, 34, 0.5);
+  }
+
+  tr:hover {
+    background-color: rgba(110, 64, 201, 0.08);
+  }
+}
+
+// --- Blockquotes ---
+blockquote {
+  border-left: 4px solid #6e40c9;
+  background-color: rgba(110, 64, 201, 0.08);
+  padding: 0.8em 1em;
+  border-radius: 0 8px 8px 0;
+  color: #8b949e;
+
+  p {
+    color: #8b949e;
+  }
+}
+
+// --- Horizontal Rules ---
+hr {
+  border: none;
+  border-top: 1px solid #21262d;
+  margin: 2rem 0;
+}
+
+// --- Lists ---
+ul, ol {
+  li {
+    color: #c9d1d9;
+    margin-bottom: 0.25em;
+
+    &::marker {
+      color: #6e40c9;
+    }
+  }
+}
+
+// --- Quick Links / Cards ---
+.quick-links {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0;
+
+  a {
+    display: block;
+    padding: 1.2rem;
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    text-decoration: none;
+    transition: all 0.2s ease;
+
+    &:hover {
+      border-color: #6e40c9;
+      background: rgba(110, 64, 201, 0.08);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(110, 64, 201, 0.15);
+    }
+
+    strong {
+      color: #a371f7;
+      display: block;
+      margin-bottom: 0.3em;
+    }
+
+    span {
+      color: #8b949e;
+      font-size: 0.875rem;
+    }
+  }
+}
+
+// --- Footer ---
+.site-footer {
+  border-top: 1px solid #21262d;
+  color: #484f58;
+  background-color: #0d1117;
+
+  .site-footer-credits {
+    color: #484f58;
+  }
+
+  .site-footer-owner {
+    color: #a371f7;
+  }
+
+  a {
+    color: #6e40c9;
+
+    &:hover {
+      color: #a371f7;
+    }
+  }
+}
+
+// --- Scrollbar ---
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0d1117;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #30363d;
+  border-radius: 4px;
+
+  &:hover {
+    background: #484f58;
+  }
+}
+
+// --- Selection ---
+::selection {
+  background: rgba(110, 64, 201, 0.4);
+  color: #fff;
+}
+
+// --- Responsive Adjustments ---
+@media screen and (max-width: 42em) {
+  .site-nav {
+    .nav-container {
+      flex-wrap: wrap;
+    }
+
+    .nav-brand {
+      border-right: none;
+      margin-right: 0;
+      width: 100%;
+      padding-bottom: 0.25rem;
+    }
+  }
+
+  .quick-links {
+    grid-template-columns: 1fr;
+  }
+}

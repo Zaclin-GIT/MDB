@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="{{ site.lang | default: 'en-US' }}">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+{% seo %}
+  <link rel="stylesheet" href="{{ '/assets/css/style.css?v=' | append: site.github.build_revision | relative_url }}">
+  <style>
+    /* Prevent flash of unstyled content */
+    body { background-color: #0d1117; }
+  </style>
+</head>
+<body>
+  <nav class="site-nav">
+    <div class="nav-container">
+      <a href="{{ '/' | relative_url }}" class="nav-brand">⚡ MDB</a>
+      {% for item in site.nav %}
+        <a href="{{ item.url | relative_url }}"
+           {% if page.url == item.url or page.url == item.url | append: '/' %}class="active"{% endif %}>
+          {{ item.title }}
+        </a>
+      {% endfor %}
+      <a href="{{ site.github.repository_url }}" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </nav>
+
+  <header class="page-header" role="banner">
+    <h1 class="project-name">{{ page.title | default: site.title }}</h1>
+    <h2 class="project-tagline">{{ page.description | default: site.description }}</h2>
+    {% if site.github.is_project_page %}
+      <a href="{{ site.github.repository_url }}" class="btn">View on GitHub</a>
+    {% endif %}
+    {% if site.show_downloads %}
+      <a href="{{ site.github.zip_url }}" class="btn">Download .zip</a>
+      <a href="{{ site.github.tar_url }}" class="btn">Download .tar.gz</a>
+    {% endif %}
+  </header>
+
+  <main id="content" class="main-content" role="main">
+    {{ content }}
+
+    <footer class="site-footer">
+      {% if site.github.is_project_page %}
+        <span class="site-footer-owner">
+          <a href="{{ site.github.repository_url }}">{{ site.github.repository_nwo }}</a>
+        </span>
+      {% endif %}
+      <span class="site-footer-credits">
+        MDB Framework &copy; {{ 'now' | date: "%Y" }} &mdash; Runtime IL2CPP modding framework
+      </span>
+    </footer>
+  </main>
+</body>
+</html>
