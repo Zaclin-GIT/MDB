@@ -5,7 +5,6 @@
 ---
 
 <p align="center">
-  <a href="https://github.com/Zaclin-GIT/MDB/actions/workflows/build.yml"><img src="https://img.shields.io/github/actions/workflow/status/Zaclin-GIT/MDB/build.yml?branch=main&style=for-the-badge&color=6e40c9" alt="Build Status"></a>
   <a href="https://github.com/Zaclin-GIT/MDB/releases/latest"><img src="https://img.shields.io/github/v/release/Zaclin-GIT/MDB?label=latest&style=for-the-badge&color=6e40c9" alt="Latest Release"></a>
   <a href="https://github.com/Zaclin-GIT/MDB/releases"><img src="https://img.shields.io/github/downloads/Zaclin-GIT/MDB/total?style=for-the-badge&color=6e40c9" alt="Downloads"></a>
 </p>
