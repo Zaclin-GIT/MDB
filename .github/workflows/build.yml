@@ -103,9 +103,6 @@ jobs:
         with:
           dotnet-version: '8.x'
 
-      - name: Restore dependencies
-        run: dotnet restore MDB_Core/MDB_Core.csproj
-
       - name: Build HelloWorld
         run: dotnet build Documentation/Examples/HelloWorld/HelloWorld.csproj -c Release
 
