@@ -1,5 +1,6 @@
 #include "il2cpp_dumper.hpp"
 #include "il2cpp_resolver.hpp"
+#include "obfuscation_detector.hpp"
 
 #include <Il2CppTableDefine.hpp>
 #include <Il2CppTypes.hpp>
@@ -50,6 +51,9 @@ static bool ShouldSkipNamespace(const std::string& ns) {
 
 // Set of fully-qualified type names that will be emitted (populated between Phase 1 and Phase 2)
 static std::set<std::string> g_knownTypes;
+
+// Obfuscation fake method detector (populated early in DumpIL2CppRuntime)
+static MDB::Obfuscation::Detector* g_obfuscation_detector = nullptr;
 
 // Namespaces whose types are not available in .NET Framework 4.7.2
 static bool IsBlockedNamespace(const std::string& ns) {
@@ -739,6 +743,16 @@ static std::string GenerateClassProperties(il2cppClass* klass, const std::string
         auto propName = api::il2cpp_property_get_name(prop);
         if (!propName) continue;
 
+        // Obfuscation filter: skip properties where ALL accessors are fake
+        if (g_obfuscation_detector) {
+            bool getIsFake = get ? g_obfuscation_detector->IsFakeMethod(get) : true;
+            bool setIsFake = set ? g_obfuscation_detector->IsFakeMethod(set) : true;
+            if (getIsFake && setIsFake) continue;
+            // If only one accessor is fake, null it out so we don't emit it
+            if (get && g_obfuscation_detector->IsFakeMethod(get)) get = nullptr;
+            if (set && g_obfuscation_detector->IsFakeMethod(set)) set = nullptr;
+        }
+
         // Skip explicit interface implementation properties
         std::string propNameStr(propName);
         if (propNameStr.find('.') != std::string::npos) continue;
@@ -851,6 +865,9 @@ static std::string GenerateClassMethods(il2cppClass* klass, const std::string& c
         const char* methodName = api::il2cpp_method_get_name(method);
         if (!methodName) continue;
         std::string methodNameStr(methodName);
+
+        // Obfuscation filter: skip fake methods
+        if (g_obfuscation_detector && g_obfuscation_detector->IsFakeMethod(method)) continue;
 
         // Skip constructors, finalizers, and property accessors
         if (methodNameStr == ".ctor" || methodNameStr == ".cctor" || methodNameStr == "Finalize") continue;
@@ -1066,7 +1083,7 @@ static std::string SafeFileName(const std::string& ns) {
 // ============================================================================
 
 DumpResult DumpIL2CppRuntime(const std::string& output_directory) {
-    DumpResult result = { false, "", "", 0, 0, {}, 0 };
+    DumpResult result = { false, "", "", "", 0, 0, {}, 0, 0, 0 };
 
     // ---- Wait for GameAssembly.dll ----
     uintptr_t gaBase = GetGameAssemblyBaseAddress();
@@ -1097,6 +1114,32 @@ DumpResult DumpIL2CppRuntime(const std::string& output_directory) {
     auto assemblies = api::il2cpp_domain_get_assemblies(domain, &size);
     if (!assemblies) { result.error_message = "Failed to get assemblies"; return result; }
     result.total_assemblies = size;
+
+    // ---- BeeByte Fake Method Detection ----
+    MDB::Obfuscation::DetectorConfig obfConfig;
+    obfConfig.pointer_sharing_threshold = 10;
+    obfConfig.whitelist_vtable_methods = true;
+    obfConfig.check_stub_patterns = true;
+    MDB::Obfuscation::Detector obfuscation_detector(obfConfig);
+    obfuscation_detector.Analyze(assemblies, size);
+    g_obfuscation_detector = &obfuscation_detector;
+
+    result.fake_methods_detected = obfuscation_detector.GetTotalFakeMethods();
+    result.fake_classes_detected = obfuscation_detector.GetTotalFakeClasses();
+
+    // Write BeeByte report to MDB/Dump/fake_methods.txt
+    {
+        char exePath[MAX_PATH];
+        GetModuleFileNameA(nullptr, exePath, MAX_PATH);
+        std::string exeDir(exePath);
+        size_t lastSlash = exeDir.find_last_of("\\/");
+        if (lastSlash != std::string::npos) exeDir = exeDir.substr(0, lastSlash);
+        std::string dumpDir = exeDir + "\\MDB\\Dump";
+        std::filesystem::create_directories(dumpDir);
+        std::string fakeReportPath = dumpDir + "\\fake_methods.txt";
+        obfuscation_detector.WriteFakeReport(fakeReportPath);
+        result.fake_report_path = fakeReportPath;
+    }
 
     // ---- Phase 1: Collect all types grouped by effective namespace ----
     std::map<std::string, std::vector<ClassInfo>> typesByNamespace;
@@ -1138,6 +1181,9 @@ DumpResult DumpIL2CppRuntime(const std::string& output_directory) {
             int flags = api::il2cpp_class_get_flags(klass);
             auto vis = flags & TYPE_ATTRIBUTE_VISIBILITY_MASK;
             if (vis != TYPE_ATTRIBUTE_PUBLIC && vis != TYPE_ATTRIBUTE_NESTED_PUBLIC) continue;
+
+            // Obfuscation filter: skip entirely-fake classes
+            if (g_obfuscation_detector && g_obfuscation_detector->IsEntirelyFakeClass(klass)) continue;
 
             // Use "Global" bucket for empty namespace
             std::string bucketNs = nsStr.empty() ? "Global" : nsStr;
@@ -1258,6 +1304,9 @@ DumpResult DumpIL2CppRuntime(const std::string& output_directory) {
         rawOut.close();
     }
     result.dump_path = dumpPath;
+
+    // Clean up global detector pointer (stack-allocated, about to go out of scope)
+    g_obfuscation_detector = nullptr;
 
     result.success = true;
     return result;

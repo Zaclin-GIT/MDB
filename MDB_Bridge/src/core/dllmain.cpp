@@ -363,6 +363,11 @@ static bool prepare_game_sdk() {
                  dump_result.total_classes, dump_result.total_assemblies);
         LOG_INFO("  Generated %zu wrapper files (%zu classes)",
                  dump_result.generated_files.size(), dump_result.total_wrappers_generated);
+        if (dump_result.fake_methods_detected > 0 || dump_result.fake_classes_detected > 0) {
+            LOG_INFO("  Obfuscation: filtered %zu fake methods, %zu fake classes",
+                     dump_result.fake_methods_detected, dump_result.fake_classes_detected);
+            LOG_INFO("  Obfuscation report: %s", dump_result.fake_report_path.c_str());
+        }
     } else {
         LOG_INFO("Step 1/2: Wrappers up to date, skipping dump");
     }

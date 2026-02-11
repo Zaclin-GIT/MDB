@@ -100,6 +100,9 @@
     <ClCompile Include="src\il2cpp\il2cpp_dumper.cpp">
       <Filter>Source Files\il2cpp</Filter>
     </ClCompile>
+    <ClCompile Include="src\il2cpp\obfuscation_detector.cpp">
+      <Filter>Source Files\il2cpp</Filter>
+    </ClCompile>
     <!-- Codegen -->
     <ClCompile Include="src\codegen\build_trigger.cpp">
       <Filter>Source Files\codegen</Filter>
@@ -132,6 +135,7 @@
     <!-- IL2CPP headers -->
     <ClInclude Include="src\il2cpp\il2cpp_resolver.hpp" />
     <ClInclude Include="src\il2cpp\il2cpp_dumper.hpp" />
+    <ClInclude Include="src\il2cpp\obfuscation_detector.hpp" />
     <!-- Codegen headers -->
     <ClInclude Include="src\codegen\build_trigger.hpp" />
     <!-- ImGui headers -->
