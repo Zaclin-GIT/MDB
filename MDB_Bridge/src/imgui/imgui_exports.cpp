@@ -225,6 +225,16 @@ IMGUI_EXPORT bool igIsItemToggledOpen()
     return ImGui::IsItemToggledOpen();
 }
 
+IMGUI_EXPORT void igBeginDisabled(bool disabled)
+{
+    ImGui::BeginDisabled(disabled);
+}
+
+IMGUI_EXPORT void igEndDisabled()
+{
+    ImGui::EndDisabled();
+}
+
 // ===== Tooltips =====
 
 IMGUI_EXPORT void igSetTooltip(const char* fmt, ...)
@@ -425,4 +435,41 @@ IMGUI_EXPORT void ImDrawList_AddCircleFilled(ImDrawList* self, ImVec2 center, fl
 IMGUI_EXPORT void ImDrawList_AddText(ImDrawList* self, ImVec2 pos, ImU32 col, const char* text_begin, const char* text_end)
 {
     if (self) self->AddText(pos, col, text_begin, text_end);
+}
+
+// ===== Layout Utilities =====
+
+IMGUI_EXPORT void igCalcTextSize(ImVec2* out, const char* text, const char* text_end, bool hide_text_after_double_hash, float wrap_width)
+{
+    if (out) *out = ImGui::CalcTextSize(text, text_end, hide_text_after_double_hash, wrap_width);
+}
+
+IMGUI_EXPORT float igGetCursorPosX()
+{
+    return ImGui::GetCursorPosX();
+}
+
+IMGUI_EXPORT void igSetCursorPosX(float local_x)
+{
+    ImGui::SetCursorPosX(local_x);
+}
+
+IMGUI_EXPORT float igGetContentRegionAvailX()
+{
+    return ImGui::GetContentRegionAvail().x;
+}
+
+IMGUI_EXPORT void igSetNextWindowSizeConstraints(ImVec2 size_min, ImVec2 size_max)
+{
+    ImGui::SetNextWindowSizeConstraints(size_min, size_max);
+}
+
+IMGUI_EXPORT void igGetWindowSize(ImVec2* out)
+{
+    if (out) *out = ImGui::GetWindowSize();
+}
+
+IMGUI_EXPORT void igGetWindowPos(ImVec2* out)
+{
+    if (out) *out = ImGui::GetWindowPos();
 }

@@ -26,6 +26,9 @@ IMGUI_EXPORT void igEndChild();
 // ===== Window utilities =====
 IMGUI_EXPORT void igSetNextWindowPos(ImVec2 pos, ImGuiCond cond, ImVec2 pivot);
 IMGUI_EXPORT void igSetNextWindowSize(ImVec2 size, ImGuiCond cond);
+IMGUI_EXPORT void igSetNextWindowSizeConstraints(ImVec2 size_min, ImVec2 size_max);
+IMGUI_EXPORT void igGetWindowSize(ImVec2* out);
+IMGUI_EXPORT void igGetWindowPos(ImVec2* out);
 IMGUI_EXPORT float igGetWindowWidth();
 IMGUI_EXPORT float igGetWindowHeight();
 
@@ -75,6 +78,8 @@ IMGUI_EXPORT void igPopStyleColor(int count);
 IMGUI_EXPORT bool igIsItemClicked(ImGuiMouseButton mouse_button);
 IMGUI_EXPORT bool igIsItemHovered(ImGuiHoveredFlags flags);
 IMGUI_EXPORT bool igIsItemToggledOpen();
+IMGUI_EXPORT void igBeginDisabled(bool disabled);
+IMGUI_EXPORT void igEndDisabled();
 
 // ===== Tooltips =====
 IMGUI_EXPORT void igSetTooltip(const char* fmt, ...);
@@ -131,6 +136,12 @@ IMGUI_EXPORT void ImDrawList_AddRectFilled(ImDrawList* self, ImVec2 p_min, ImVec
 IMGUI_EXPORT void ImDrawList_AddCircle(ImDrawList* self, ImVec2 center, float radius, ImU32 col, int num_segments, float thickness);
 IMGUI_EXPORT void ImDrawList_AddCircleFilled(ImDrawList* self, ImVec2 center, float radius, ImU32 col, int num_segments);
 IMGUI_EXPORT void ImDrawList_AddText(ImDrawList* self, ImVec2 pos, ImU32 col, const char* text_begin, const char* text_end);
+
+// ===== Layout Utilities =====
+IMGUI_EXPORT void igCalcTextSize(ImVec2* out, const char* text, const char* text_end, bool hide_text_after_double_hash, float wrap_width);
+IMGUI_EXPORT float igGetCursorPosX();
+IMGUI_EXPORT void igSetCursorPosX(float local_x);
+IMGUI_EXPORT float igGetContentRegionAvailX();
 
 #ifdef __cplusplus
 }
