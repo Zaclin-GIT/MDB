@@ -368,6 +368,10 @@ static bool prepare_game_sdk() {
                      dump_result.fake_methods_detected, dump_result.fake_classes_detected);
             LOG_INFO("  Obfuscation report: %s", dump_result.fake_report_path.c_str());
         }
+        if (dump_result.mappings_loaded > 0) {
+            LOG_INFO("  Deobfuscation: applied %zu friendly name mappings to SDK",
+                     dump_result.mappings_loaded);
+        }
     } else {
         LOG_INFO("Step 1/2: Wrappers up to date, skipping dump");
     }

@@ -26,6 +26,8 @@ struct DumpResult {
     // BeeByte detection stats
     size_t fake_methods_detected;
     size_t fake_classes_detected;
+    // Deobfuscation stats
+    size_t mappings_loaded;                        // Number of friendly name mappings applied
 };
 
 // Main dumper function - dumps IL2CPP metadata and generates buildable C# wrappers

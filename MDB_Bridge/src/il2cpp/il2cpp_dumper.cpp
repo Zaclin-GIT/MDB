@@ -1,6 +1,7 @@
 #include "il2cpp_dumper.hpp"
 #include "il2cpp_resolver.hpp"
 #include "obfuscation_detector.hpp"
+#include "mapping_loader.hpp"
 
 #include <Il2CppTableDefine.hpp>
 #include <Il2CppTypes.hpp>
@@ -54,6 +55,9 @@ static std::set<std::string> g_knownTypes;
 
 // Obfuscation fake method detector (populated early in DumpIL2CppRuntime)
 static MDB::Obfuscation::Detector* g_obfuscation_detector = nullptr;
+
+// Deobfuscation mapping lookup (loaded from mappings.json during dump)
+static MDB::Mappings::MappingLookup g_mappingLookup;
 
 // Namespaces whose types are not available in .NET Framework 4.7.2
 static bool IsBlockedNamespace(const std::string& ns) {
@@ -194,6 +198,14 @@ static std::string GetFullyQualifiedClassName(il2cppClass* klass, const std::str
         std::string fqn = nsStr.empty() ? safeName : (nsStr + "." + safeName);
         if (g_knownTypes.find(fqn) == g_knownTypes.end()) {
             return "object";
+        }
+    }
+
+    // Apply deobfuscation type name remapping (friendly display names)
+    if (g_mappingLookup.HasMappings()) {
+        std::string friendly = g_mappingLookup.ResolveType(safeName);
+        if (!friendly.empty()) {
+            safeName = friendly;
         }
     }
 
@@ -364,7 +376,8 @@ enum class TypeKind { Delegate, Enum, Interface, Struct, Class };
 
 struct ClassInfo {
     il2cppClass* klass;
-    std::string name;
+    std::string name;          // display name (friendly if mapped, else sanitized)
+    std::string rawName;       // raw IL2CPP name (unsanitized, always obfuscated)
     std::string ns;            // effective namespace (empty→"Global")
     std::string rawNs;         // raw IL2CPP namespace (may be empty)
     std::string dll;
@@ -442,7 +455,9 @@ static bool IsDelegate(il2cppClass* klass) {
 static ClassInfo ClassifyType(il2cppClass* klass, const std::string& dllName, const std::string& effectiveNamespace) {
     ClassInfo info{};
     info.klass = klass;
-    info.name = SanitizeTypeName(api::il2cpp_class_get_name(klass) ? api::il2cpp_class_get_name(klass) : "");
+    const char* rawClassName = api::il2cpp_class_get_name(klass);
+    info.rawName = rawClassName ? rawClassName : "";
+    info.name = SanitizeTypeName(info.rawName);
     const char* rawNs = api::il2cpp_class_get_namespace(klass);
     info.rawNs = rawNs ? rawNs : "";
     info.ns = effectiveNamespace;
@@ -506,7 +521,8 @@ static ClassInfo ClassifyType(il2cppClass* klass, const std::string& dllName, co
 // Delegate Generation
 // ============================================================================
 
-static std::string GenerateDelegate(il2cppClass* klass, const std::string& currentNamespace) {
+static std::string GenerateDelegate(il2cppClass* klass, const std::string& currentNamespace,
+                                    const std::string& obfTypeName) {
     std::stringstream ss;
 
     // Find the "Invoke" method for the delegate signature
@@ -521,6 +537,20 @@ static std::string GenerateDelegate(il2cppClass* klass, const std::string& curre
 
     std::string vis = GetVisibility(api::il2cpp_class_get_flags(klass));
     std::string delegateName = SanitizeTypeName(api::il2cpp_class_get_name(klass) ? api::il2cpp_class_get_name(klass) : "");
+
+    // Resolve display name from mappings
+    bool isDeobfuscated = false;
+    if (g_mappingLookup.HasMappings()) {
+        std::string friendly = g_mappingLookup.ResolveType(obfTypeName);
+        if (!friendly.empty()) {
+            delegateName = friendly;
+            isDeobfuscated = true;
+        }
+    }
+
+    if (isDeobfuscated) {
+        ss << "    /// <summary>Deobfuscated delegate. IL2CPP name: '" << obfTypeName << "'</summary>\n";
+    }
 
     if (!invokeMethod) {
         // Fallback
@@ -550,11 +580,26 @@ static std::string GenerateDelegate(il2cppClass* klass, const std::string& curre
 // Enum Generation
 // ============================================================================
 
-static std::string GenerateEnum(il2cppClass* klass) {
+static std::string GenerateEnum(il2cppClass* klass, const std::string& obfTypeName) {
     std::stringstream ss;
 
     std::string vis = GetVisibility(api::il2cpp_class_get_flags(klass));
-    ss << "    " << vis << " enum " << SanitizeTypeName(api::il2cpp_class_get_name(klass));
+
+    // Resolve display name from mappings
+    std::string displayName = SanitizeTypeName(api::il2cpp_class_get_name(klass));
+    bool isDeobfuscated = false;
+    if (g_mappingLookup.HasMappings()) {
+        std::string friendly = g_mappingLookup.ResolveType(obfTypeName);
+        if (!friendly.empty()) {
+            displayName = friendly;
+            isDeobfuscated = true;
+        }
+    }
+
+    if (isDeobfuscated) {
+        ss << "    /// <summary>Deobfuscated enum. IL2CPP name: '" << obfTypeName << "'</summary>\n";
+    }
+    ss << "    " << vis << " enum " << displayName;
 
     // Detect enum backing type from value__ field
     void* btIter = nullptr;
@@ -619,10 +664,25 @@ static std::string GenerateEnum(il2cppClass* klass) {
 // Interface Generation (Stub)
 // ============================================================================
 
-static std::string GenerateInterface(il2cppClass* klass) {
+static std::string GenerateInterface(il2cppClass* klass, const std::string& obfTypeName) {
     std::stringstream ss;
     std::string vis = GetVisibility(api::il2cpp_class_get_flags(klass));
-    ss << "    " << vis << " interface " << SanitizeTypeName(api::il2cpp_class_get_name(klass)) << "\n";
+
+    // Resolve display name from mappings
+    std::string displayName = SanitizeTypeName(api::il2cpp_class_get_name(klass));
+    bool isDeobfuscated = false;
+    if (g_mappingLookup.HasMappings()) {
+        std::string friendly = g_mappingLookup.ResolveType(obfTypeName);
+        if (!friendly.empty()) {
+            displayName = friendly;
+            isDeobfuscated = true;
+        }
+    }
+
+    if (isDeobfuscated) {
+        ss << "    /// <summary>Deobfuscated interface. IL2CPP name: '" << obfTypeName << "'</summary>\n";
+    }
+    ss << "    " << vis << " interface " << displayName << "\n";
     ss << "    {\n";
     ss << "        // Stub interface\n";
     ss << "    }\n";
@@ -633,12 +693,26 @@ static std::string GenerateInterface(il2cppClass* klass) {
 // Struct Generation
 // ============================================================================
 
-static std::string GenerateStruct(il2cppClass* klass, const std::string& currentNamespace) {
+static std::string GenerateStruct(il2cppClass* klass, const std::string& currentNamespace,
+                                  const std::string& obfTypeName) {
     std::stringstream ss;
     std::string vis = GetVisibility(api::il2cpp_class_get_flags(klass));
-    std::string name = SanitizeTypeName(api::il2cpp_class_get_name(klass));
 
-    ss << "    " << vis << " struct " << name << "\n";
+    // Resolve display name from mappings
+    std::string displayName = SanitizeTypeName(api::il2cpp_class_get_name(klass));
+    bool isDeobfuscated = false;
+    if (g_mappingLookup.HasMappings()) {
+        std::string friendly = g_mappingLookup.ResolveType(obfTypeName);
+        if (!friendly.empty()) {
+            displayName = friendly;
+            isDeobfuscated = true;
+        }
+    }
+
+    if (isDeobfuscated) {
+        ss << "    /// <summary>Deobfuscated struct. IL2CPP name: '" << obfTypeName << "'</summary>\n";
+    }
+    ss << "    " << vis << " struct " << displayName << "\n";
     ss << "    {\n";
 
     bool hasFields = false;
@@ -659,7 +733,18 @@ static std::string GenerateStruct(il2cppClass* klass, const std::string& current
         // Skip fields whose type is compiler-generated (e.g. <buffer>e__FixedBuffer)
         if (fieldTypeName.find('<') != std::string::npos || fieldTypeName.find('>') != std::string::npos) continue;
 
-        ss << "        public " << fieldTypeName << " " << fieldName << ";\n";
+        // Resolve field display name from mappings
+        std::string fieldNameStr(fieldName);
+        std::string displayFieldName = fieldNameStr;
+        if (g_mappingLookup.HasMappings()) {
+            std::string ff = g_mappingLookup.ResolveMember(obfTypeName, fieldNameStr);
+            if (!ff.empty()) {
+                ss << "        /// <summary>Deobfuscated field. IL2CPP name: '" << fieldNameStr << "'</summary>\n";
+                displayFieldName = ff;
+            }
+        }
+
+        ss << "        public " << fieldTypeName << " " << displayFieldName << ";\n";
         hasFields = true;
     }
 
@@ -676,7 +761,8 @@ static std::string GenerateStruct(il2cppClass* klass, const std::string& current
 // ============================================================================
 
 /// Generate the field-as-property wrappers for a class
-static std::string GenerateClassFields(il2cppClass* klass, const std::string& currentNamespace) {
+static std::string GenerateClassFields(il2cppClass* klass, const std::string& currentNamespace,
+                                       const std::string& obfClassName) {
     std::stringstream ss;
     bool hasFields = false;
     std::set<std::string> emittedFieldNames;
@@ -696,8 +782,21 @@ static std::string GenerateClassFields(il2cppClass* klass, const std::string& cu
         // Skip backing fields
         if (fieldName[0] == '<') continue;
 
-        // Skip duplicate field names
-        if (!emittedFieldNames.insert(std::string(fieldName)).second) continue;
+        std::string fieldNameStr(fieldName);
+
+        // Resolve field display name from mappings
+        std::string displayFieldName = fieldNameStr;
+        bool fieldIsDeobfuscated = false;
+        if (g_mappingLookup.HasMappings()) {
+            std::string friendly = g_mappingLookup.ResolveMember(obfClassName, fieldNameStr);
+            if (!friendly.empty()) {
+                displayFieldName = friendly;
+                fieldIsDeobfuscated = true;
+            }
+        }
+
+        // Skip duplicate field names (using display name for C# compilation)
+        if (!emittedFieldNames.insert(displayFieldName).second) continue;
 
         std::string vis = GetFieldVisibility(attrs);
         auto fieldType = api::il2cpp_field_get_type(field);
@@ -710,10 +809,13 @@ static std::string GenerateClassFields(il2cppClass* klass, const std::string& cu
             hasFields = true;
         }
 
-        ss << "        " << vis << " " << typeName << " " << fieldName << "\n";
+        if (fieldIsDeobfuscated) {
+            ss << "        /// <summary>Deobfuscated field. IL2CPP name: '" << fieldNameStr << "'</summary>\n";
+        }
+        ss << "        " << vis << " " << typeName << " " << displayFieldName << "\n";
         ss << "        {\n";
-        ss << "            get => Il2CppRuntime.GetField<" << typeName << ">(this, \"" << fieldName << "\");\n";
-        ss << "            set => Il2CppRuntime.SetField<" << typeName << ">(this, \"" << fieldName << "\", value);\n";
+        ss << "            get => Il2CppRuntime.GetField<" << typeName << ">(this, \"" << fieldNameStr << "\");\n";
+        ss << "            set => Il2CppRuntime.SetField<" << typeName << ">(this, \"" << fieldNameStr << "\", value);\n";
         ss << "        }\n\n";
     }
 
@@ -722,7 +824,7 @@ static std::string GenerateClassFields(il2cppClass* klass, const std::string& cu
 
 /// Generate property wrappers (get_/set_ methods exposed as C# properties)
 static std::string GenerateClassProperties(il2cppClass* klass, const std::string& currentNamespace,
-                                            bool classIsStatic) {
+                                            bool classIsStatic, const std::string& obfClassName) {
     std::stringstream ss;
     bool hasProperties = false;
 
@@ -757,8 +859,19 @@ static std::string GenerateClassProperties(il2cppClass* klass, const std::string
         std::string propNameStr(propName);
         if (propNameStr.find('.') != std::string::npos) continue;
 
-        // Skip duplicate property names (e.g., multiple 'Item' indexers)
-        if (!emittedPropNames.insert(propNameStr).second) continue;
+        // Resolve property display name from mappings
+        std::string displayPropName = propNameStr;
+        bool propIsDeobfuscated = false;
+        if (g_mappingLookup.HasMappings()) {
+            std::string friendly = g_mappingLookup.ResolveMember(obfClassName, propNameStr);
+            if (!friendly.empty()) {
+                displayPropName = friendly;
+                propIsDeobfuscated = true;
+            }
+        }
+
+        // Skip duplicate property names using display name (e.g., multiple 'Item' indexers)
+        if (!emittedPropNames.insert(displayPropName).second) continue;
 
         // Also skip if getter/setter method names indicate explicit interface impl
         if (get) {
@@ -796,29 +909,32 @@ static std::string GenerateClassProperties(il2cppClass* klass, const std::string
             hasProperties = true;
         }
 
+        if (propIsDeobfuscated) {
+            ss << "        /// <summary>Deobfuscated property. IL2CPP name: '" << propNameStr << "'</summary>\n";
+        }
         ss << "        " << vis;
         if (isStatic) ss << " static";
-        ss << " " << propTypeName << " " << propName << "\n";
+        ss << " " << propTypeName << " " << displayPropName << "\n";
         ss << "        {\n";
 
         if (get) {
             if (isStatic) {
                 ss << "            get => Il2CppRuntime.CallStatic<" << propTypeName << ">(\""
-                   << staticNs << "\", \"" << className << "\", \"get_" << propName
+                   << staticNs << "\", \"" << className << "\", \"get_" << propNameStr
                    << "\", global::System.Type.EmptyTypes);\n";
             } else {
                 ss << "            get => Il2CppRuntime.Call<" << propTypeName << ">(this, \"get_"
-                   << propName << "\", global::System.Type.EmptyTypes);\n";
+                   << propNameStr << "\", global::System.Type.EmptyTypes);\n";
             }
         }
 
         if (set) {
             if (isStatic) {
                 ss << "            set => Il2CppRuntime.InvokeStaticVoid(\"" << staticNs << "\", \""
-                   << className << "\", \"set_" << propName << "\", new[] { typeof("
+                   << className << "\", \"set_" << propNameStr << "\", new[] { typeof("
                    << propTypeName << ") }, value);\n";
             } else {
-                ss << "            set => Il2CppRuntime.InvokeVoid(this, \"set_" << propName
+                ss << "            set => Il2CppRuntime.InvokeVoid(this, \"set_" << propNameStr
                    << "\", new[] { typeof(" << propTypeName << ") }, value);\n";
             }
         }
@@ -831,7 +947,7 @@ static std::string GenerateClassProperties(il2cppClass* klass, const std::string
 
 /// Generate method wrappers
 static std::string GenerateClassMethods(il2cppClass* klass, const std::string& currentNamespace,
-                                         bool classIsStatic) {
+                                         bool classIsStatic, const std::string& obfClassName) {
     std::stringstream ss;
     bool hasMethods = false;
 
@@ -928,7 +1044,18 @@ static std::string GenerateClassMethods(il2cppClass* klass, const std::string& c
         }
 
         // Build signature key for dedup (methodName + param types)
-        std::string sigKey = methodNameStr + "(";
+        // Resolve method display name from mappings
+        std::string displayMethodName = methodNameStr;
+        bool methodIsDeobfuscated = false;
+        if (g_mappingLookup.HasMappings()) {
+            std::string friendly = g_mappingLookup.ResolveMember(obfClassName, methodNameStr);
+            if (!friendly.empty()) {
+                displayMethodName = friendly;
+                methodIsDeobfuscated = true;
+            }
+        }
+
+        std::string sigKey = displayMethodName + "(";
         for (uint32_t i = 0; i < paramCount; ++i) {
             if (i > 0) sigKey += ",";
             sigKey += paramTypeNames[i];
@@ -942,9 +1069,12 @@ static std::string GenerateClassMethods(il2cppClass* klass, const std::string& c
         }
 
         // Signature
+        if (methodIsDeobfuscated) {
+            ss << "        /// <summary>Deobfuscated method. IL2CPP name: '" << methodNameStr << "'</summary>\n";
+        }
         ss << "        " << vis;
         if (isStatic) ss << " static";
-        ss << " " << returnTypeName << " " << methodNameStr << "(";
+        ss << " " << returnTypeName << " " << displayMethodName << "(";
         for (uint32_t i = 0; i < paramCount; ++i) {
             if (i > 0) ss << ", ";
             ss << paramRefKind[i] << paramTypeNames[i] << " " << paramNames[i];
@@ -1005,20 +1135,33 @@ static std::string GenerateClassMethods(il2cppClass* klass, const std::string& c
 static std::string GenerateClass(const ClassInfo& info, const std::string& currentNamespace) {
     std::stringstream ss;
 
-    ss << "    " << info.visibility << " partial class " << info.name << " : " << info.base_class << "\n";
+    // Determine display name (info.name may already be friendly after Phase 1.6)
+    std::string displayName = info.name;
+    bool isDeobfuscated = (info.name != SanitizeTypeName(info.rawName));
+
+    if (isDeobfuscated) {
+        ss << "    /// <summary>Deobfuscated class. IL2CPP name: '" << info.rawName << "'</summary>\n";
+    }
+
+    ss << "    " << info.visibility << " partial class " << displayName << " : " << info.base_class << "\n";
     ss << "    {\n";
-    ss << "        public " << info.name << "(IntPtr nativePtr) : base(nativePtr) { }\n";
+
+    // IL2CPP metadata constants (always emit for runtime reflection)
+    ss << "        private const string _il2cppClassName = \"" << info.rawName << "\";\n";
+    ss << "        private const string _il2cppNamespace = \"" << info.rawNs << "\";\n\n";
+
+    ss << "        public " << displayName << "(IntPtr nativePtr) : base(nativePtr) { }\n";
 
     // Fields as properties (skip for static classes)
     if (!info.is_static) {
-        ss << GenerateClassFields(info.klass, currentNamespace);
+        ss << GenerateClassFields(info.klass, currentNamespace, info.rawName);
     }
 
     // Properties
-    ss << GenerateClassProperties(info.klass, currentNamespace, info.is_static);
+    ss << GenerateClassProperties(info.klass, currentNamespace, info.is_static, info.rawName);
 
     // Methods
-    ss << GenerateClassMethods(info.klass, currentNamespace, info.is_static);
+    ss << GenerateClassMethods(info.klass, currentNamespace, info.is_static, info.rawName);
 
     ss << "    }\n";
     return ss.str();
@@ -1083,7 +1226,7 @@ static std::string SafeFileName(const std::string& ns) {
 // ============================================================================
 
 DumpResult DumpIL2CppRuntime(const std::string& output_directory) {
-    DumpResult result = { false, "", "", "", 0, 0, {}, 0, 0, 0 };
+    DumpResult result = { false, "", "", "", 0, 0, {}, 0, 0, 0, 0 };
 
     // ---- Wait for GameAssembly.dll ----
     uintptr_t gaBase = GetGameAssemblyBaseAddress();
@@ -1203,7 +1346,33 @@ DumpResult DumpIL2CppRuntime(const std::string& output_directory) {
         }
     }
 
+    // ---- Phase 1.6: Load deobfuscation mappings & apply friendly names ----
+    {
+        char exePath2[MAX_PATH];
+        GetModuleFileNameA(nullptr, exePath2, MAX_PATH);
+        std::string exeDir2(exePath2);
+        size_t ls2 = exeDir2.find_last_of("\\/");
+        if (ls2 != std::string::npos) exeDir2 = exeDir2.substr(0, ls2);
+        std::string mappingsPath = exeDir2 + "\\MDB\\Dump\\mappings.json";
+
+        if (g_mappingLookup.Load(mappingsPath)) {
+            result.mappings_loaded = g_mappingLookup.TotalCount();
+
+            // Update ClassInfo display names with friendly names from mappings
+            for (auto& [mapNs, mapTypes] : typesByNamespace) {
+                for (auto& mapInfo : mapTypes) {
+                    std::string friendly = g_mappingLookup.ResolveType(mapInfo.rawName);
+                    if (!friendly.empty()) {
+                        mapInfo.name = friendly;
+                    }
+                }
+            }
+        }
+    }
+
     // Re-validate base classes against known types registry
+    // (Now that g_mappingLookup is loaded, GetFullyQualifiedClassName will
+    //  apply friendly name remapping to base class references too)
     for (auto& [valNs, valTypes] : typesByNamespace) {
         for (auto& valInfo : valTypes) {
             if (valInfo.kind == TypeKind::Class && !valInfo.base_class.empty() && valInfo.base_class != "Il2CppObject") {
@@ -1260,16 +1429,16 @@ DumpResult DumpIL2CppRuntime(const std::string& output_directory) {
 
             switch (info.kind) {
             case TypeKind::Delegate:
-                file << GenerateDelegate(info.klass, ns) << "\n";
+                file << GenerateDelegate(info.klass, ns, info.rawName) << "\n";
                 break;
             case TypeKind::Enum:
-                file << GenerateEnum(info.klass) << "\n";
+                file << GenerateEnum(info.klass, info.rawName) << "\n";
                 break;
             case TypeKind::Interface:
-                file << GenerateInterface(info.klass) << "\n";
+                file << GenerateInterface(info.klass, info.rawName) << "\n";
                 break;
             case TypeKind::Struct:
-                file << GenerateStruct(info.klass, ns) << "\n";
+                file << GenerateStruct(info.klass, ns, info.rawName) << "\n";
                 break;
             case TypeKind::Class:
                 file << GenerateClass(info, ns) << "\n";
@@ -1307,6 +1476,8 @@ DumpResult DumpIL2CppRuntime(const std::string& output_directory) {
 
     // Clean up global detector pointer (stack-allocated, about to go out of scope)
     g_obfuscation_detector = nullptr;
+
+    // Note: g_mappingLookup persists for potential future use but is harmless
 
     result.success = true;
     return result;
