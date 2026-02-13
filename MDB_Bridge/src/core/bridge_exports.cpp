@@ -2396,25 +2396,56 @@ MDB_API void* mdb_class_get_method_by_index(void* klass, int index) {
     return nullptr;
 }
 
-// Get method name (already exists as mdb_method_get_name, but adding for completeness)
+// Get method name (uses proper IL2CPP API, with struct fallback)
 MDB_API const char* mdb_method_get_name_str(void* method) {
     if (!method) return nullptr;
+    
+    // Use the proper il2cpp_method_get_name API (struct offsets may not match this Unity version)
+    static auto il2cpp_method_get_name_fn = reinterpret_cast<const char*(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_method_get_name")
+    );
+    
+    if (il2cpp_method_get_name_fn) {
+        return il2cpp_method_get_name_fn(method);
+    }
+    
+    // Fallback to direct struct access
     auto* mi = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppMethodInfo*>(method);
     return mi->m_pName;
 }
 
-// Get method parameter count
+// Get method parameter count (uses proper IL2CPP API, with struct fallback)
 MDB_API int mdb_method_get_param_count(void* method) {
     if (!method) return 0;
+    
+    static auto il2cpp_method_get_param_count_fn = reinterpret_cast<uint32_t(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_method_get_param_count")
+    );
+    
+    if (il2cpp_method_get_param_count_fn) {
+        return static_cast<int>(il2cpp_method_get_param_count_fn(method));
+    }
+    
+    // Fallback to direct struct access
     auto* mi = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppMethodInfo*>(method);
     return mi->m_uArgsCount;
 }
 
 // NOTE: mdb_method_get_return_type is defined earlier in this file with proper error handling
 
-// Get method flags (to check if static, public, etc.)
+// Get method flags (uses proper IL2CPP API, with struct fallback)
 MDB_API int mdb_method_get_flags(void* method) {
     if (!method) return 0;
+    
+    static auto il2cpp_method_get_flags_fn = reinterpret_cast<uint32_t(*)(void*, uint32_t*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_method_get_flags")
+    );
+    
+    if (il2cpp_method_get_flags_fn) {
+        return static_cast<int>(il2cpp_method_get_flags_fn(method, nullptr));
+    }
+    
+    // Fallback to direct struct access
     auto* mi = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppMethodInfo*>(method);
     return mi->m_uFlags;
 }
@@ -2512,6 +2543,119 @@ MDB_API bool mdb_field_set_value_direct(void* instance, void* field, void* value
     }
     
     return false;
+}
+
+// ==============================
+// Assembly / Image / Class Enumeration
+// ==============================
+
+// Cached assembly list (populated once)
+static il2cpp::_internal::unity_structs::il2cppAssembly** g_cached_assemblies = nullptr;
+static size_t g_cached_assembly_count = 0;
+
+static bool ensure_assembly_cache() {
+    if (g_cached_assemblies) return true;
+    auto status = il2cpp::_internal::ensure_exports();
+    if (status != Il2CppStatus::OK) return false;
+    auto* domain = il2cpp::_internal::il2cpp_domain_get();
+    if (!domain) return false;
+    if (!il2cpp::_internal::il2cpp_domain_get_assemblies) return false;
+    g_cached_assemblies = il2cpp::_internal::il2cpp_domain_get_assemblies(domain, &g_cached_assembly_count);
+    return g_cached_assemblies != nullptr && g_cached_assembly_count > 0;
+}
+
+MDB_API int mdb_get_assembly_count() {
+    if (!ensure_assembly_cache()) return 0;
+    return static_cast<int>(g_cached_assembly_count);
+}
+
+MDB_API void* mdb_get_assembly(int index) {
+    if (!ensure_assembly_cache() || index < 0 || index >= static_cast<int>(g_cached_assembly_count)) return nullptr;
+    return g_cached_assemblies[index];
+}
+
+MDB_API void* mdb_assembly_get_image(void* assembly) {
+    if (!assembly) return nullptr;
+    // Try the resolved function pointer first
+    if (il2cpp::_internal::il2cpp_assembly_get_image) {
+        return il2cpp::_internal::il2cpp_assembly_get_image(
+            reinterpret_cast<il2cpp::_internal::unity_structs::il2cppAssembly*>(assembly));
+    }
+    // Fallback: direct struct access
+    auto* asm_ptr = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppAssembly*>(assembly);
+    return asm_ptr->m_pImage;
+}
+
+MDB_API const char* mdb_image_get_name(void* image) {
+    if (!image) return nullptr;
+    if (il2cpp::_internal::il2cpp_image_get_name) {
+        return il2cpp::_internal::il2cpp_image_get_name(
+            reinterpret_cast<il2cpp::_internal::unity_structs::il2cppImage*>(image));
+    }
+    // Fallback: direct struct access
+    auto* img = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppImage*>(image);
+    return img->m_pName;
+}
+
+MDB_API int mdb_image_get_class_count(void* image) {
+    if (!image) return 0;
+    if (!il2cpp::_internal::il2cpp_image_get_class_count) return 0;
+    return static_cast<int>(il2cpp::_internal::il2cpp_image_get_class_count(
+        reinterpret_cast<il2cpp::_internal::unity_structs::il2cppImage*>(image)));
+}
+
+MDB_API void* mdb_image_get_class(void* image, int index) {
+    if (!image || index < 0) return nullptr;
+    if (!il2cpp::_internal::il2cpp_image_get_class) return 0;
+    return il2cpp::_internal::il2cpp_image_get_class(
+        reinterpret_cast<il2cpp::_internal::unity_structs::il2cppImage*>(image), static_cast<size_t>(index));
+}
+
+MDB_API int mdb_class_get_flags(void* klass) {
+    if (!klass) return 0;
+
+    // Try the resolved API first
+    static auto il2cpp_class_get_flags_fn = reinterpret_cast<int(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_class_get_flags")
+    );
+    if (il2cpp_class_get_flags_fn) {
+        return il2cpp_class_get_flags_fn(klass);
+    }
+    return 0;
+}
+
+MDB_API int mdb_field_get_offset(void* field) {
+    if (!field) return -1;
+    auto* fi = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppFieldInfo*>(field);
+    return fi->m_iOffset;
+}
+
+MDB_API int mdb_read_memory(void* address, void* buffer, int size) {
+    if (!address || !buffer || size <= 0 || size > 4096) return 0;
+
+    // Use VirtualQuery to verify the memory is readable
+    MEMORY_BASIC_INFORMATION mbi;
+    if (VirtualQuery(address, &mbi, sizeof(mbi)) == 0) return 0;
+
+    // Check that the region is committed and readable
+    if (mbi.State != MEM_COMMIT) return 0;
+    if (mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)) return 0;
+
+    // Clamp read to the end of the committed region
+    uintptr_t regionEnd = reinterpret_cast<uintptr_t>(mbi.BaseAddress) + mbi.RegionSize;
+    uintptr_t readEnd = reinterpret_cast<uintptr_t>(address) + size;
+    int safeSize = size;
+    if (readEnd > regionEnd) {
+        safeSize = static_cast<int>(regionEnd - reinterpret_cast<uintptr_t>(address));
+        if (safeSize <= 0) return 0;
+    }
+
+    __try {
+        memcpy(buffer, address, safeSize);
+        return safeSize;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 0;
+    }
 }
 
 // ==============================

@@ -1,1058 +1,811 @@
 // ==============================
-// DeobfuscationPanel - ImGui UI for the deobfuscation toolset
+// DeobfuscationPanel - Live IL2CPP assembly/class browser & mapping editor
 // ==============================
-// Provides:
-// - Type browser with fast search
-// - Mapping editor for setting friendly names
-// - Signature generation and verification
-// - JSON import/export
+// Replaces the old dump.cs-based panel with a fully live runtime browser.
+// Uses bridge enumeration exports to walk assemblies → images → classes
+// at runtime and allows assigning friendly names with multi-layer signatures.
 
 using System;
 using System.Collections.Generic;
-using System.IO;
+using System.Linq;
 using System.Numerics;
+using System.Runtime.InteropServices;
+using GameSDK;
 using GameSDK.Deobfuscation;
 using GameSDK.ModHost;
 
 namespace MDB.Explorer.ImGui
 {
+    // ===== Lightweight cached data for the browser =====
+
+    internal class CachedAssembly
+    {
+        public IntPtr Ptr;
+        public IntPtr ImagePtr;
+        public string Name;
+        public int ClassCount;
+        public bool Expanded;
+    }
+
+    internal class CachedClass
+    {
+        public IntPtr Ptr;
+        public string Name;
+        public string Namespace;
+        public string FullName;          // Namespace.Name or just Name
+        public string FriendlyName;      // from mapping DB, or null
+        public bool IsObfuscated;
+    }
+
+    internal class CachedMember
+    {
+        public IntPtr Ptr;
+        public string Name;
+        public string TypeName;           // Field/return type
+        public string Extra;              // e.g. param count for methods
+        public SymbolType Kind;
+        public bool IsObfuscated;
+        public string FriendlyName;       // from mapping DB, or null
+    }
+
     /// <summary>
-    /// ImGui panel for deobfuscation mapping management.
+    /// ImGui panel: live IL2CPP assembly/class browser with deobfuscation mapping editor.
     /// </summary>
     public class DeobfuscationPanel
     {
-        // State
+        private const string LOG_TAG = "DeobfuscationPanel";
+
+        // Assembly cache
+        private List<CachedAssembly> _assemblies = new List<CachedAssembly>();
+        private Dictionary<IntPtr, List<CachedClass>> _classCache = new Dictionary<IntPtr, List<CachedClass>>();
+        private bool _assembliesLoaded;
+
+        // Selection
+        private CachedAssembly _selectedAssembly;
+        private CachedClass _selectedClass;
+        private IntPtr _selectedClassPtr;
+
+        // Member lists for selected class
+        private List<CachedMember> _fields = new List<CachedMember>();
+        private List<CachedMember> _methods = new List<CachedMember>();
+        private List<CachedMember> _properties = new List<CachedMember>();
+
+        // UI state
         private bool _isVisible = true;
-        private DumpIndex _dumpIndex;
-        private MappingDatabase _mappingDb;
-        private string _dumpPath;
-        private string _mappingsPath;
-        
-        // UI State
-        private string _searchQuery = "";
-        private string _lastSearchQuery = "";
-        private List<TypeIndex> _filteredTypes = new List<TypeIndex>();
-        private int _selectedTypeIndex = -1;
-        private TypeDefinition _selectedTypeDetails;
-        private string _namespaceFilter = "";
+        private string _assemblyFilter = "";
+        private string _classFilter = "";
+        private string _memberFilter = "";
         private bool _showOnlyObfuscated = true;
-        private bool _showOnlyMapped = false;
-        
-        // Member search/filter
-        private string _memberSearchQuery = "";
-        
+        private bool _showOnlyMapped;
+
         // Mapping editor state
         private string _editFriendlyName = "";
-        private string _editNamespace = "";
         private string _editNotes = "";
-        private int _selectedMemberIndex = -1;
-        private MemberType _selectedMemberType = MemberType.None;
-        
+        private int _editMemberIndex = -1;
+        private SymbolType _editMemberKind = SymbolType.Type;
+
+        // Signature state for selected class
+        private string _structuralSig = "";
+        private string _byteSigPreview = "";
+
         // Status
-        private string _statusMessage = "";
-        private float _statusMessageTime = 0;
-        
-        public bool IsVisible
-        {
-            get => _isVisible;
-            set => _isVisible = value;
-        }
-        
+        private string _statusMsg = "";
+        private float _statusTimer;
+
+        public bool IsVisible { get => _isVisible; set => _isVisible = value; }
+        public int AssemblyCount => _assemblies.Count;
+        public int MappingCount => DeobfuscationHelper.MappingCount;
+
+        // ==============================
+        // Public API
+        // ==============================
+
         /// <summary>
-        /// Gets the number of types indexed from the dump file.
+        /// Initialize the panel — call once after bridge is ready.
+        /// No arguments required; everything is read live from runtime.
         /// </summary>
-        public int TypeCount => _dumpIndex?.Count ?? 0;
-        
-        /// <summary>
-        /// Gets the number of mappings in the database.
-        /// </summary>
-        public int MappingCount => _mappingDb?.Count ?? 0;
-        
-        public DeobfuscationPanel()
+        public void Initialize()
         {
+            // Assembly enumeration will happen lazily on first Render().
         }
-        
+
         /// <summary>
-        /// Initializes the panel with dump and mappings paths.
-        /// </summary>
-        public void Initialize(string dumpPath, string mappingsPath = null)
-        {
-            _dumpPath = dumpPath;
-            _mappingsPath = mappingsPath ?? Path.Combine(Path.GetDirectoryName(dumpPath), "mappings.json");
-            
-            // Load dump index
-            if (File.Exists(dumpPath))
-            {
-                _dumpIndex = new DumpIndex();
-                _dumpIndex.BuildIndex(dumpPath);
-                SetStatus($"Indexed {_dumpIndex.Count} types");
-            }
-            else
-            {
-                SetStatus($"Dump file not found: {dumpPath}");
-            }
-            
-            // Load mappings
-            _mappingDb = new MappingDatabase(_mappingsPath);
-            if (File.Exists(_mappingsPath))
-            {
-                _mappingDb.Load();
-                SetStatus($"Loaded {_mappingDb.Count} mappings");
-                
-                // Apply mappings to dump index
-                if (_dumpIndex != null)
-                {
-                    _dumpIndex.ApplyMappings(_mappingDb);
-                }
-            }
-            
-            RefreshFilteredTypes();
-        }
-        
-        /// <summary>
-        /// Renders the deobfuscation panel.
+        /// Main render entry-point (called each frame from ExplorerMod).
         /// </summary>
         public void Render()
         {
-            if (!_isVisible) return;
-            
-            // Note: We don't create our own window here - ExplorerMod already created one for us
-            // Just render the content
-            
-            RenderToolbar();
-            RenderFilters();
-            
-            // Split view: Type list on left, details on right
-            float leftPaneWidth = 350;
-            
-            if (ImGui.BeginChild("TypeList", new Vector2(leftPaneWidth, -25), 1))
+            if (!_assembliesLoaded)
             {
-                RenderTypeList();
+                LoadAssemblies();
+            }
+
+            // Toolbar
+            DrawToolbar();
+
+            ImGui.Separator();
+
+            // Two-column layout: browser on left, details on right
+            float panelWidth = ImGui.GetContentRegionAvail().X;
+            float leftWidth = Math.Max(200f, panelWidth * 0.42f);
+
+            // Left pane: assembly/class browser
+            if (ImGui.BeginChild("##BrowserPane", new Vector2(leftWidth, -1), 1))
+            {
+                DrawAssemblyBrowser();
             }
             ImGui.EndChild();
-            
+
             ImGui.SameLine();
-            
-            if (ImGui.BeginChild("Details", new Vector2(0, -25), 1))
+
+            // Right pane: class detail + mapping editor
+            if (ImGui.BeginChild("##DetailPane", new Vector2(0, -1), 1))
             {
-                RenderDetails();
+                if (_selectedClass != null)
+                    DrawClassDetail();
+                else
+                    ImGui.TextDisabled("Select a class from the left panel.");
             }
             ImGui.EndChild();
-            
+        }
+
+        // ==============================
+        // Assembly enumeration (one-shot, cached)
+        // ==============================
+
+        private void LoadAssemblies()
+        {
+            _assemblies.Clear();
+            _classCache.Clear();
+
+            try
+            {
+                int count = Il2CppBridge.mdb_get_assembly_count();
+                for (int i = 0; i < count; i++)
+                {
+                    IntPtr asm = Il2CppBridge.mdb_get_assembly(i);
+                    if (asm == IntPtr.Zero) continue;
+
+                    IntPtr img = Il2CppBridge.mdb_assembly_get_image(asm);
+                    if (img == IntPtr.Zero) continue;
+
+                    string name = Il2CppBridge.GetImageName(img) ?? $"assembly_{i}";
+                    int classCount = Il2CppBridge.mdb_image_get_class_count(img);
+
+                    _assemblies.Add(new CachedAssembly
+                    {
+                        Ptr = asm,
+                        ImagePtr = img,
+                        Name = name,
+                        ClassCount = classCount,
+                        Expanded = false
+                    });
+                }
+
+                _assemblies.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+                _assembliesLoaded = true;
+                SetStatus($"Loaded {_assemblies.Count} assemblies");
+            }
+            catch (Exception ex)
+            {
+                ModLogger.LogInternal(LOG_TAG, $"[ERROR] LoadAssemblies: {ex.Message}");
+                _assembliesLoaded = true; // Don't retry forever
+            }
+        }
+
+        private List<CachedClass> GetClassesForImage(CachedAssembly asm)
+        {
+            if (_classCache.TryGetValue(asm.ImagePtr, out var cached))
+                return cached;
+
+            var list = new List<CachedClass>();
+            try
+            {
+                for (int i = 0; i < asm.ClassCount; i++)
+                {
+                    IntPtr klass = Il2CppBridge.mdb_image_get_class(asm.ImagePtr, i);
+                    if (klass == IntPtr.Zero) continue;
+
+                    string name = MarshalStr(Il2CppBridge.mdb_class_get_name(klass));
+                    string ns = MarshalStr(Il2CppBridge.mdb_class_get_namespace(klass));
+                    bool obf = SignatureGenerator.IsObfuscatedName(name);
+
+                    string fullName = string.IsNullOrEmpty(ns) ? name : $"{ns}.{name}";
+
+                    // Check mapping DB for friendly name
+                    string friendly = null;
+                    var mapping = DeobfuscationHelper.GetDatabase()?.GetByObfuscatedName(name);
+                    if (mapping != null) friendly = mapping.FriendlyName;
+
+                    list.Add(new CachedClass
+                    {
+                        Ptr = klass,
+                        Name = name,
+                        Namespace = ns,
+                        FullName = fullName,
+                        FriendlyName = friendly,
+                        IsObfuscated = obf
+                    });
+                }
+
+                list.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+            }
+            catch (Exception ex)
+            {
+                ModLogger.LogInternal(LOG_TAG, $"[ERROR] GetClasses: {ex.Message}");
+            }
+
+            _classCache[asm.ImagePtr] = list;
+            return list;
+        }
+
+        // ==============================
+        // Member enumeration (on-demand per class)
+        // ==============================
+
+        private void LoadMembers(IntPtr klass)
+        {
+            _fields.Clear();
+            _methods.Clear();
+            _properties.Clear();
+            _editMemberIndex = -1;
+
+            if (klass == IntPtr.Zero) return;
+
+            string parentName = _selectedClass?.Name ?? "";
+
+            // Fields
+            int fc = Il2CppBridge.mdb_class_get_field_count(klass);
+            for (int i = 0; i < fc; i++)
+            {
+                IntPtr field = Il2CppBridge.mdb_class_get_field_by_index(klass, i);
+                if (field == IntPtr.Zero) continue;
+
+                string fName = MarshalStr(Il2CppBridge.mdb_field_get_name(field));
+                IntPtr ft = Il2CppBridge.mdb_field_get_type(field);
+                string typeName = ft != IntPtr.Zero ? MarshalStr(Il2CppBridge.mdb_type_get_name(ft)) : "?";
+                bool isStatic = Il2CppBridge.mdb_field_is_static(field);
+
+                string friendly = null;
+                var mapping = DeobfuscationHelper.GetDatabase()?.GetByObfuscatedName($"{parentName}.{fName}");
+                if (mapping != null) friendly = mapping.FriendlyName;
+
+                _fields.Add(new CachedMember
+                {
+                    Ptr = field,
+                    Name = fName,
+                    TypeName = typeName,
+                    Extra = isStatic ? "static" : "",
+                    Kind = SymbolType.Field,
+                    IsObfuscated = SignatureGenerator.IsObfuscatedName(fName),
+                    FriendlyName = friendly
+                });
+            }
+
+            // Methods
+            int mc = Il2CppBridge.mdb_class_get_method_count(klass);
+            for (int i = 0; i < mc; i++)
+            {
+                IntPtr method = Il2CppBridge.mdb_class_get_method_by_index(klass, i);
+                if (method == IntPtr.Zero) continue;
+
+                string mName = MarshalStr(Il2CppBridge.mdb_method_get_name_str(method));
+                IntPtr ret = Il2CppBridge.mdb_method_get_return_type(method);
+                string retName = ret != IntPtr.Zero ? MarshalStr(Il2CppBridge.mdb_type_get_name(ret)) : "void";
+                int paramCount = Il2CppBridge.mdb_method_get_param_count(method);
+
+                string friendly = null;
+                var mapping = DeobfuscationHelper.GetDatabase()?.GetByObfuscatedName($"{parentName}.{mName}");
+                if (mapping != null) friendly = mapping.FriendlyName;
+
+                _methods.Add(new CachedMember
+                {
+                    Ptr = method,
+                    Name = mName,
+                    TypeName = retName,
+                    Extra = $"({paramCount} params)",
+                    Kind = SymbolType.Method,
+                    IsObfuscated = SignatureGenerator.IsObfuscatedName(mName),
+                    FriendlyName = friendly
+                });
+            }
+
+            // Properties
+            int pc = Il2CppBridge.mdb_class_get_property_count(klass);
+            for (int i = 0; i < pc; i++)
+            {
+                IntPtr prop = Il2CppBridge.mdb_class_get_property_by_index(klass, i);
+                if (prop == IntPtr.Zero) continue;
+
+                string pName = MarshalStr(Il2CppBridge.mdb_property_get_name(prop));
+                IntPtr getter = Il2CppBridge.mdb_property_get_get_method(prop);
+                IntPtr setter = Il2CppBridge.mdb_property_get_set_method(prop);
+
+                string propType = "?";
+                if (getter != IntPtr.Zero)
+                {
+                    IntPtr retType = Il2CppBridge.mdb_method_get_return_type(getter);
+                    if (retType != IntPtr.Zero)
+                        propType = MarshalStr(Il2CppBridge.mdb_type_get_name(retType));
+                }
+
+                string access = "";
+                if (getter != IntPtr.Zero) access += "get";
+                if (setter != IntPtr.Zero) access += (access.Length > 0 ? "/set" : "set");
+
+                string friendly = null;
+                var mapping = DeobfuscationHelper.GetDatabase()?.GetByObfuscatedName($"{parentName}.{pName}");
+                if (mapping != null) friendly = mapping.FriendlyName;
+
+                _properties.Add(new CachedMember
+                {
+                    Ptr = prop,
+                    Name = pName,
+                    TypeName = propType,
+                    Extra = $"[{access}]",
+                    Kind = SymbolType.Property,
+                    IsObfuscated = SignatureGenerator.IsObfuscatedName(pName),
+                    FriendlyName = friendly
+                });
+            }
+        }
+
+        // ==============================
+        // Draw: Toolbar
+        // ==============================
+
+        private void DrawToolbar()
+        {
+            // Search / filter
+            ImGui.SetNextItemWidth(180);
+            ImGui.InputTextWithHint("##classFilter", "Filter classes...", ref _classFilter, 256);
+            ImGui.SameLine();
+
+            ImGui.Checkbox("Obfuscated only", ref _showOnlyObfuscated);
+            ImGui.SameLine();
+            ImGui.Checkbox("Mapped only", ref _showOnlyMapped);
+
+            ImGui.SameLine(ImGui.GetContentRegionAvail().X - 80);
+            if (ImGui.Button("Refresh"))
+            {
+                _assembliesLoaded = false;
+                _classCache.Clear();
+                _selectedClass = null;
+                _selectedClassPtr = IntPtr.Zero;
+            }
+
             // Status bar
-            RenderStatusBar();
+            if (!string.IsNullOrEmpty(_statusMsg))
+            {
+                ImGui.TextColored(new Vector4(0.5f, 1f, 0.5f, 1f), _statusMsg);
+            }
         }
-        
-        private void RenderToolbar()
+
+        // ==============================
+        // Draw: Assembly / class browser (left pane)
+        // ==============================
+
+        private void DrawAssemblyBrowser()
         {
-            // Simple button toolbar instead of menu bar
-            if (ImGui.Button("Save"))
+            foreach (var asm in _assemblies)
             {
-                SaveMappings();
+                string label = $"{asm.Name} ({asm.ClassCount})";
+                bool opened = ImGui.TreeNodeEx($"{label}##{asm.Ptr}",
+                    ImGuiTreeNodeFlags.OpenOnArrow | ImGuiTreeNodeFlags.SpanAvailWidth);
+
+                if (opened)
+                {
+                    var classes = GetClassesForImage(asm);
+                    int shown = 0;
+
+                    foreach (var cls in classes)
+                    {
+                        if (!ClassMatchesFilter(cls)) continue;
+
+                        shown++;
+                        bool isSelected = _selectedClassPtr == cls.Ptr;
+
+                        // Color: green if mapped, yellow if obfuscated, white otherwise
+                        Vector4 color;
+                        if (cls.FriendlyName != null)
+                            color = new Vector4(0.4f, 1f, 0.4f, 1f);
+                        else if (cls.IsObfuscated)
+                            color = new Vector4(1f, 0.85f, 0.3f, 1f);
+                        else
+                            color = new Vector4(0.9f, 0.9f, 0.9f, 1f);
+
+                        ImGui.PushStyleColor(ImGuiCol.Text, color);
+
+                        string displayName = cls.FriendlyName != null
+                            ? $"{cls.FriendlyName} [{cls.Name}]"
+                            : cls.FullName;
+
+                        if (ImGui.Selectable($"{displayName}##{cls.Ptr}", isSelected))
+                        {
+                            SelectClass(asm, cls);
+                        }
+
+                        ImGui.PopStyleColor();
+                    }
+
+                    if (shown == 0)
+                    {
+                        ImGui.TextDisabled("  (no matching classes)");
+                    }
+
+                    ImGui.TreePop();
+                }
             }
-            ImGui.SameLine();
-            if (ImGui.Button("Reload"))
+        }
+
+        private bool ClassMatchesFilter(CachedClass cls)
+        {
+            if (_showOnlyObfuscated && !cls.IsObfuscated) return false;
+            if (_showOnlyMapped && cls.FriendlyName == null) return false;
+
+            if (!string.IsNullOrEmpty(_classFilter))
             {
-                ReloadMappings();
+                bool match = cls.Name.IndexOf(_classFilter, StringComparison.OrdinalIgnoreCase) >= 0
+                    || cls.FullName.IndexOf(_classFilter, StringComparison.OrdinalIgnoreCase) >= 0
+                    || (cls.FriendlyName != null && cls.FriendlyName.IndexOf(_classFilter, StringComparison.OrdinalIgnoreCase) >= 0);
+                if (!match) return false;
             }
-            ImGui.SameLine();
-            if (ImGui.Button("Export JSON"))
+
+            return true;
+        }
+
+        private void SelectClass(CachedAssembly asm, CachedClass cls)
+        {
+            _selectedAssembly = asm;
+            _selectedClass = cls;
+            _selectedClassPtr = cls.Ptr;
+
+            // Load members
+            LoadMembers(cls.Ptr);
+
+            // Pre-fill editor
+            _editFriendlyName = cls.FriendlyName ?? "";
+            _editNotes = "";
+
+            // Generate structural signature
+            _structuralSig = SignatureGenerator.GenerateTypeSignature(cls.Ptr);
+
+            // Preview first method byte sig
+            _byteSigPreview = "";
+            if (_methods.Count > 0)
             {
-                ExportMappings();
+                _byteSigPreview = SignatureGenerator.GenerateByteSignature(_methods[0].Ptr);
             }
-            ImGui.SameLine();
-            ImGui.TextDisabled("|");
-            ImGui.SameLine();
-            if (ImGui.Button("Verify Signatures"))
+        }
+
+        // ==============================
+        // Draw: Class detail + mapping editor (right pane)
+        // ==============================
+
+        private void DrawClassDetail()
+        {
+            var cls = _selectedClass;
+
+            // Header
+            ImGui.TextColored(new Vector4(1f, 0.9f, 0.4f, 1f), cls.FullName);
+            if (!string.IsNullOrEmpty(cls.FriendlyName))
             {
-                VerifyAllSignatures();
+                ImGui.SameLine();
+                ImGui.TextColored(new Vector4(0.4f, 1f, 0.4f, 1f), $"  →  {cls.FriendlyName}");
             }
-            ImGui.SameLine();
-            if (ImGui.Button("Fix Namespaces"))
-            {
-                FixMappingNamespaces();
-            }
-            
             ImGui.Separator();
-        }
-        
-        private void RenderFilters()
-        {
-            // Search box
-            ImGui.SetNextItemWidth(200);
-            if (ImGui.InputText("Search", ref _searchQuery, 256))
+
+            // === Mapping editor ===
+            if (ImGui.CollapsingHeader("Mapping Editor", ImGuiTreeNodeFlags.DefaultOpen))
             {
-                if (_searchQuery != _lastSearchQuery)
-                {
-                    _lastSearchQuery = _searchQuery;
-                    RefreshFilteredTypes();
-                }
+                DrawMappingEditor();
             }
-            
-            ImGui.SameLine();
-            
-            if (ImGui.Checkbox("Obfuscated Only", ref _showOnlyObfuscated))
+
+            // === Signatures ===
+            if (ImGui.CollapsingHeader("Signatures"))
             {
-                RefreshFilteredTypes();
+                DrawSignatureSection();
             }
-            
-            ImGui.SameLine();
-            
-            if (ImGui.Checkbox("Mapped Only", ref _showOnlyMapped))
-            {
-                RefreshFilteredTypes();
-            }
-            
-            ImGui.SameLine();
-            ImGui.Text($"| {_filteredTypes.Count} types");
-            
+
             ImGui.Separator();
+
+            // === Members ===
+            DrawMemberTabs();
         }
-        
-        private void RenderTypeList()
+
+        private void DrawMappingEditor()
         {
-            for (int i = 0; i < Math.Min(_filteredTypes.Count, 500); i++) // Limit for performance
+            ImGui.Text("Friendly Name:");
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(-1);
+            ImGui.InputText("##friendlyName", ref _editFriendlyName, 256);
+
+            ImGui.Text("Notes:");
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(-1);
+            ImGui.InputText("##notes", ref _editNotes, 512);
+
+            if (ImGui.Button("Save Mapping"))
             {
-                var type = _filteredTypes[i];
-                
-                bool isSelected = (i == _selectedTypeIndex);
-                string displayName = type.FriendlyName != null 
-                    ? $"{type.FriendlyName} [{type.Name}]" 
-                    : type.Name;
-                
-                // Color based on mapping status
-                if (type.FriendlyName != null)
+                SaveCurrentMapping();
+            }
+            ImGui.SameLine();
+            if (ImGui.Button("Remove Mapping"))
+            {
+                RemoveCurrentMapping();
+            }
+            ImGui.SameLine();
+            if (ImGui.Button("Generate All Signatures"))
+            {
+                GenerateAllSignatures();
+            }
+        }
+
+        private void DrawSignatureSection()
+        {
+            // Layer A: Structural
+            ImGui.TextColored(new Vector4(0.6f, 0.8f, 1f, 1f), "Layer A: Structural Fingerprint");
+            if (string.IsNullOrEmpty(_structuralSig))
+            {
+                ImGui.TextDisabled("  (not generated)");
+            }
+            else
+            {
+                ImGui.TextWrapped($"  {_structuralSig}");
+            }
+
+            ImGui.Spacing();
+
+            // Layer B: Byte pattern (first method preview)
+            ImGui.TextColored(new Vector4(0.6f, 0.8f, 1f, 1f), "Layer B: Byte Signature (first method)");
+            if (string.IsNullOrEmpty(_byteSigPreview))
+            {
+                ImGui.TextDisabled("  (no methods or not available)");
+            }
+            else
+            {
+                ImGui.TextWrapped($"  {_byteSigPreview}");
+            }
+
+            ImGui.Spacing();
+
+            // Layer C: RVA (first method)
+            ImGui.TextColored(new Vector4(0.6f, 0.8f, 1f, 1f), "Layer C: RVA (first method)");
+            if (_methods.Count > 0)
+            {
+                string rva = SignatureGenerator.GetMethodRva(_methods[0].Ptr);
+                ImGui.Text($"  {(string.IsNullOrEmpty(rva) ? "(not available)" : rva)}");
+            }
+            else
+            {
+                ImGui.TextDisabled("  (no methods)");
+            }
+        }
+
+        // ==============================
+        // Draw: Member tabs (Fields / Methods / Properties)
+        // ==============================
+
+        private void DrawMemberTabs()
+        {
+            if (ImGui.BeginTabBar("##memberTabs"))
+            {
+                if (ImGui.BeginTabItem($"Fields ({_fields.Count})"))
                 {
-                    ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.5f, 1.0f, 0.5f, 1.0f)); // Green for mapped
+                    DrawMemberList(_fields, SymbolType.Field);
+                    ImGui.EndTabItem();
                 }
-                else if (type.IsObfuscated)
+                if (ImGui.BeginTabItem($"Methods ({_methods.Count})"))
                 {
-                    ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(1.0f, 0.7f, 0.3f, 1.0f)); // Orange for obfuscated
+                    DrawMemberList(_methods, SymbolType.Method);
+                    ImGui.EndTabItem();
                 }
-                
-                ImGui.PushID(i);
-                if (ImGui.Selectable(displayName, isSelected))
+                if (ImGui.BeginTabItem($"Properties ({_properties.Count})"))
                 {
-                    _selectedTypeIndex = i;
-                    _selectedMemberIndex = -1;
-                    _selectedMemberType = MemberType.None;
-                    _memberSearchQuery = ""; // Clear member search when selecting new type
-                    LoadTypeDetails(type);
+                    DrawMemberList(_properties, SymbolType.Property);
+                    ImGui.EndTabItem();
                 }
-                
-                // Right-click context menu for type
-                if (ImGui.BeginPopupContextItem("type_ctx"))
+                ImGui.EndTabBar();
+            }
+        }
+
+        private void DrawMemberList(List<CachedMember> members, SymbolType kind)
+        {
+            // Filter
+            ImGui.SetNextItemWidth(180);
+            ImGui.InputTextWithHint("##memberFilter", "Filter...", ref _memberFilter, 256);
+
+            if (ImGui.BeginChild($"##memberList_{kind}", new Vector2(0, -1)))
+            {
+                for (int i = 0; i < members.Count; i++)
                 {
-                    if (ImGui.MenuItem("Copy Name"))
-                        ImGui.SetClipboardText(type.Name);
-                    if (type.FriendlyName != null && ImGui.MenuItem("Copy Friendly Name"))
-                        ImGui.SetClipboardText(type.FriendlyName);
-                    if (type.Namespace != null && ImGui.MenuItem("Copy Namespace"))
-                        ImGui.SetClipboardText(type.Namespace);
-                    if (ImGui.MenuItem("Copy Full Name"))
-                        ImGui.SetClipboardText($"{type.Namespace}.{type.Name}");
-                    ImGui.EndPopup();
-                }
-                ImGui.PopID();
-                
-                if (type.FriendlyName != null || type.IsObfuscated)
-                {
+                    var m = members[i];
+
+                    if (!string.IsNullOrEmpty(_memberFilter) &&
+                        m.Name.IndexOf(_memberFilter, StringComparison.OrdinalIgnoreCase) < 0 &&
+                        (m.FriendlyName == null || m.FriendlyName.IndexOf(_memberFilter, StringComparison.OrdinalIgnoreCase) < 0))
+                        continue;
+
+                    // Color: green if mapped, yellow if obfuscated
+                    Vector4 nameColor;
+                    if (m.FriendlyName != null)
+                        nameColor = new Vector4(0.4f, 1f, 0.4f, 1f);
+                    else if (m.IsObfuscated)
+                        nameColor = new Vector4(1f, 0.85f, 0.3f, 1f);
+                    else
+                        nameColor = new Vector4(0.85f, 0.85f, 0.85f, 1f);
+
+                    string displayName = m.FriendlyName != null
+                        ? $"{m.FriendlyName} [{m.Name}]"
+                        : m.Name;
+
+                    ImGui.PushStyleColor(ImGuiCol.Text, nameColor);
+                    ImGui.Text(displayName);
                     ImGui.PopStyleColor();
-                }
-                
-                // Tooltip with namespace
-                if (ImGui.IsItemHovered())
-                {
-                    ImGui.SetTooltip($"Namespace: {type.Namespace ?? "(global)"}\nKind: {type.Kind}\nBase: {type.BaseType ?? "none"}");
+
+                    ImGui.SameLine(ImGui.GetContentRegionAvail().X * 0.55f);
+                    ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.8f, 1f), m.TypeName);
+                    ImGui.SameLine();
+                    ImGui.TextDisabled(m.Extra);
+
+                    // Context menu for renaming
+                    if (ImGui.BeginPopupContextItem($"##ctx_{kind}_{i}"))
+                    {
+                        ImGui.Text($"Rename: {m.Name}");
+                        ImGui.Separator();
+
+                        if (_editMemberIndex != i || _editMemberKind != kind)
+                        {
+                            _editMemberIndex = i;
+                            _editMemberKind = kind;
+                            _editFriendlyName = m.FriendlyName ?? "";
+                        }
+
+                        ImGui.SetNextItemWidth(200);
+                        ImGui.InputText("##memberRename", ref _editFriendlyName, 256);
+
+                        if (ImGui.Button("Save"))
+                        {
+                            SaveMemberMapping(m, _editFriendlyName);
+                            m.FriendlyName = _editFriendlyName;
+                            ImGui.CloseCurrentPopup();
+                        }
+                        ImGui.SameLine();
+                        if (m.FriendlyName != null && ImGui.Button("Remove"))
+                        {
+                            string obfKey = $"{_selectedClass?.Name}.{m.Name}";
+                            DeobfuscationHelper.RemoveMapping(obfKey);
+                            m.FriendlyName = null;
+                            ImGui.CloseCurrentPopup();
+                        }
+                        ImGui.SameLine();
+                        if (ImGui.Button("Cancel"))
+                        {
+                            ImGui.CloseCurrentPopup();
+                        }
+
+                        ImGui.EndPopup();
+                    }
                 }
             }
-            
-            if (_filteredTypes.Count > 500)
+            ImGui.EndChild();
+        }
+
+        // ==============================
+        // Mapping operations
+        // ==============================
+
+        private void SaveCurrentMapping()
+        {
+            if (_selectedClass == null || string.IsNullOrWhiteSpace(_editFriendlyName)) return;
+
+            var mapping = new SymbolMapping
             {
-                ImGui.Text($"... and {_filteredTypes.Count - 500} more (refine search)");
+                ObfuscatedName = _selectedClass.Name,
+                FriendlyName = _editFriendlyName.Trim(),
+                SymbolType = SymbolType.Type,
+                Assembly = _selectedAssembly?.Name ?? "",
+                Namespace = _selectedClass.Namespace,
+                StructuralSignature = _structuralSig,
+                Notes = _editNotes,
+                Confidence = 1.0f,
+                LastUpdated = DateTime.UtcNow
+            };
+
+            // Generate byte signature from first method if available
+            if (_methods.Count > 0)
+            {
+                mapping.ByteSignature = SignatureGenerator.GenerateByteSignature(_methods[0].Ptr);
+                mapping.Rva = SignatureGenerator.GetMethodRva(_methods[0].Ptr);
+            }
+
+            DeobfuscationHelper.SetMapping(mapping);
+
+            // Update cached friendly name
+            _selectedClass.FriendlyName = _editFriendlyName.Trim();
+            SetStatus($"Saved: {_selectedClass.Name} → {_editFriendlyName}");
+        }
+
+        private void RemoveCurrentMapping()
+        {
+            if (_selectedClass == null) return;
+
+            if (DeobfuscationHelper.RemoveMapping(_selectedClass.Name))
+            {
+                _selectedClass.FriendlyName = null;
+                _editFriendlyName = "";
+                SetStatus($"Removed mapping for {_selectedClass.Name}");
             }
         }
-        
-        private void RenderDetails()
+
+        private void GenerateAllSignatures()
         {
-            if (_selectedTypeIndex < 0 || _selectedTypeIndex >= _filteredTypes.Count)
+            if (_selectedClass == null) return;
+
+            _structuralSig = SignatureGenerator.GenerateTypeSignature(_selectedClass.Ptr);
+
+            if (_methods.Count > 0)
             {
-                ImGui.Text("Select a type from the list");
+                _byteSigPreview = SignatureGenerator.GenerateByteSignature(_methods[0].Ptr);
+            }
+
+            SetStatus("Signatures regenerated");
+        }
+
+        private void SaveMemberMapping(CachedMember member, string friendlyName)
+        {
+            if (_selectedClass == null || member == null) return;
+
+            string obfKey = $"{_selectedClass.Name}.{member.Name}";
+
+            if (string.IsNullOrWhiteSpace(friendlyName))
+            {
+                DeobfuscationHelper.RemoveMapping(obfKey);
                 return;
             }
-            
-            var typeIndex = _filteredTypes[_selectedTypeIndex];
-            
-            // Header
-            ImGui.Text($"Type: {typeIndex.Name}");
-            if (typeIndex.FriendlyName != null)
-            {
-                ImGui.SameLine();
-                ImGui.TextColored(new Vector4(0.5f, 1.0f, 0.5f, 1.0f), $" -> {typeIndex.FriendlyName}");
-            }
-            
-            ImGui.Text($"Namespace: {typeIndex.Namespace ?? "(global)"}");
-            ImGui.Text($"Kind: {typeIndex.Kind} | Base: {typeIndex.BaseType ?? "none"}");
-            ImGui.Text($"Line: {typeIndex.LineNumber}");
-            
-            ImGui.Separator();
-            
-            // Mapping editor - context-aware (type or selected member)
-            RenderMappingEditor(typeIndex);
-            
-            ImGui.Separator();
-            
-            // Type details (loaded on demand)
-            if (_selectedTypeDetails != null)
-            {
-                RenderTypeDetails();
-            }
-            else
-            {
-                if (ImGui.Button("Load Full Details"))
-                {
-                    LoadTypeDetails(typeIndex);
-                }
-            }
-        }
-        
-        private void RenderMappingEditor(TypeIndex typeIndex)
-        {
-            // Determine what we're mapping based on selection
-            string targetLabel;
-            string currentName;
-            string currentFriendlyName = null;
-            
-            if (_selectedMemberType == MemberType.Field && _selectedMemberIndex >= 0 && 
-                _selectedTypeDetails != null && _selectedMemberIndex < _selectedTypeDetails.Fields.Count)
-            {
-                var field = _selectedTypeDetails.Fields[_selectedMemberIndex];
-                targetLabel = $"Field: {field.Name}";
-                currentName = field.Name;
-                currentFriendlyName = field.FriendlyName;
-            }
-            else if (_selectedMemberType == MemberType.Property && _selectedMemberIndex >= 0 &&
-                     _selectedTypeDetails != null && _selectedMemberIndex < _selectedTypeDetails.Properties.Count)
-            {
-                var prop = _selectedTypeDetails.Properties[_selectedMemberIndex];
-                targetLabel = $"Property: {prop.Name}";
-                currentName = prop.Name;
-                currentFriendlyName = prop.FriendlyName;
-            }
-            else if (_selectedMemberType == MemberType.Method && _selectedMemberIndex >= 0 &&
-                     _selectedTypeDetails != null && _selectedMemberIndex < _selectedTypeDetails.Methods.Count)
-            {
-                var method = _selectedTypeDetails.Methods[_selectedMemberIndex];
-                targetLabel = $"Method: {method.Name}";
-                currentName = method.Name;
-                currentFriendlyName = method.FriendlyName;
-            }
-            else
-            {
-                // Default to type mapping
-                targetLabel = $"Type: {typeIndex.Name}";
-                currentName = typeIndex.Name;
-                currentFriendlyName = typeIndex.FriendlyName;
-            }
-            
-            ImGui.Text($"Mapping: {targetLabel}");
-            if (currentFriendlyName != null)
-            {
-                ImGui.SameLine();
-                ImGui.TextColored(new Vector4(0.5f, 1.0f, 0.5f, 1.0f), $" -> {currentFriendlyName}");
-            }
-            
-            ImGui.Text("Set Friendly Name:");
-            ImGui.SetNextItemWidth(200);
-            ImGui.InputText("##FriendlyName", ref _editFriendlyName, 128);
-            
-            ImGui.Text("Set Namespace:");
-            ImGui.SetNextItemWidth(200);
-            ImGui.InputText("##Namespace", ref _editNamespace, 256);
-            ImGui.SameLine();
-            ImGui.TextDisabled("(e.g. DecaGames.RotMG.Objects.Map.Data)");
-            
-            if (ImGui.Button("Apply"))
-            {
-                ApplyCurrentMapping(typeIndex);
-            }
-            
-            ImGui.SameLine();
-            if (ImGui.Button("Clear"))
-            {
-                ClearCurrentMapping(typeIndex);
-            }
-            
-            // Button to deselect member and go back to type
-            if (_selectedMemberType != MemberType.None)
-            {
-                ImGui.SameLine();
-                if (ImGui.Button("Select Type"))
-                {
-                    _selectedMemberType = MemberType.None;
-                    _selectedMemberIndex = -1;
-                    _editFriendlyName = typeIndex.FriendlyName ?? "";
-                }
-            }
-        }
-        
-        private void RenderTypeDetails()
-        {
-            if (_selectedTypeDetails == null) return;
-            
-            ImGui.Text($"Signature: {TruncateSignature(_selectedTypeDetails.Signature, 60)}");
-            
-            if (ImGui.IsItemHovered())
-            {
-                ImGui.SetTooltip(_selectedTypeDetails.Signature);
-            }
-            
-            // Right-click to copy signature
-            RenderCopyContextMenu("sig_ctx", _selectedTypeDetails.Signature);
-            
-            // Member search box
-            ImGui.Text("Search Members:");
-            ImGui.SameLine();
-            ImGui.SetNextItemWidth(150);
-            ImGui.InputText("##MemberSearch", ref _memberSearchQuery, 128);
-            ImGui.SameLine();
-            if (ImGui.SmallButton("Clear##ClearMemberSearch"))
-            {
-                _memberSearchQuery = "";
-            }
-            
-            // Fields
-            int fieldMatchCount = CountMatchingMembers(_selectedTypeDetails.Fields, f => f.Name);
-            if (ImGui.CollapsingHeader($"Fields ({fieldMatchCount}/{_selectedTypeDetails.Fields.Count})##Fields", ImGuiTreeNodeFlags.DefaultOpen))
-            {
-                int displayedIndex = 0;
-                for (int i = 0; i < _selectedTypeDetails.Fields.Count; i++)
-                {
-                    var field = _selectedTypeDetails.Fields[i];
-                    
-                    // Filter by search query
-                    if (!MatchesMemberSearch(field.Name, field.FriendlyName, field.FieldType))
-                        continue;
-                    
-                    bool isSelected = (_selectedMemberType == MemberType.Field && _selectedMemberIndex == i);
-                    
-                    string display = field.FriendlyName != null
-                        ? $"{field.FriendlyName} [{field.Name}] : {field.FieldType} @ {field.Offset}"
-                        : $"{field.Name} : {field.FieldType} @ {field.Offset}";
-                    
-                    if (field.FriendlyName != null)
-                    {
-                        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.5f, 1.0f, 0.5f, 1.0f));
-                    }
-                    
-                    ImGui.PushID(i);
-                    if (ImGui.Selectable(display, isSelected))
-                    {
-                        _selectedMemberIndex = i;
-                        _selectedMemberType = MemberType.Field;
-                        _editFriendlyName = field.FriendlyName ?? "";
-                    }
-                    
-                    // Right-click context menu
-                    if (ImGui.BeginPopupContextItem("field_ctx"))
-                    {
-                        if (ImGui.MenuItem("Copy Name"))
-                            ImGui.SetClipboardText(field.Name);
-                        if (ImGui.MenuItem("Copy Type"))
-                            ImGui.SetClipboardText(field.FieldType);
-                        if (field.FriendlyName != null && ImGui.MenuItem("Copy Friendly Name"))
-                            ImGui.SetClipboardText(field.FriendlyName);
-                        if (ImGui.MenuItem("Copy Full"))
-                            ImGui.SetClipboardText(display);
-                        ImGui.EndPopup();
-                    }
-                    ImGui.PopID();
-                    
-                    if (field.FriendlyName != null)
-                    {
-                        ImGui.PopStyleColor();
-                    }
-                    
-                    displayedIndex++;
-                }
-            }
-            
-            // Properties
-            int propMatchCount = CountMatchingMembers(_selectedTypeDetails.Properties, p => p.Name);
-            if (ImGui.CollapsingHeader($"Properties ({propMatchCount}/{_selectedTypeDetails.Properties.Count})##Properties"))
-            {
-                for (int i = 0; i < _selectedTypeDetails.Properties.Count; i++)
-                {
-                    var prop = _selectedTypeDetails.Properties[i];
-                    
-                    // Filter by search query
-                    if (!MatchesMemberSearch(prop.Name, prop.FriendlyName, prop.PropertyType))
-                        continue;
-                    
-                    bool isSelected = (_selectedMemberType == MemberType.Property && _selectedMemberIndex == i);
-                    
-                    string accessors = "";
-                    if (prop.HasGetter) accessors += "get; ";
-                    if (prop.HasSetter) accessors += "set; ";
-                    
-                    string display = prop.FriendlyName != null
-                        ? $"{prop.FriendlyName} [{prop.Name}] : {prop.PropertyType} {{ {accessors}}}"
-                        : $"{prop.Name} : {prop.PropertyType} {{ {accessors}}}";
-                    
-                    if (prop.FriendlyName != null)
-                    {
-                        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.5f, 1.0f, 0.5f, 1.0f));
-                    }
-                    
-                    ImGui.PushID(i + 10000); // Offset to avoid ID collision with fields
-                    if (ImGui.Selectable(display, isSelected))
-                    {
-                        _selectedMemberIndex = i;
-                        _selectedMemberType = MemberType.Property;
-                        _editFriendlyName = prop.FriendlyName ?? "";
-                    }
-                    
-                    // Right-click context menu
-                    if (ImGui.BeginPopupContextItem("prop_ctx"))
-                    {
-                        if (ImGui.MenuItem("Copy Name"))
-                            ImGui.SetClipboardText(prop.Name);
-                        if (ImGui.MenuItem("Copy Type"))
-                            ImGui.SetClipboardText(prop.PropertyType);
-                        if (prop.FriendlyName != null && ImGui.MenuItem("Copy Friendly Name"))
-                            ImGui.SetClipboardText(prop.FriendlyName);
-                        if (ImGui.MenuItem("Copy Full"))
-                            ImGui.SetClipboardText(display);
-                        ImGui.EndPopup();
-                    }
-                    ImGui.PopID();
-                    
-                    if (prop.FriendlyName != null)
-                    {
-                        ImGui.PopStyleColor();
-                    }
-                }
-            }
-            
-            // Methods
-            int methodMatchCount = CountMatchingMembers(_selectedTypeDetails.Methods, m => m.Name);
-            if (ImGui.CollapsingHeader($"Methods ({methodMatchCount}/{_selectedTypeDetails.Methods.Count})##Methods"))
-            {
-                int displayedMethods = 0;
-                for (int i = 0; i < _selectedTypeDetails.Methods.Count && displayedMethods < 200; i++)
-                {
-                    var method = _selectedTypeDetails.Methods[i];
-                    
-                    // Filter by search query
-                    if (!MatchesMemberSearch(method.Name, method.FriendlyName, method.ReturnType))
-                        continue;
-                    
-                    bool isSelected = (_selectedMemberType == MemberType.Method && _selectedMemberIndex == i);
-                    
-                    string paramList = "";
-                    foreach (var p in method.Parameters)
-                    {
-                        if (paramList.Length > 0) paramList += ", ";
-                        paramList += p.ParameterType;
-                    }
-                    
-                    string display = method.FriendlyName != null
-                        ? $"{method.FriendlyName} [{method.Name}]({paramList}) : {method.ReturnType}"
-                        : $"{method.Name}({paramList}) : {method.ReturnType}";
-                    if (method.Rva != null)
-                    {
-                        display += $" @ {method.Rva}";
-                    }
-                    
-                    if (method.FriendlyName != null)
-                    {
-                        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.5f, 1.0f, 0.5f, 1.0f));
-                    }
-                    
-                    ImGui.PushID(i + 20000); // Offset to avoid ID collision
-                    if (ImGui.Selectable(display, isSelected))
-                    {
-                        _selectedMemberIndex = i;
-                        _selectedMemberType = MemberType.Method;
-                        _editFriendlyName = method.FriendlyName ?? "";
-                    }
-                    
-                    // Right-click context menu
-                    if (ImGui.BeginPopupContextItem("method_ctx"))
-                    {
-                        if (ImGui.MenuItem("Copy Name"))
-                            ImGui.SetClipboardText(method.Name);
-                        if (ImGui.MenuItem("Copy Return Type"))
-                            ImGui.SetClipboardText(method.ReturnType);
-                        if (method.Rva != null && ImGui.MenuItem("Copy RVA"))
-                            ImGui.SetClipboardText(method.Rva);
-                        if (method.FriendlyName != null && ImGui.MenuItem("Copy Friendly Name"))
-                            ImGui.SetClipboardText(method.FriendlyName);
-                        if (ImGui.MenuItem("Copy Full"))
-                            ImGui.SetClipboardText(display);
-                        ImGui.EndPopup();
-                    }
-                    ImGui.PopID();
-                    
-                    if (method.FriendlyName != null)
-                    {
-                        ImGui.PopStyleColor();
-                    }
-                    
-                    displayedMethods++;
-                }
-                
-                if (methodMatchCount > displayedMethods)
-                {
-                    ImGui.Text($"... and {methodMatchCount - displayedMethods} more (refine search)");
-                }
-            }
-        }
-        
-        private bool MatchesMemberSearch(string name, string friendlyName, string typeName)
-        {
-            if (string.IsNullOrEmpty(_memberSearchQuery))
-                return true;
-            
-            string query = _memberSearchQuery.ToLowerInvariant();
-            
-            if (name?.ToLowerInvariant().Contains(query) == true)
-                return true;
-            if (friendlyName?.ToLowerInvariant().Contains(query) == true)
-                return true;
-            if (typeName?.ToLowerInvariant().Contains(query) == true)
-                return true;
-            
-            return false;
-        }
-        
-        private int CountMatchingMembers<T>(List<T> members, Func<T, string> getName)
-        {
-            if (string.IsNullOrEmpty(_memberSearchQuery))
-                return members.Count;
-            
-            int count = 0;
-            foreach (var m in members)
-            {
-                string name = getName(m);
-                if (name?.ToLowerInvariant().Contains(_memberSearchQuery.ToLowerInvariant()) == true)
-                    count++;
-            }
-            return count;
-        }
-        
-        private void RenderCopyContextMenu(string id, string textToCopy)
-        {
-            if (ImGui.BeginPopupContextItem(id))
-            {
-                if (ImGui.MenuItem("Copy"))
-                {
-                    ImGui.SetClipboardText(textToCopy ?? "");
-                }
-                ImGui.EndPopup();
-            }
-        }
-        
-        private void RenderStatusBar()
-        {
-            ImGui.Separator();
-            if (!string.IsNullOrEmpty(_statusMessage))
-            {
-                ImGui.Text(_statusMessage);
-            }
-            else
-            {
-                ImGui.Text($"Mappings: {_mappingDb?.Count ?? 0} | Types: {_dumpIndex?.Count ?? 0}");
-            }
-        }
-        
-        private void RefreshFilteredTypes()
-        {
-            _filteredTypes.Clear();
-            if (_dumpIndex == null) return;
-            
-            foreach (var type in _dumpIndex.SearchTypes(_searchQuery))
-            {
-                // Apply filters
-                if (_showOnlyObfuscated && !type.IsObfuscated)
-                    continue;
-                if (_showOnlyMapped && type.FriendlyName == null)
-                    continue;
-                
-                _filteredTypes.Add(type);
-            }
-        }
-        
-        private void LoadTypeDetails(TypeIndex typeIndex)
-        {
-            if (_dumpIndex == null) return;
-            
-            _selectedTypeDetails = _dumpIndex.LoadTypeDetails(typeIndex);
-            
-            // Apply mappings to members using stable signatures
-            if (_selectedTypeDetails != null && _mappingDb != null)
-            {
-                foreach (var field in _selectedTypeDetails.Fields)
-                {
-                    var signature = SignatureGenerator.GenerateFieldSignature(_selectedTypeDetails, field);
-                    var mapping = _mappingDb.GetBySignature(signature);
-                    if (mapping != null)
-                    {
-                        field.FriendlyName = mapping.FriendlyName;
-                    }
-                }
-                
-                foreach (var prop in _selectedTypeDetails.Properties)
-                {
-                    var signature = SignatureGenerator.GeneratePropertySignature(_selectedTypeDetails, prop);
-                    var mapping = _mappingDb.GetBySignature(signature);
-                    if (mapping != null)
-                    {
-                        prop.FriendlyName = mapping.FriendlyName;
-                    }
-                }
-                
-                foreach (var method in _selectedTypeDetails.Methods)
-                {
-                    var signature = SignatureGenerator.GenerateMethodSignature(_selectedTypeDetails, method);
-                    var mapping = _mappingDb.GetBySignature(signature);
-                    if (mapping != null)
-                    {
-                        method.FriendlyName = mapping.FriendlyName;
-                    }
-                }
-            }
-            
-            _editFriendlyName = typeIndex.FriendlyName ?? "";
-        }
-        
-        private void ApplyCurrentMapping(TypeIndex typeIndex)
-        {
-            if (string.IsNullOrWhiteSpace(_editFriendlyName)) return;
-            if (_mappingDb == null) return;
-            
-            if (_selectedMemberType == MemberType.Field && _selectedMemberIndex >= 0 &&
-                _selectedTypeDetails != null && _selectedMemberIndex < _selectedTypeDetails.Fields.Count)
-            {
-                // Apply field mapping with stable signature
-                var field = _selectedTypeDetails.Fields[_selectedMemberIndex];
-                var signature = SignatureGenerator.GenerateFieldSignature(_selectedTypeDetails, field);
-                ApplyMemberMapping($"{typeIndex.Name}.{field.Name}", signature, _editFriendlyName, SymbolType.Field, typeIndex.Namespace);
-                field.FriendlyName = _editFriendlyName;
-                SetStatus($"Mapped {typeIndex.Name}.{field.Name} -> {_editFriendlyName}");
-            }
-            else if (_selectedMemberType == MemberType.Property && _selectedMemberIndex >= 0 &&
-                     _selectedTypeDetails != null && _selectedMemberIndex < _selectedTypeDetails.Properties.Count)
-            {
-                // Apply property mapping with stable signature
-                var prop = _selectedTypeDetails.Properties[_selectedMemberIndex];
-                var signature = SignatureGenerator.GeneratePropertySignature(_selectedTypeDetails, prop);
-                ApplyMemberMapping($"{typeIndex.Name}.{prop.Name}", signature, _editFriendlyName, SymbolType.Property, typeIndex.Namespace);
-                prop.FriendlyName = _editFriendlyName;
-                SetStatus($"Mapped {typeIndex.Name}.{prop.Name} -> {_editFriendlyName}");
-            }
-            else if (_selectedMemberType == MemberType.Method && _selectedMemberIndex >= 0 &&
-                     _selectedTypeDetails != null && _selectedMemberIndex < _selectedTypeDetails.Methods.Count)
-            {
-                // Apply method mapping with stable signature
-                var method = _selectedTypeDetails.Methods[_selectedMemberIndex];
-                var signature = SignatureGenerator.GenerateMethodSignature(_selectedTypeDetails, method);
-                ApplyMemberMapping($"{typeIndex.Name}.{method.Name}", signature, _editFriendlyName, SymbolType.Method, typeIndex.Namespace);
-                method.FriendlyName = _editFriendlyName;
-                SetStatus($"Mapped {typeIndex.Name}.{method.Name} -> {_editFriendlyName}");
-            }
-            else
-            {
-                // Apply type mapping
-                ApplyMapping(typeIndex);
-            }
-        }
-        
-        private void ApplyMemberMapping(string obfuscatedName, string signature, string friendlyName, SymbolType symbolType, string namespaceName)
-        {
+
             var mapping = new SymbolMapping
             {
-                ObfuscatedName = obfuscatedName,
-                FriendlyName = friendlyName,
-                Signature = signature,
-                SymbolType = symbolType,
-                Namespace = namespaceName ?? "",
-                VerificationScore = 1.0
+                ObfuscatedName = obfKey,
+                FriendlyName = friendlyName.Trim(),
+                SymbolType = member.Kind,
+                Assembly = _selectedAssembly?.Name ?? "",
+                Namespace = _selectedClass.Namespace,
+                ParentType = _selectedClass.Name,
+                Confidence = 1.0f,
+                LastUpdated = DateTime.UtcNow
             };
-            
-            _mappingDb.SetMapping(mapping);
+
+            // Generate signature based on member type
+            if (member.Kind == SymbolType.Field)
+                mapping.StructuralSignature = SignatureGenerator.GenerateFieldSignature(_selectedClass.Ptr, member.Ptr);
+            else if (member.Kind == SymbolType.Method)
+            {
+                mapping.StructuralSignature = SignatureGenerator.GenerateMethodSignature(_selectedClass.Ptr, member.Ptr);
+                mapping.ByteSignature = SignatureGenerator.GenerateByteSignature(member.Ptr);
+                mapping.Rva = SignatureGenerator.GetMethodRva(member.Ptr);
+            }
+            else if (member.Kind == SymbolType.Property)
+                mapping.StructuralSignature = SignatureGenerator.GeneratePropertySignature(_selectedClass.Ptr, member.Ptr);
+
+            DeobfuscationHelper.SetMapping(mapping);
+            SetStatus($"Saved: {obfKey} → {friendlyName}");
         }
-        
-        private void ClearCurrentMapping(TypeIndex typeIndex)
+
+        // ==============================
+        // Helpers
+        // ==============================
+
+        private void SetStatus(string msg)
         {
-            if (_mappingDb == null) return;
-            
-            if (_selectedMemberType == MemberType.Field && _selectedMemberIndex >= 0 &&
-                _selectedTypeDetails != null && _selectedMemberIndex < _selectedTypeDetails.Fields.Count)
-            {
-                var field = _selectedTypeDetails.Fields[_selectedMemberIndex];
-                var signature = SignatureGenerator.GenerateFieldSignature(_selectedTypeDetails, field);
-                _mappingDb.RemoveMapping(signature);
-                field.FriendlyName = null;
-                _editFriendlyName = "";
-                SetStatus($"Cleared mapping for {typeIndex.Name}.{field.Name}");
-            }
-            else if (_selectedMemberType == MemberType.Property && _selectedMemberIndex >= 0 &&
-                     _selectedTypeDetails != null && _selectedMemberIndex < _selectedTypeDetails.Properties.Count)
-            {
-                var prop = _selectedTypeDetails.Properties[_selectedMemberIndex];
-                var signature = SignatureGenerator.GeneratePropertySignature(_selectedTypeDetails, prop);
-                _mappingDb.RemoveMapping(signature);
-                prop.FriendlyName = null;
-                _editFriendlyName = "";
-                SetStatus($"Cleared mapping for {typeIndex.Name}.{prop.Name}");
-            }
-            else if (_selectedMemberType == MemberType.Method && _selectedMemberIndex >= 0 &&
-                     _selectedTypeDetails != null && _selectedMemberIndex < _selectedTypeDetails.Methods.Count)
-            {
-                var method = _selectedTypeDetails.Methods[_selectedMemberIndex];
-                var signature = SignatureGenerator.GenerateMethodSignature(_selectedTypeDetails, method);
-                _mappingDb.RemoveMapping(signature);
-                method.FriendlyName = null;
-                _editFriendlyName = "";
-                SetStatus($"Cleared mapping for {typeIndex.Name}.{method.Name}");
-            }
-            else
-            {
-                ClearMapping(typeIndex);
-            }
+            _statusMsg = msg;
+            _statusTimer = 5.0f;
+            ModLogger.LogInternal(LOG_TAG, $"[INFO] {msg}");
         }
-        
-        private void ApplyMapping(TypeIndex typeIndex)
+
+        private static string MarshalStr(IntPtr ptr)
         {
-            if (string.IsNullOrWhiteSpace(_editFriendlyName)) return;
-            if (_mappingDb == null) return;
-            
-            // Generate signature if we have details
-            string signature = _selectedTypeDetails?.Signature ?? "";
-            
-            var mapping = new SymbolMapping
-            {
-                ObfuscatedName = typeIndex.Name,
-                FriendlyName = _editFriendlyName,
-                Signature = signature,
-                SymbolType = SymbolType.Type,
-                Namespace = typeIndex.Namespace ?? "",
-                VerificationScore = 1.0
-            };
-            
-            _mappingDb.SetMapping(mapping);
-            typeIndex.FriendlyName = _editFriendlyName;
-            
-            SetStatus($"Mapped {typeIndex.Name} -> {_editFriendlyName}");
-        }
-        
-        private void ClearMapping(TypeIndex typeIndex)
-        {
-            if (_mappingDb == null) return;
-            
-            _mappingDb.RemoveMapping(typeIndex.Name);
-            typeIndex.FriendlyName = null;
-            _editFriendlyName = "";
-            
-            SetStatus($"Cleared mapping for {typeIndex.Name}");
-        }
-        
-        private void SaveMappings()
-        {
-            if (_mappingDb == null) return;
-            
-            if (_mappingDb.Save())
-            {
-                // Also reload the DeobfuscationHelper so the Inspector uses updated mappings
-                DeobfuscationHelper.Reload();
-                SetStatus($"Saved {_mappingDb.Count} mappings to {_mappingsPath}");
-            }
-            else
-            {
-                SetStatus("Failed to save mappings!");
-            }
-        }
-        
-        private void ReloadMappings()
-        {
-            if (_mappingDb == null) return;
-            
-            _mappingDb.Load();
-            if (_dumpIndex != null)
-            {
-                _dumpIndex.ApplyMappings(_mappingDb);
-            }
-            RefreshFilteredTypes();
-            
-            SetStatus($"Reloaded {_mappingDb.Count} mappings");
-        }
-        
-        private void ExportMappings()
-        {
-            SaveMappings(); // Just save to the current file
-        }
-        
-        private void VerifyAllSignatures()
-        {
-            if (_mappingDb == null || _dumpIndex == null) return;
-            
-            int verified = 0;
-            int failed = 0;
-            
-            foreach (var mapping in _mappingDb.AllMappings)
-            {
-                var typeIndex = _dumpIndex.GetType(mapping.ObfuscatedName);
-                if (typeIndex != null)
-                {
-                    var details = _dumpIndex.LoadTypeDetails(typeIndex);
-                    if (details != null)
-                    {
-                        double similarity = SignatureGenerator.ComputeSignatureSimilarity(
-                            mapping.Signature, details.Signature);
-                        
-                        if (similarity >= 0.8)
-                        {
-                            verified++;
-                            mapping.VerificationScore = similarity;
-                        }
-                        else
-                        {
-                            failed++;
-                            mapping.VerificationScore = similarity;
-                        }
-                    }
-                }
-            }
-            
-            SetStatus($"Verified: {verified} passed, {failed} failed (threshold 80%)");
-        }
-        
-        private void FixMappingNamespaces()
-        {
-            if (_mappingDb == null || _dumpIndex == null) return;
-            
-            const string LOG_TAG = "DeobfuscationPanel";
-            
-            int updated = 0;
-            int notFound = 0;
-            int alreadyCorrect = 0;
-            int emptyInDump = 0;
-            
-            // Build a lookup dictionary from type name to TypeIndex using SearchTypes
-            var typeNameToTypeIndex = new Dictionary<string, TypeIndex>();
-            foreach (var type in _dumpIndex.SearchTypes(""))
-            {
-                if (!string.IsNullOrEmpty(type.Name) && !typeNameToTypeIndex.ContainsKey(type.Name))
-                {
-                    typeNameToTypeIndex[type.Name] = type;
-                }
-            }
-            
-            ModLogger.LogInternal(LOG_TAG, $"[INFO] FixNamespaces: Built lookup with {typeNameToTypeIndex.Count} types");
-            
-            // Debug: Log first 10 types with their namespaces
-            int logged = 0;
-            foreach (var kvp in typeNameToTypeIndex)
-            {
-                if (logged < 10)
-                {
-                    ModLogger.LogInternal(LOG_TAG, $"[DEBUG] Type: {kvp.Key} | Namespace: '{kvp.Value.Namespace ?? "(null)"}'");
-                    logged++;
-                }
-                else break;
-            }
-            
-            // Debug: Find and log sample types with non-empty namespace
-            int withNsCount = 0;
-            foreach (var kvp in typeNameToTypeIndex)
-            {
-                if (!string.IsNullOrEmpty(kvp.Value.Namespace))
-                {
-                    if (withNsCount < 5)
-                    {
-                        ModLogger.LogInternal(LOG_TAG, $"[DEBUG] Type WITH namespace: {kvp.Key} -> '{kvp.Value.Namespace}'");
-                    }
-                    withNsCount++;
-                }
-            }
-            ModLogger.LogInternal(LOG_TAG, $"[INFO] Types with non-empty namespace: {withNsCount} / {typeNameToTypeIndex.Count}");
-            
-            foreach (var mapping in _mappingDb.AllMappings)
-            {
-                // For type mappings, look up by ObfuscatedName directly
-                // For member mappings (Field, Property, Method), extract the type name from "TypeName.MemberName"
-                string typeName = mapping.ObfuscatedName;
-                
-                if (mapping.SymbolType == SymbolType.Field || 
-                    mapping.SymbolType == SymbolType.Property || 
-                    mapping.SymbolType == SymbolType.Method)
-                {
-                    // Extract type name from "TypeName.MemberName"
-                    int dotIndex = mapping.ObfuscatedName.LastIndexOf('.');
-                    if (dotIndex > 0)
-                    {
-                        typeName = mapping.ObfuscatedName.Substring(0, dotIndex);
-                    }
-                }
-                
-                if (typeNameToTypeIndex.TryGetValue(typeName, out TypeIndex foundType))
-                {
-                    string foundNamespace = foundType.Namespace ?? "";
-                    
-                    if (string.IsNullOrEmpty(foundNamespace))
-                    {
-                        emptyInDump++;
-                    }
-                    else if (mapping.Namespace != foundNamespace)
-                    {
-                        ModLogger.LogInternal(LOG_TAG, $"[INFO] Updating: {mapping.ObfuscatedName} namespace '{mapping.Namespace}' -> '{foundNamespace}'");
-                        mapping.Namespace = foundNamespace;
-                        updated++;
-                    }
-                    else
-                    {
-                        alreadyCorrect++;
-                    }
-                }
-                else
-                {
-                    ModLogger.LogInternal(LOG_TAG, $"[WARN] Type not found in dump: {typeName}");
-                    notFound++;
-                }
-            }
-            
-            ModLogger.LogInternal(LOG_TAG, $"[INFO] Results: updated={updated}, correct={alreadyCorrect}, emptyInDump={emptyInDump}, notFound={notFound}");
-            
-            if (updated > 0)
-            {
-                SetStatus($"Updated {updated}, already correct {alreadyCorrect}, empty in dump {emptyInDump}, not found {notFound}. Save to persist.");
-            }
-            else
-            {
-                SetStatus($"Empty in dump: {emptyInDump}, correct: {alreadyCorrect}, not found: {notFound}. Check console for details.");
-            }
-        }
-        
-        private void SetStatus(string message)
-        {
-            _statusMessage = message;
-            _statusMessageTime = 5.0f;
-        }
-        
-        private string TruncateSignature(string sig, int maxLen)
-        {
-            if (string.IsNullOrEmpty(sig)) return "";
-            if (sig.Length <= maxLen) return sig;
-            return sig.Substring(0, maxLen) + "...";
-        }
-        
-        private enum MemberType
-        {
-            None,
-            Field,
-            Property,
-            Method
+            if (ptr == IntPtr.Zero) return null;
+            return Marshal.PtrToStringAnsi(ptr);
         }
     }
 }

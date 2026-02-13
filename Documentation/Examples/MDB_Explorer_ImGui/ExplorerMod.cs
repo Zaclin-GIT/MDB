@@ -114,8 +114,8 @@ namespace MDB.Explorer.ImGui
                 // Initial hierarchy refresh
                 _hierarchy.Refresh();
 
-                // Initialize deobfuscation panel with dump path
-                InitializeDeobfuscationPanel();
+                // Initialize deobfuscation panel (live — no dump.cs needed)
+                _deobfuscationPanel.Initialize();
 
                 _imguiInitialized = true;
                 Logger.Info($"ImGui initialized! DirectX version: {_imguiController.DirectXVersion}");
@@ -125,70 +125,6 @@ namespace MDB.Explorer.ImGui
             {
                 Logger.Error($"Initialization failed: {ex.Message}");
                 _initDelayFrames += 60;
-            }
-        }
-
-        private void InitializeDeobfuscationPanel()
-        {
-            try
-            {
-                // Get the MDB folder structure
-                // First try assembly location (won't work for IL2CPP byte-loaded assemblies)
-                var assemblyLocation = typeof(ExplorerMod).Assembly.Location;
-                string mdbFolder = null;
-                
-                if (!string.IsNullOrEmpty(assemblyLocation))
-                {
-                    var modsFolder = System.IO.Path.GetDirectoryName(assemblyLocation);
-                    mdbFolder = !string.IsNullOrEmpty(modsFolder) 
-                        ? System.IO.Path.GetDirectoryName(modsFolder) 
-                        : null;
-                    Logger.Info($"[DeobfuscationPanel] Found MDB folder via assembly: {mdbFolder}");
-                }
-                
-                // Fallback: Use AppDomain.CurrentDomain.BaseDirectory (works for IL2CPP)
-                if (string.IsNullOrEmpty(mdbFolder))
-                {
-                    var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-                    var potentialMdbFolder = System.IO.Path.Combine(baseDir, "MDB");
-                    
-                    if (System.IO.Directory.Exists(potentialMdbFolder))
-                    {
-                        mdbFolder = potentialMdbFolder;
-                        Logger.Info($"[DeobfuscationPanel] Found MDB folder via AppDomain: {mdbFolder}");
-                    }
-                    else
-                    {
-                        Logger.Warning($"[DeobfuscationPanel] MDB folder not found at: {potentialMdbFolder}");
-                    }
-                }
-
-                if (!string.IsNullOrEmpty(mdbFolder))
-                {
-                    var dumpPath = System.IO.Path.Combine(mdbFolder, "Dump", "dump.cs");
-                    var mappingsPath = System.IO.Path.Combine(mdbFolder, "Dump", "mappings.json");
-                    Logger.Info($"[DeobfuscationPanel] Looking for dump at: {dumpPath}");
-                    
-                    if (System.IO.File.Exists(dumpPath))
-                    {
-                        Logger.Info($"[DeobfuscationPanel] Found dump file, initializing...");
-                        _deobfuscationPanel.Initialize(dumpPath, mappingsPath);
-                        Logger.Info($"[DeobfuscationPanel] Panel initialized with {_deobfuscationPanel.TypeCount} types indexed");
-                    }
-                    else
-                    {
-                        Logger.Warning($"[DeobfuscationPanel] Dump file not found at: {dumpPath}");
-                    }
-                }
-                else
-                {
-                    Logger.Warning("[DeobfuscationPanel] Could not determine MDB folder path");
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Warning($"[DeobfuscationPanel] Failed to initialize: {ex.Message}");
-                Logger.Warning($"[DeobfuscationPanel] Stack trace: {ex.StackTrace}");
             }
         }
 

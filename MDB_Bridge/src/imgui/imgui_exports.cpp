@@ -473,3 +473,30 @@ IMGUI_EXPORT void igGetWindowPos(ImVec2* out)
 {
     if (out) *out = ImGui::GetWindowPos();
 }
+
+// ===== Content Region (Vector2) =====
+IMGUI_EXPORT void igGetContentRegionAvail(ImVec2* out)
+{
+    if (out) *out = ImGui::GetContentRegionAvail();
+}
+
+// ===== Tab Bar =====
+IMGUI_EXPORT bool igBeginTabBar(const char* str_id, int flags)
+{
+    return ImGui::BeginTabBar(str_id, flags);
+}
+
+IMGUI_EXPORT void igEndTabBar()
+{
+    ImGui::EndTabBar();
+}
+
+IMGUI_EXPORT bool igBeginTabItem(const char* label, bool* p_open, int flags)
+{
+    return ImGui::BeginTabItem(label, p_open, flags);
+}
+
+IMGUI_EXPORT void igEndTabItem()
+{
+    ImGui::EndTabItem();
+}

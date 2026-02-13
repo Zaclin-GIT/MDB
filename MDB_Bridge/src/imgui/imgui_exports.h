@@ -143,6 +143,19 @@ IMGUI_EXPORT float igGetCursorPosX();
 IMGUI_EXPORT void igSetCursorPosX(float local_x);
 IMGUI_EXPORT float igGetContentRegionAvailX();
 
+// ===== Content Region (Vector2) =====
+IMGUI_EXPORT void igGetContentRegionAvail(ImVec2* out);
+
+// ===== Disabled Widgets =====
+IMGUI_EXPORT void igBeginDisabled(bool disabled);
+IMGUI_EXPORT void igEndDisabled();
+
+// ===== Tab Bar =====
+IMGUI_EXPORT bool igBeginTabBar(const char* str_id, int flags);
+IMGUI_EXPORT void igEndTabBar();
+IMGUI_EXPORT bool igBeginTabItem(const char* label, bool* p_open, int flags);
+IMGUI_EXPORT void igEndTabItem();
+
 #ifdef __cplusplus
 }
 #endif

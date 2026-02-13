@@ -315,5 +315,47 @@ namespace MDB.Explorer.ImGui
         /// Get the mapping database for direct access.
         /// </summary>
         public static MappingDatabase GetDatabase() => _database;
+        
+        /// <summary>
+        /// Add or update a mapping and save to disk.
+        /// </summary>
+        public static void SetMapping(SymbolMapping mapping)
+        {
+            if (_database == null) return;
+            _database.AddOrUpdate(mapping);
+            _database.Save();
+            ModLogger.LogInternal(LOG_TAG, $"[INFO] Saved mapping: {mapping.ObfuscatedName} → {mapping.FriendlyName}");
+        }
+        
+        /// <summary>
+        /// Remove a mapping by obfuscated name and save.
+        /// </summary>
+        public static bool RemoveMapping(string obfuscatedName)
+        {
+            if (_database == null) return false;
+            bool removed = _database.Remove(obfuscatedName);
+            if (removed)
+            {
+                _database.Save();
+                ModLogger.LogInternal(LOG_TAG, $"[INFO] Removed mapping: {obfuscatedName}");
+            }
+            return removed;
+        }
+        
+        /// <summary>
+        /// Save the current database to disk.
+        /// </summary>
+        public static void Save()
+        {
+            _database?.Save();
+        }
+        
+        /// <summary>
+        /// Get the path to the mappings file.
+        /// </summary>
+        public static string GetMappingsPath()
+        {
+            return _database?.FilePath;
+        }
     }
 }

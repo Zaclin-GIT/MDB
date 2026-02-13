@@ -636,7 +636,7 @@ namespace GameSDK
 
         /// <summary>Get field name (native).</summary>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        private static extern IntPtr mdb_field_get_name(IntPtr field);
+        public static extern IntPtr mdb_field_get_name(IntPtr field);
 
         /// <summary>Get field type.</summary>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
@@ -649,7 +649,7 @@ namespace GameSDK
 
         /// <summary>Get type name (native).</summary>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        private static extern IntPtr mdb_type_get_name(IntPtr type);
+        public static extern IntPtr mdb_type_get_name(IntPtr type);
 
         /// <summary>Get class from type.</summary>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
@@ -670,7 +670,7 @@ namespace GameSDK
 
         /// <summary>Get property name (native).</summary>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        private static extern IntPtr mdb_property_get_name(IntPtr prop);
+        public static extern IntPtr mdb_property_get_name(IntPtr prop);
 
         /// <summary>Get property getter method.</summary>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
@@ -690,7 +690,7 @@ namespace GameSDK
 
         /// <summary>Get method name (native).</summary>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-        private static extern IntPtr mdb_method_get_name_str(IntPtr method);
+        public static extern IntPtr mdb_method_get_name_str(IntPtr method);
 
         /// <summary>Get method parameter count.</summary>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
@@ -713,6 +713,56 @@ namespace GameSDK
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         [return: MarshalAs(UnmanagedType.I1)]
         public static extern bool mdb_field_set_value_direct(IntPtr instance, IntPtr field, IntPtr value, int valueSize);
+
+        // ==============================
+        // Assembly / Image / Class Enumeration
+        // ==============================
+
+        /// <summary>Get the number of loaded assemblies.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_get_assembly_count();
+
+        /// <summary>Get an assembly by index.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr mdb_get_assembly(int index);
+
+        /// <summary>Get the image from an assembly.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr mdb_assembly_get_image(IntPtr assembly);
+
+        /// <summary>Get the name of an image.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr mdb_image_get_name_ptr(IntPtr image);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "mdb_image_get_name")]
+        private static extern IntPtr mdb_image_get_name_native(IntPtr image);
+
+        /// <summary>Get image name as managed string.</summary>
+        public static string GetImageName(IntPtr image)
+        {
+            IntPtr ptr = mdb_image_get_name_native(image);
+            return ptr != IntPtr.Zero ? Marshal.PtrToStringAnsi(ptr) : null;
+        }
+
+        /// <summary>Get the number of classes in an image.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_image_get_class_count(IntPtr image);
+
+        /// <summary>Get a class from an image by index.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr mdb_image_get_class(IntPtr image, int index);
+
+        /// <summary>Get class flags (access, sealed, abstract, interface, etc.).</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_class_get_flags(IntPtr klass);
+
+        /// <summary>Get field offset within object.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_field_get_offset(IntPtr field);
+
+        /// <summary>Read raw bytes from a memory address.</summary>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_read_memory(IntPtr address, byte[] buffer, int size);
 
         // ==============================
         // Hook Debugging

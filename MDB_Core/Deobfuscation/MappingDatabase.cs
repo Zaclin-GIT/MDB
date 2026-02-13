@@ -1,3 +1,7 @@
+// ==============================
+// MappingDatabase - JSON-persisted deobfuscation mappings
+// ==============================
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -8,397 +12,241 @@ using System.Text;
 
 namespace GameSDK.Deobfuscation
 {
-    /// <summary>
-    /// The type of symbol being mapped.
-    /// </summary>
+    /// <summary>Type of symbol being mapped.</summary>
     public enum SymbolType
     {
-        Type,
-        Field,
-        Property,
-        Method
+        Type = 0,
+        Field = 1,
+        Property = 2,
+        Method = 3
     }
-    
+
     /// <summary>
-    /// Represents a mapping from an obfuscated name to a friendly name.
+    /// A single deobfuscation mapping with multi-layer signatures.
     /// </summary>
     [DataContract]
     public class SymbolMapping
     {
+        /// <summary>Current obfuscated name (e.g. "FKALGHJIADI").</summary>
+        [DataMember] public string ObfuscatedName { get; set; }
+
+        /// <summary>Human-readable name (e.g. "PlayerManager").</summary>
+        [DataMember] public string FriendlyName { get; set; }
+
+        /// <summary>Symbol type.</summary>
+        [DataMember] public SymbolType SymbolType { get; set; }
+
+        /// <summary>Assembly/image name (e.g. "Assembly-CSharp.dll").</summary>
+        [DataMember] public string Assembly { get; set; }
+
+        /// <summary>Namespace.</summary>
+        [DataMember] public string Namespace { get; set; }
+
+        /// <summary>For members: the parent type's obfuscated name.</summary>
+        [DataMember] public string ParentType { get; set; }
+
+        // --- Multi-layer signatures ---
+
         /// <summary>
-        /// The obfuscated name as it appears in IL2CPP (e.g., "FKALGHJIADI").
+        /// Layer A: Structural fingerprint with normalized types.
+        /// Obfuscated type references replaced with ?OBF? placeholders.
         /// </summary>
-        [DataMember]
-        public string ObfuscatedName { get; set; }
-        
+        [DataMember] public string StructuralSignature { get; set; }
+
         /// <summary>
-        /// The human-readable name (e.g., "Player").
+        /// Layer B: Byte-array pattern of method body (IDA-style with wildcards).
+        /// Only populated for methods. Format: "48 89 5C 24 ?? 48 89 74 24 ??"
         /// </summary>
-        [DataMember]
-        public string FriendlyName { get; set; }
-        
+        [DataMember] public string ByteSignature { get; set; }
+
         /// <summary>
-        /// Structural signature for re-identification after updates.
+        /// Layer C: RVA offset from GameAssembly.dll base (for methods).
+        /// Changes every build but useful as a quick-match hint.
         /// </summary>
-        [DataMember]
-        public string Signature { get; set; }
-        
-        /// <summary>
-        /// The type of symbol (Type, Field, Property, Method).
-        /// </summary>
-        [DataMember]
-        public SymbolType SymbolType { get; set; }
-        
-        /// <summary>
-        /// The namespace of this symbol (for types).
-        /// </summary>
-        [DataMember]
-        public string Namespace { get; set; }
-        
-        /// <summary>
-        /// For members, the parent type's obfuscated name.
-        /// </summary>
-        [DataMember]
-        public string ParentTypeName { get; set; }
-        
-        /// <summary>
-        /// Timestamp when this mapping was created/updated.
-        /// </summary>
-        [DataMember]
-        public DateTime LastUpdated { get; set; }
-        
-        /// <summary>
-        /// Optional notes about this mapping.
-        /// </summary>
-        [DataMember]
-        public string Notes { get; set; }
-        
-        /// <summary>
-        /// Confidence score from last runtime verification (0.0 to 1.0).
-        /// </summary>
-        [DataMember]
-        public double VerificationScore { get; set; } = 1.0;
+        [DataMember] public string Rva { get; set; }
+
+        /// <summary>When this mapping was last created or verified.</summary>
+        [DataMember] public DateTime LastUpdated { get; set; }
+
+        /// <summary>Optional user notes.</summary>
+        [DataMember] public string Notes { get; set; }
+
+        /// <summary>Confidence from last verification (0.0-1.0).</summary>
+        [DataMember] public double Confidence { get; set; } = 1.0;
     }
-    
+
     /// <summary>
-    /// Database of obfuscated-to-friendly name mappings with JSON persistence.
+    /// JSON-persisted database of deobfuscation mappings with triple indexing.
     /// </summary>
     public class MappingDatabase
     {
         private readonly string _filePath;
-        private Dictionary<string, SymbolMapping> _mappingsBySignature;
-        private Dictionary<string, SymbolMapping> _mappingsByObfuscatedName;
-        private Dictionary<string, SymbolMapping> _mappingsByFriendlyName;
-        
-        /// <summary>
-        /// All mappings in the database.
-        /// </summary>
-        public IReadOnlyCollection<SymbolMapping> Mappings => _mappingsBySignature.Values;
-        
-        /// <summary>
-        /// All mappings as an enumerable (for iteration).
-        /// </summary>
-        public IEnumerable<SymbolMapping> AllMappings => _mappingsBySignature.Values;
-        
-        /// <summary>
-        /// Number of mappings in the database.
-        /// </summary>
-        public int Count => _mappingsBySignature.Count;
-        
-        /// <summary>
-        /// Event fired when mappings change.
-        /// </summary>
-        public event Action OnMappingsChanged;
-        
+        private List<SymbolMapping> _mappings = new List<SymbolMapping>();
+
+        // Indices
+        private Dictionary<string, SymbolMapping> _byObfuscatedName = new Dictionary<string, SymbolMapping>(StringComparer.Ordinal);
+        private Dictionary<string, SymbolMapping> _byFriendlyName = new Dictionary<string, SymbolMapping>(StringComparer.OrdinalIgnoreCase);
+        private Dictionary<string, SymbolMapping> _byStructuralSig = new Dictionary<string, SymbolMapping>(StringComparer.Ordinal);
+
+        public string FilePath => _filePath;
+        public int Count => _mappings.Count;
+        public IReadOnlyList<SymbolMapping> All => _mappings;
+
+        public event Action OnChanged;
+
         public MappingDatabase(string filePath)
         {
             _filePath = filePath;
-            _mappingsBySignature = new Dictionary<string, SymbolMapping>();
-            _mappingsByObfuscatedName = new Dictionary<string, SymbolMapping>();
-            _mappingsByFriendlyName = new Dictionary<string, SymbolMapping>();
         }
-        
-        /// <summary>
-        /// Loads mappings from the JSON file.
-        /// </summary>
+
+        // ===== Persistence =====
+
         public bool Load()
         {
             try
             {
-                if (!File.Exists(_filePath))
-                {
-                    return false;
-                }
-                
-                var json = File.ReadAllText(_filePath);
-                var serializer = new DataContractJsonSerializer(typeof(List<SymbolMapping>));
+                if (!File.Exists(_filePath)) return false;
+
+                var json = File.ReadAllText(_filePath, Encoding.UTF8);
+                var ser = new DataContractJsonSerializer(typeof(List<SymbolMapping>));
                 using (var ms = new MemoryStream(Encoding.UTF8.GetBytes(json)))
                 {
-                    var mappings = (List<SymbolMapping>)serializer.ReadObject(ms);
-                    
-                    _mappingsBySignature.Clear();
-                    _mappingsByObfuscatedName.Clear();
-                    _mappingsByFriendlyName.Clear();
-                    
-                    if (mappings != null)
+                    var list = (List<SymbolMapping>)ser.ReadObject(ms);
+                    _mappings.Clear();
+                    ClearIndices();
+                    if (list != null)
                     {
-                        foreach (var mapping in mappings)
+                        foreach (var m in list)
                         {
-                            AddToIndices(mapping);
+                            _mappings.Add(m);
+                            IndexMapping(m);
                         }
                     }
                 }
-                
                 return true;
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[MappingDatabase] Error loading mappings: {ex.Message}");
-                return false;
-            }
+            catch { return false; }
         }
-        
-        /// <summary>
-        /// Saves mappings to the JSON file.
-        /// </summary>
+
         public bool Save()
         {
             try
             {
-                var directory = Path.GetDirectoryName(_filePath);
-                if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
-                {
-                    Directory.CreateDirectory(directory);
-                }
-                
-                var serializer = new DataContractJsonSerializer(typeof(List<SymbolMapping>));
+                var dir = Path.GetDirectoryName(_filePath);
+                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                    Directory.CreateDirectory(dir);
+
+                var ser = new DataContractJsonSerializer(typeof(List<SymbolMapping>));
                 using (var ms = new MemoryStream())
                 {
-                    serializer.WriteObject(ms, _mappingsBySignature.Values.ToList());
-                    var json = Encoding.UTF8.GetString(ms.ToArray());
-                    File.WriteAllText(_filePath, json);
+                    using (var writer = System.Runtime.Serialization.Json.JsonReaderWriterFactory
+                        .CreateJsonWriter(ms, Encoding.UTF8, true, true, "  "))
+                    {
+                        ser.WriteObject(writer, _mappings);
+                        writer.Flush();
+                    }
+                    File.WriteAllText(_filePath, Encoding.UTF8.GetString(ms.ToArray()), Encoding.UTF8);
                 }
-                
                 return true;
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[MappingDatabase] Error saving mappings: {ex.Message}");
-                return false;
-            }
+            catch { return false; }
         }
-        
-        /// <summary>
-        /// Adds or updates a mapping.
-        /// </summary>
-        public void SetMapping(SymbolMapping mapping)
+
+        // ===== CRUD =====
+
+        public void AddOrUpdate(SymbolMapping mapping)
         {
-            if (string.IsNullOrEmpty(mapping.Signature))
-                throw new ArgumentException("Mapping must have a signature");
-            
-            // Remove old entries if updating
-            if (_mappingsBySignature.TryGetValue(mapping.Signature, out var existing))
-            {
-                _mappingsByObfuscatedName.Remove(existing.ObfuscatedName);
-                if (!string.IsNullOrEmpty(existing.FriendlyName))
-                    _mappingsByFriendlyName.Remove(existing.FriendlyName);
-            }
-            
             mapping.LastUpdated = DateTime.Now;
-            AddToIndices(mapping);
-            
-            OnMappingsChanged?.Invoke();
-        }
-        
-        /// <summary>
-        /// Removes a mapping by signature.
-        /// </summary>
-        public bool RemoveMapping(string signature)
-        {
-            if (_mappingsBySignature.TryGetValue(signature, out var mapping))
+
+            var existing = GetByObfuscatedName(mapping.ObfuscatedName);
+            if (existing != null)
             {
-                _mappingsBySignature.Remove(signature);
-                _mappingsByObfuscatedName.Remove(mapping.ObfuscatedName);
-                if (!string.IsNullOrEmpty(mapping.FriendlyName))
-                    _mappingsByFriendlyName.Remove(mapping.FriendlyName);
-                
-                OnMappingsChanged?.Invoke();
-                return true;
+                RemoveFromIndices(existing);
+                _mappings.Remove(existing);
             }
-            
-            // Also try removing by obfuscated name
-            if (_mappingsByObfuscatedName.TryGetValue(signature, out mapping))
-            {
-                _mappingsBySignature.Remove(mapping.Signature);
-                _mappingsByObfuscatedName.Remove(mapping.ObfuscatedName);
-                if (!string.IsNullOrEmpty(mapping.FriendlyName))
-                    _mappingsByFriendlyName.Remove(mapping.FriendlyName);
-                
-                OnMappingsChanged?.Invoke();
-                return true;
-            }
-            
-            return false;
+
+            _mappings.Add(mapping);
+            IndexMapping(mapping);
+            OnChanged?.Invoke();
         }
-        
-        /// <summary>
-        /// Gets a mapping by its signature.
-        /// </summary>
-        public SymbolMapping GetBySignature(string signature)
+
+        public bool Remove(string obfuscatedName)
         {
-            _mappingsBySignature.TryGetValue(signature, out var mapping);
-            return mapping;
+            var m = GetByObfuscatedName(obfuscatedName);
+            if (m == null) return false;
+            RemoveFromIndices(m);
+            _mappings.Remove(m);
+            OnChanged?.Invoke();
+            return true;
         }
-        
-        /// <summary>
-        /// Gets a mapping by obfuscated name.
-        /// </summary>
-        public SymbolMapping GetByObfuscatedName(string obfuscatedName)
+
+        // ===== Lookup =====
+
+        public SymbolMapping GetByObfuscatedName(string name)
         {
-            _mappingsByObfuscatedName.TryGetValue(obfuscatedName, out var mapping);
-            return mapping;
+            if (string.IsNullOrEmpty(name)) return null;
+            _byObfuscatedName.TryGetValue(name, out var m);
+            return m;
         }
-        
-        /// <summary>
-        /// Gets a mapping by friendly name.
-        /// </summary>
-        public SymbolMapping GetByFriendlyName(string friendlyName)
+
+        public SymbolMapping GetByFriendlyName(string name)
         {
-            _mappingsByFriendlyName.TryGetValue(friendlyName, out var mapping);
-            return mapping;
+            if (string.IsNullOrEmpty(name)) return null;
+            _byFriendlyName.TryGetValue(name, out var m);
+            return m;
         }
-        
-        /// <summary>
-        /// Resolves the current obfuscated name for a signature.
-        /// Used after game updates to find the new obfuscated name.
-        /// </summary>
-        public string ResolveObfuscatedName(string signature)
+
+        public SymbolMapping GetByStructuralSignature(string sig)
         {
-            return GetBySignature(signature)?.ObfuscatedName;
+            if (string.IsNullOrEmpty(sig)) return null;
+            _byStructuralSig.TryGetValue(sig, out var m);
+            return m;
         }
-        
-        /// <summary>
-        /// Resolves the friendly name for an obfuscated name.
-        /// </summary>
-        public string ResolveFriendlyName(string obfuscatedName)
+
+        public IEnumerable<SymbolMapping> GetBySymbolType(SymbolType type)
         {
-            return GetByObfuscatedName(obfuscatedName)?.FriendlyName;
+            return _mappings.Where(m => m.SymbolType == type);
         }
-        
-        /// <summary>
-        /// Gets all mappings for a specific symbol type.
-        /// </summary>
-        public IEnumerable<SymbolMapping> GetMappingsByType(SymbolType type)
+
+        public IEnumerable<SymbolMapping> GetMembers(string parentObfuscatedName)
         {
-            return _mappingsBySignature.Values.Where(m => m.SymbolType == type);
+            return _mappings.Where(m => m.ParentType == parentObfuscatedName);
         }
-        
-        /// <summary>
-        /// Gets all mappings for members of a specific type.
-        /// </summary>
-        public IEnumerable<SymbolMapping> GetMemberMappings(string parentTypeName)
+
+        /// <summary>Resolve friendly name for display, returns original if unmapped.</summary>
+        public string Resolve(string obfuscatedName)
         {
-            return _mappingsBySignature.Values.Where(m => m.ParentTypeName == parentTypeName);
+            var m = GetByObfuscatedName(obfuscatedName);
+            return m?.FriendlyName ?? obfuscatedName;
         }
-        
-        /// <summary>
-        /// Updates the obfuscated name for a signature (used after re-identification).
-        /// </summary>
-        public void UpdateObfuscatedName(string signature, string newObfuscatedName, double verificationScore = 1.0)
+
+        // ===== Index management =====
+
+        private void IndexMapping(SymbolMapping m)
         {
-            if (_mappingsBySignature.TryGetValue(signature, out var mapping))
-            {
-                // Remove old obfuscated name index
-                _mappingsByObfuscatedName.Remove(mapping.ObfuscatedName);
-                
-                // Update
-                mapping.ObfuscatedName = newObfuscatedName;
-                mapping.VerificationScore = verificationScore;
-                mapping.LastUpdated = DateTime.Now;
-                
-                // Add new obfuscated name index
-                _mappingsByObfuscatedName[newObfuscatedName] = mapping;
-                
-                OnMappingsChanged?.Invoke();
-            }
+            if (!string.IsNullOrEmpty(m.ObfuscatedName))
+                _byObfuscatedName[m.ObfuscatedName] = m;
+            if (!string.IsNullOrEmpty(m.FriendlyName))
+                _byFriendlyName[m.FriendlyName] = m;
+            if (!string.IsNullOrEmpty(m.StructuralSignature))
+                _byStructuralSig[m.StructuralSignature] = m;
         }
-        
-        /// <summary>
-        /// Creates a mapping from a TypeDefinition.
-        /// </summary>
-        public SymbolMapping CreateTypeMapping(TypeDefinition type, string friendlyName)
+
+        private void RemoveFromIndices(SymbolMapping m)
         {
-            return new SymbolMapping
-            {
-                ObfuscatedName = type.Name,
-                FriendlyName = friendlyName,
-                Signature = type.Signature,
-                SymbolType = SymbolType.Type,
-                ParentTypeName = null,
-                LastUpdated = DateTime.Now,
-                VerificationScore = 1.0
-            };
+            if (!string.IsNullOrEmpty(m.ObfuscatedName))
+                _byObfuscatedName.Remove(m.ObfuscatedName);
+            if (!string.IsNullOrEmpty(m.FriendlyName))
+                _byFriendlyName.Remove(m.FriendlyName);
+            if (!string.IsNullOrEmpty(m.StructuralSignature))
+                _byStructuralSig.Remove(m.StructuralSignature);
         }
-        
-        /// <summary>
-        /// Creates a mapping from a FieldDefinition.
-        /// </summary>
-        public SymbolMapping CreateFieldMapping(TypeDefinition parentType, FieldDefinition field, string friendlyName)
+
+        private void ClearIndices()
         {
-            return new SymbolMapping
-            {
-                ObfuscatedName = field.Name,
-                FriendlyName = friendlyName,
-                Signature = SignatureGenerator.GenerateFieldSignature(parentType, field),
-                SymbolType = SymbolType.Field,
-                ParentTypeName = parentType.Name,
-                LastUpdated = DateTime.Now,
-                VerificationScore = 1.0
-            };
-        }
-        
-        /// <summary>
-        /// Creates a mapping from a PropertyDefinition.
-        /// </summary>
-        public SymbolMapping CreatePropertyMapping(TypeDefinition parentType, PropertyDefinition property, string friendlyName)
-        {
-            return new SymbolMapping
-            {
-                ObfuscatedName = property.Name,
-                FriendlyName = friendlyName,
-                Signature = SignatureGenerator.GeneratePropertySignature(parentType, property),
-                SymbolType = SymbolType.Property,
-                ParentTypeName = parentType.Name,
-                LastUpdated = DateTime.Now,
-                VerificationScore = 1.0
-            };
-        }
-        
-        /// <summary>
-        /// Creates a mapping from a MethodDefinition.
-        /// </summary>
-        public SymbolMapping CreateMethodMapping(TypeDefinition parentType, MethodDefinition method, string friendlyName)
-        {
-            return new SymbolMapping
-            {
-                ObfuscatedName = method.Name,
-                FriendlyName = friendlyName,
-                Signature = SignatureGenerator.GenerateMethodSignature(parentType, method),
-                SymbolType = SymbolType.Method,
-                ParentTypeName = parentType.Name,
-                LastUpdated = DateTime.Now,
-                VerificationScore = 1.0
-            };
-        }
-        
-        private void AddToIndices(SymbolMapping mapping)
-        {
-            _mappingsBySignature[mapping.Signature] = mapping;
-            _mappingsByObfuscatedName[mapping.ObfuscatedName] = mapping;
-            if (!string.IsNullOrEmpty(mapping.FriendlyName))
-            {
-                _mappingsByFriendlyName[mapping.FriendlyName] = mapping;
-            }
+            _byObfuscatedName.Clear();
+            _byFriendlyName.Clear();
+            _byStructuralSig.Clear();
         }
     }
 }

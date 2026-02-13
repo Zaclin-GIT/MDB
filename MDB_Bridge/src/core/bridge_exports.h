@@ -596,6 +596,43 @@ extern "C" {
     MDB_API const char* mdb_method_get_name(void* method);
     
     // ==============================
+    // Assembly / Image / Class Enumeration
+    // ==============================
+
+    /// <summary>Get the number of loaded assemblies.</summary>
+    MDB_API int mdb_get_assembly_count();
+
+    /// <summary>Get an assembly by index.</summary>
+    MDB_API void* mdb_get_assembly(int index);
+
+    /// <summary>Get the image from an assembly.</summary>
+    MDB_API void* mdb_assembly_get_image(void* assembly);
+
+    /// <summary>Get the name of an image (e.g. "Assembly-CSharp.dll").</summary>
+    MDB_API const char* mdb_image_get_name(void* image);
+
+    /// <summary>Get the number of classes in an image.</summary>
+    MDB_API int mdb_image_get_class_count(void* image);
+
+    /// <summary>Get a class from an image by index.</summary>
+    MDB_API void* mdb_image_get_class(void* image, int index);
+
+    /// <summary>Get class flags (access, sealed, abstract, interface, etc.).</summary>
+    MDB_API int mdb_class_get_flags(void* klass);
+
+    /// <summary>Get the field offset (instance offset in object).</summary>
+    MDB_API int mdb_field_get_offset(void* field);
+
+    /// <summary>
+    /// Read raw bytes from a memory address (for method body byte signatures).
+    /// </summary>
+    /// <param name="address">Source address to read from</param>
+    /// <param name="buffer">Output buffer</param>
+    /// <param name="size">Number of bytes to read (max 4096)</param>
+    /// <returns>Number of bytes actually read, or 0 on error</returns>
+    MDB_API int mdb_read_memory(void* address, void* buffer, int size);
+
+    // ==============================
     // ImGui Integration
     // ==============================
     
