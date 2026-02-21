@@ -18,6 +18,9 @@ x64/
 *.exp
 *.lib
 *.ilk
+
+# Allow example project SDK dependencies
+!Documentation/Examples/**/deps/*.dll
 *.iobj
 *.ipdb
 *.obj
