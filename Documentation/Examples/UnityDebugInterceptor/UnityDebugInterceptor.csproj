@@ -9,8 +9,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Reference Include="GameSDK.Core">
-      <HintPath>..\..\MDB_Core\bin\Release\net481\GameSDK.Core.dll</HintPath>
+    <Reference Include="GameSDK.MDBUnityStandard">
+      <HintPath>deps\GameSDK.MDBUnityStandard.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>

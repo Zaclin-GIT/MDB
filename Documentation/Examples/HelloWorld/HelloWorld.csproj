@@ -24,12 +24,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\MDB_Core\MDB_Core.csproj" />
-  </ItemGroup>
-
-  <!-- Shared generated Unity wrappers (stripped-down universal subset) -->
-  <ItemGroup>
-    <Compile Include="..\UnityStubs.cs" Link="UnityStubs.cs" />
+    <Reference Include="GameSDK.MDBUnityStandard">
+      <HintPath>deps\GameSDK.MDBUnityStandard.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
 </Project>

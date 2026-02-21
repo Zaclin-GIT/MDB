@@ -628,6 +628,7 @@ namespace il2cpp {
 		inline bool (__fastcall* il2cpp_class_is_valuetype)(const unity_structs::il2cppClass*) = nullptr;
 		inline bool (__fastcall* il2cpp_class_is_enum)(const unity_structs::il2cppClass*) = nullptr;
 		inline const char* (__fastcall* il2cpp_class_get_name)(unity_structs::il2cppClass*) = nullptr;
+		inline unity_structs::il2cppClass* (__fastcall* il2cpp_class_get_declaring_type)(unity_structs::il2cppClass*) = nullptr;
 		inline unity_structs::il2cppClass* (__fastcall* il2cpp_class_get_parent)(unity_structs::il2cppClass*) = nullptr;
 		inline unity_structs::il2cppClass* (__fastcall* il2cpp_class_get_interfaces)(unity_structs::il2cppClass*, void**) = nullptr;
 		inline unity_structs::il2cppFieldInfo* (__fastcall* il2cpp_class_get_fields)(unity_structs::il2cppClass*, void**) = nullptr;
@@ -706,6 +707,7 @@ namespace il2cpp {
 			try_bind(il2cpp_class_is_valuetype,       "il2cpp_class_is_valuetype");
 			try_bind(il2cpp_class_is_enum,            "il2cpp_class_is_enum");
 			try_bind(il2cpp_class_get_name,           "il2cpp_class_get_name");
+			try_bind(il2cpp_class_get_declaring_type, "il2cpp_class_get_declaring_type");
 			try_bind(il2cpp_class_get_parent,         "il2cpp_class_get_parent");
 			try_bind(il2cpp_class_get_interfaces,     "il2cpp_class_get_interfaces");
 			try_bind(il2cpp_class_get_fields,         "il2cpp_class_get_fields");

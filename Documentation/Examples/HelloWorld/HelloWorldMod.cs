@@ -2,9 +2,6 @@
 // HelloWorld - Simple MDB Example Mod
 // ==============================
 // Demonstrates: ModBase lifecycle, Logger, ImGuiManager, basic ImGui widgets
-//
-// This example uses the generated UnityEngine wrappers (see ../UnityStubs.cs)
-// which call into the IL2CPP runtime via Il2CppRuntime.CallStatic/Call.
 
 using System;
 using GameSDK;

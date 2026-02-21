@@ -47,6 +47,7 @@ static bool ShouldSkipNamespace(const std::string& ns) {
     if (ns.rfind("Mono.", 0) == 0) return true;
     if (ns.rfind("Internal.", 0) == 0) return true;
     if (ns.rfind("Microsoft.", 0) == 0) return true;
+    if (ns.rfind("MS.", 0) == 0) return true;
     return false;
 }
 
@@ -113,6 +114,52 @@ static std::string PrimitiveTypeName(unsigned int typeEnum) {
 static std::string SanitizeTypeName(const std::string& name) {
     auto pos = name.find('`');
     return (pos != std::string::npos) ? name.substr(0, pos) : name;
+}
+
+/// Walk the declaring type chain to find the effective namespace for nested types.
+/// In IL2CPP metadata, nested types (e.g. InputField.ContentType) have an empty namespace;
+/// the real namespace is on the outermost declaring type.
+/// Returns the resolved namespace string (may still be empty for truly global types).
+static std::string ResolveEffectiveNamespace(il2cppClass* klass) {
+    if (!klass) return "";
+
+    // First check this class's own namespace
+    const char* ns = api::il2cpp_class_get_namespace(klass);
+    std::string nsStr(ns ? ns : "");
+    if (!nsStr.empty()) return nsStr;
+
+    // Empty namespace — check if this is a nested type by walking declaring type chain
+    il2cppClass* declaring = nullptr;
+
+    // Prefer the API function if available
+    if (api::il2cpp_class_get_declaring_type) {
+        declaring = api::il2cpp_class_get_declaring_type(klass);
+    } else {
+        // Fallback: read directly from struct field
+        declaring = klass->m_pDeclareClass;
+    }
+
+    if (declaring) {
+        // Walk up the chain (handles multiply-nested types like A.B.C)
+        constexpr int MAX_DEPTH = 16; // safety limit
+        for (int depth = 0; depth < MAX_DEPTH && declaring; ++depth) {
+            const char* declNs = api::il2cpp_class_get_namespace(declaring);
+            std::string declNsStr(declNs ? declNs : "");
+            if (!declNsStr.empty()) return declNsStr;
+
+            // Keep walking up
+            il2cppClass* next = nullptr;
+            if (api::il2cpp_class_get_declaring_type) {
+                next = api::il2cpp_class_get_declaring_type(declaring);
+            } else {
+                next = declaring->m_pDeclareClass;
+            }
+            declaring = next;
+        }
+    }
+
+    // Truly namespace-less type (no declaring type chain had a namespace)
+    return "";
 }
 
 // Forward declarations for mutual recursion
@@ -193,9 +240,13 @@ static std::string GetFullyQualifiedClassName(il2cppClass* klass, const std::str
         }
     }
 
+    // Resolve the effective namespace (walks declaring type chain for nested types)
+    std::string resolvedNs = nsStr.empty() ? ResolveEffectiveNamespace(klass) : nsStr;
+    std::string effectiveNs = resolvedNs.empty() ? "Global" : resolvedNs;
+
     // For game types, validate against known types registry
     if (!isSystemType && !g_knownTypes.empty()) {
-        std::string fqn = nsStr.empty() ? safeName : (nsStr + "." + safeName);
+        std::string fqn = resolvedNs.empty() ? safeName : (resolvedNs + "." + safeName);
         if (g_knownTypes.find(fqn) == g_knownTypes.end()) {
             return "object";
         }
@@ -210,19 +261,12 @@ static std::string GetFullyQualifiedClassName(il2cppClass* klass, const std::str
     }
 
     // For types whose namespace matches the file we're generating, use short name
-    // Handle the "Global" bucket: empty namespace -> "Global"
-    std::string effectiveNs = nsStr.empty() ? "Global" : nsStr;
     if (effectiveNs == currentNamespace) {
         return safeName;
     }
 
-    // For empty namespace types referenced from elsewhere
-    if (nsStr.empty()) {
-        return "global::Global." + safeName;
-    }
-
     // Fully qualify with global:: prefix
-    return "global::" + nsStr + "." + safeName;
+    return "global::" + effectiveNs + "." + safeName;
 }
 
 /// Get the fully-qualified C# type name from an il2cppType.
@@ -1317,7 +1361,7 @@ DumpResult DumpIL2CppRuntime(const std::string& output_directory) {
             if (nameStr.find('>') != std::string::npos) continue;
             if (nameStr.find('/') != std::string::npos) continue;
 
-            // Skip system/internal namespaces
+            // Skip system/internal namespaces (check raw namespace first)
             if (ShouldSkipNamespace(nsStr)) continue;
 
             // Skip non-public types
@@ -1328,8 +1372,13 @@ DumpResult DumpIL2CppRuntime(const std::string& output_directory) {
             // Obfuscation filter: skip entirely-fake classes
             if (g_obfuscation_detector && g_obfuscation_detector->IsEntirelyFakeClass(klass)) continue;
 
-            // Use "Global" bucket for empty namespace
-            std::string bucketNs = nsStr.empty() ? "Global" : nsStr;
+            // Resolve effective namespace: nested types inherit their declaring type's namespace
+            std::string resolvedNs = nsStr.empty() ? ResolveEffectiveNamespace(klass) : nsStr;
+
+            // Re-check the resolved namespace — nested types from System/Mono/etc. must also be skipped
+            if (resolvedNs != nsStr && ShouldSkipNamespace(resolvedNs)) continue;
+
+            std::string bucketNs = resolvedNs.empty() ? "Global" : resolvedNs;
 
             ClassInfo info = ClassifyType(klass, dllName, bucketNs);
             typesByNamespace[bucketNs].push_back(info);
@@ -1341,7 +1390,9 @@ DumpResult DumpIL2CppRuntime(const std::string& output_directory) {
     g_knownTypes.clear();
     for (const auto& [regNs, regTypes] : typesByNamespace) {
         for (const auto& regInfo : regTypes) {
-            std::string fqn = regInfo.rawNs.empty() ? regInfo.name : (regInfo.rawNs + "." + regInfo.name);
+            // Use the effective namespace (which includes resolved declaring type namespace)
+            std::string effectiveNs = regInfo.ns == "Global" ? "" : regInfo.ns;
+            std::string fqn = effectiveNs.empty() ? regInfo.name : (effectiveNs + "." + regInfo.name);
             g_knownTypes.insert(fqn);
         }
     }

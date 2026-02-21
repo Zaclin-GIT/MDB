@@ -5,10 +5,6 @@
 //               IL2CPP Bridge (class/method/field access),
 //               HookManager (manual hooks), ImGui dashboard,
 //               OnUpdate/OnLateUpdate lifecycle, advanced widgets.
-//
-// This example uses the generated UnityEngine wrappers (see ../UnityStubs.cs)
-// and targets only universal Unity Engine types so it works across any
-// Unity IL2CPP game.
 
 using System;
 using System.Collections.Generic;

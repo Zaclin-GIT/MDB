@@ -3,6 +3,7 @@
 // ==============================
 
 using System;
+using System.IO;
 using System.Numerics;
 using GameSDK;
 using GameSDK.ModHost;
@@ -26,6 +27,9 @@ namespace MDB.Explorer.ImGui
         private GameObjectInspector _inspector;
         private DeobfuscationPanel _deobfuscationPanel;
         private HierarchyNode _selectedNode;
+
+        // Window layout persistence
+        private WindowConfig _config;
 
         // UI state
         private bool _showExplorer = true;
@@ -53,6 +57,28 @@ namespace MDB.Explorer.ImGui
                     Logger.Info($"Deobfuscation enabled with {DeobfuscationHelper.MappingCount} mappings");
                 }
                 
+                // Initialize window layout config
+                // Assembly.Location is empty when loaded via Assembly.Load(byte[]),
+                // so fall back to BaseDirectory + known folder structure
+                var assemblyLocation = typeof(ExplorerMod).Assembly.Location;
+                var modsFolder = !string.IsNullOrEmpty(assemblyLocation)
+                    ? Path.GetDirectoryName(assemblyLocation)
+                    : Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "MDB", "Mods");
+                if (Directory.Exists(modsFolder))
+                {
+                    _config = new WindowConfig(modsFolder);
+                    if (_config.HasSavedLayout)
+                    {
+                        // Restore visibility from saved config
+                        var h = _config.GetWindow("Scene Hierarchy");
+                        if (h != null) _showHierarchy = h.Visible;
+                        var i = _config.GetWindow("Inspector");
+                        if (i != null) _showInspector = i.Visible;
+                        var d = _config.GetWindow("Deobfuscation");
+                        if (d != null) _showDeobfuscation = d.Visible;
+                    }
+                }
+
                 // Create components
                 _hierarchy = new SceneHierarchy();
                 _inspector = new GameObjectInspector();
@@ -197,11 +223,19 @@ namespace MDB.Explorer.ImGui
                 {
                     DrawHierarchyPanel();
                 }
+                else
+                {
+                    _config?.UpdateVisibility("Scene Hierarchy", false);
+                }
 
                 // Inspector Panel
                 if (_showInspector)
                 {
                     DrawInspectorPanel();
+                }
+                else
+                {
+                    _config?.UpdateVisibility("Inspector", false);
                 }
 
                 // Deobfuscation Panel
@@ -209,6 +243,13 @@ namespace MDB.Explorer.ImGui
                 {
                     DrawDeobfuscationPanel();
                 }
+                else
+                {
+                    _config?.UpdateVisibility("Deobfuscation", false);
+                }
+
+                // Persist window layouts
+                _config?.AutoSave();
             }
             catch (Exception ex)
             {
@@ -218,20 +259,39 @@ namespace MDB.Explorer.ImGui
 
         private void DrawDeobfuscationPanel()
         {
-            ImGui.SetNextWindowPos(new Vector2(780, 30), ImGuiCond.FirstUseEver);
-            ImGui.SetNextWindowSize(new Vector2(500, 600), ImGuiCond.FirstUseEver);
+            var saved = _config?.GetWindow("Deobfuscation");
+            if (saved != null)
+            {
+                ImGui.SetNextWindowPos(saved.Position, ImGuiCond.FirstUseEver);
+                ImGui.SetNextWindowSize(saved.Size, ImGuiCond.FirstUseEver);
+            }
+            else
+            {
+                ImGui.SetNextWindowPos(new Vector2(780, 30), ImGuiCond.FirstUseEver);
+                ImGui.SetNextWindowSize(new Vector2(500, 600), ImGuiCond.FirstUseEver);
+            }
 
             if (ImGui.Begin("Deobfuscation", ref _showDeobfuscation))
             {
                 _deobfuscationPanel.Render();
             }
+            _config?.UpdateWindow("Deobfuscation", ImGui.GetWindowPos(), ImGui.GetWindowSize(), _showDeobfuscation);
             ImGui.End();
         }
 
         private void DrawHierarchyPanel()
         {
-            ImGui.SetNextWindowPos(new Vector2(10, 30), ImGuiCond.FirstUseEver);
-            ImGui.SetNextWindowSize(new Vector2(_hierarchyWidth, 500), ImGuiCond.FirstUseEver);
+            var saved = _config?.GetWindow("Scene Hierarchy");
+            if (saved != null)
+            {
+                ImGui.SetNextWindowPos(saved.Position, ImGuiCond.FirstUseEver);
+                ImGui.SetNextWindowSize(saved.Size, ImGuiCond.FirstUseEver);
+            }
+            else
+            {
+                ImGui.SetNextWindowPos(new Vector2(10, 30), ImGuiCond.FirstUseEver);
+                ImGui.SetNextWindowSize(new Vector2(_hierarchyWidth, 500), ImGuiCond.FirstUseEver);
+            }
 
             if (ImGui.Begin("Scene Hierarchy", ref _showHierarchy))
             {
@@ -293,6 +353,7 @@ namespace MDB.Explorer.ImGui
                 }
                 ImGui.EndChild();
             }
+            _config?.UpdateWindow("Scene Hierarchy", ImGui.GetWindowPos(), ImGui.GetWindowSize(), _showHierarchy);
             ImGui.End();
         }
 
@@ -418,13 +479,23 @@ namespace MDB.Explorer.ImGui
 
         private void DrawInspectorPanel()
         {
-            ImGui.SetNextWindowPos(new Vector2(370, 30), ImGuiCond.FirstUseEver);
-            ImGui.SetNextWindowSize(new Vector2(_inspectorWidth, 500), ImGuiCond.FirstUseEver);
+            var saved = _config?.GetWindow("Inspector");
+            if (saved != null)
+            {
+                ImGui.SetNextWindowPos(saved.Position, ImGuiCond.FirstUseEver);
+                ImGui.SetNextWindowSize(saved.Size, ImGuiCond.FirstUseEver);
+            }
+            else
+            {
+                ImGui.SetNextWindowPos(new Vector2(370, 30), ImGuiCond.FirstUseEver);
+                ImGui.SetNextWindowSize(new Vector2(_inspectorWidth, 500), ImGuiCond.FirstUseEver);
+            }
 
             if (ImGui.Begin("Inspector", ref _showInspector))
             {
                 _inspector.Draw();
             }
+            _config?.UpdateWindow("Inspector", ImGui.GetWindowPos(), ImGui.GetWindowSize(), _showInspector);
             ImGui.End();
         }
 

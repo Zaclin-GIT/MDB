@@ -267,6 +267,24 @@ namespace MDB.Explorer.ImGui
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "igGetWindowHeight")]
         public static extern float GetWindowHeight();
 
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "igGetWindowPos")]
+        private static extern void igGetWindowPos(out Vector2 pos);
+
+        public static Vector2 GetWindowPos()
+        {
+            igGetWindowPos(out Vector2 pos);
+            return pos;
+        }
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "igGetWindowSize")]
+        private static extern void igGetWindowSize(out Vector2 size);
+
+        public static Vector2 GetWindowSize()
+        {
+            igGetWindowSize(out Vector2 size);
+            return size;
+        }
+
         // ===== Widgets: Text =====
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "igTextUnformatted")]
@@ -685,6 +703,75 @@ namespace MDB.Explorer.ImGui
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "igSetClipboardText")]
         public static extern void SetClipboardText([MarshalAs(UnmanagedType.LPStr)] string text);
+
+        // ===== Layout Utilities =====
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "igCalcTextSize")]
+        private static extern void igCalcTextSize(out Vector2 result, [MarshalAs(UnmanagedType.LPStr)] string text, IntPtr text_end, [MarshalAs(UnmanagedType.I1)] bool hide_text_after_double_hash, float wrap_width);
+
+        /// <summary>
+        /// Calculate the size of text without rendering it.
+        /// </summary>
+        public static Vector2 CalcTextSize(string text)
+        {
+            igCalcTextSize(out var result, text, IntPtr.Zero, false, -1.0f);
+            return result;
+        }
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "igGetCursorPosX")]
+        public static extern float GetCursorPosX();
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "igSetCursorPosX")]
+        public static extern void SetCursorPosX(float local_x);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "igGetContentRegionAvailX")]
+        public static extern float GetContentRegionAvailX();
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "igGetContentRegionAvail")]
+        private static extern void igGetContentRegionAvail(out Vector2 result);
+
+        public static Vector2 GetContentRegionAvail()
+        {
+            igGetContentRegionAvail(out var result);
+            return result;
+        }
+
+        // ===== Disabled Widgets =====
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "igBeginDisabled")]
+        public static extern void BeginDisabled([MarshalAs(UnmanagedType.I1)] bool disabled = true);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "igEndDisabled")]
+        public static extern void EndDisabled();
+
+        // ===== Spacing =====
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "igSpacing")]
+        public static extern void Spacing();
+
+        // ===== Tab Bar =====
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "igBeginTabBar")]
+        private static extern byte igBeginTabBar([MarshalAs(UnmanagedType.LPStr)] string str_id, int flags);
+
+        public static bool BeginTabBar(string str_id, int flags = 0)
+        {
+            return igBeginTabBar(str_id, flags) != 0;
+        }
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "igEndTabBar")]
+        public static extern void EndTabBar();
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "igBeginTabItem")]
+        private static extern byte igBeginTabItem([MarshalAs(UnmanagedType.LPStr)] string label, IntPtr p_open, int flags);
+
+        public static bool BeginTabItem(string label, int flags = 0)
+        {
+            return igBeginTabItem(label, IntPtr.Zero, flags) != 0;
+        }
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "igEndTabItem")]
+        public static extern void EndTabItem();
     }
 
     #endregion

@@ -5,45 +5,12 @@
 
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using GameSDK;
 using GameSDK.ModHost;
 
 namespace MDB.Explorer.ImGui
 {
-    /// <summary>
-    /// Represents a scene in Unity.
-    /// </summary>
-    public class SceneInfo
-    {
-        public int Handle { get; set; }
-        public string Name { get; set; }
-        public string Path { get; set; }
-        public bool IsLoaded { get; set; }
-        public int RootCount { get; set; }
-    }
-
-    /// <summary>
-    /// Represents a GameObject in the hierarchy.
-    /// </summary>
-    public class HierarchyNode
-    {
-        public IntPtr Pointer { get; set; }
-        public string Name { get; set; }
-        public bool IsActive { get; set; }
-        public int Depth { get; set; }
-        public bool IsExpanded { get; set; }
-        public bool HasChildren { get; set; }
-        public int ChildCount { get; set; }
-        public HierarchyNode Parent { get; set; }
-        public List<HierarchyNode> Children { get; set; } = new List<HierarchyNode>();
-        public bool ChildrenLoaded { get; set; }
-        public int SceneHandle { get; set; }
-
-        public bool IsValid => Pointer != IntPtr.Zero;
-
-        public string DisplayName => HasChildren ? $"{Name} ({ChildCount})" : Name;
-    }
-
     /// <summary>
     /// Lightweight scene hierarchy cache.
     /// </summary>
@@ -62,12 +29,19 @@ namespace MDB.Explorer.ImGui
         private float _lastRefreshTime;
         private const float REFRESH_INTERVAL = 2.0f;
 
-        // Cached IL2CPP pointers
-        private IntPtr _gameObjectClass;
-        private IntPtr _transformClass;
+        // Cached IL2CPP pointers (scene-specific; core classes come from Il2CppHelpers)
         private IntPtr _sceneManagerClass;
         private IntPtr _sceneClass;
         private bool _classesResolved;
+
+        // Rendering state
+        private HierarchyNode _selectedNode;
+        private string _searchFilter = "";
+
+        /// <summary>
+        /// Callback invoked when a node is selected in the hierarchy.
+        /// </summary>
+        public Action<HierarchyNode> OnNodeSelected { get; set; }
 
         public IReadOnlyList<HierarchyNode> RootNodes => _rootNodes;
         public IReadOnlyList<SceneInfo> Scenes => _scenes;
@@ -117,20 +91,20 @@ namespace MDB.Explorer.ImGui
 
             try
             {
-                _gameObjectClass = Il2CppBridge.mdb_find_class("UnityEngine.CoreModule", "UnityEngine", "GameObject");
-                _transformClass = Il2CppBridge.mdb_find_class("UnityEngine.CoreModule", "UnityEngine", "Transform");
+                // Resolve core Unity classes via shared helper
+                if (!Il2CppHelpers.ResolveClasses())
+                {
+                    ModLogger.LogInternal(LOG_TAG, "[ERROR] Failed to resolve core Unity classes");
+                    return false;
+                }
+
+                // Resolve scene-specific classes locally
                 _sceneManagerClass = Il2CppBridge.mdb_find_class("UnityEngine.CoreModule", "UnityEngine.SceneManagement", "SceneManager");
                 _sceneClass = Il2CppBridge.mdb_find_class("UnityEngine.CoreModule", "UnityEngine.SceneManagement", "Scene");
 
-                _classesResolved = _gameObjectClass != IntPtr.Zero && _transformClass != IntPtr.Zero;
+                _classesResolved = true;
 
-                if (!_classesResolved)
-                {
-                    ModLogger.LogInternal(LOG_TAG, "[ERROR] Failed to resolve Unity classes");
-                }
-
-                // Log what we found
-                ModLogger.LogInternal(LOG_TAG, $"[INFO] GameObject: {_gameObjectClass != IntPtr.Zero}, Transform: {_transformClass != IntPtr.Zero}, SceneManager: {_sceneManagerClass != IntPtr.Zero}");
+                ModLogger.LogInternal(LOG_TAG, $"[INFO] Classes resolved. SceneManager: {_sceneManagerClass != IntPtr.Zero}");
 
                 return _classesResolved;
             }
@@ -252,11 +226,12 @@ namespace MDB.Explorer.ImGui
                 RefreshScenes();
 
                 // Find all GameObjects using FindObjectsOfType
-                IntPtr findMethod = Il2CppBridge.mdb_get_method(_gameObjectClass, "FindObjectsOfType", 1);
+                var goClass = Il2CppHelpers.GameObjectClass;
+                IntPtr findMethod = Il2CppBridge.mdb_get_method(goClass, "FindObjectsOfType", 1);
                 if (findMethod == IntPtr.Zero)
                 {
                     // Try alternate signature
-                    findMethod = Il2CppBridge.mdb_get_method(_gameObjectClass, "FindObjectsOfType", 2);
+                    findMethod = Il2CppBridge.mdb_get_method(goClass, "FindObjectsOfType", 2);
                 }
 
                 if (findMethod == IntPtr.Zero)
@@ -266,7 +241,7 @@ namespace MDB.Explorer.ImGui
                 }
 
                 // Get GameObject type object
-                IntPtr il2cppType = Il2CppBridge.mdb_class_get_type(_gameObjectClass);
+                IntPtr il2cppType = Il2CppBridge.mdb_class_get_type(goClass);
                 IntPtr typeObj = Il2CppBridge.mdb_type_get_object(il2cppType);
                 if (typeObj == IntPtr.Zero)
                 {
@@ -392,17 +367,17 @@ namespace MDB.Explorer.ImGui
             {
                 node.Children.Clear();
 
-                IntPtr transform = GetTransform(node.Pointer);
+                IntPtr transform = Il2CppHelpers.GetTransform(node.Pointer);
                 if (transform == IntPtr.Zero) return;
 
-                int childCount = GetChildCount(transform);
+                int childCount = Il2CppHelpers.GetChildCount(transform);
 
                 for (int i = 0; i < childCount; i++)
                 {
-                    IntPtr childTransform = GetChildTransform(transform, i);
+                    IntPtr childTransform = Il2CppHelpers.GetChildTransform(transform, i);
                     if (childTransform == IntPtr.Zero) continue;
 
-                    IntPtr childGO = GetGameObject(childTransform);
+                    IntPtr childGO = Il2CppHelpers.GetGameObject(childTransform);
                     if (childGO == IntPtr.Zero) continue;
 
                     var childNode = CreateNode(childGO, node.Depth + 1);
@@ -446,15 +421,15 @@ namespace MDB.Explorer.ImGui
             if (goPtr == IntPtr.Zero) return null;
             if (_nodeMap.ContainsKey(goPtr)) return _nodeMap[goPtr];
 
-            IntPtr transform = GetTransform(goPtr);
-            int childCount = transform != IntPtr.Zero ? GetChildCount(transform) : 0;
+            IntPtr transform = Il2CppHelpers.GetTransform(goPtr);
+            int childCount = transform != IntPtr.Zero ? Il2CppHelpers.GetChildCount(transform) : 0;
             int sceneHandle = Il2CppBridge.mdb_gameobject_get_scene_handle(goPtr);
 
             var node = new HierarchyNode
             {
                 Pointer = goPtr,
-                Name = GetGameObjectName(goPtr) ?? "<unnamed>",
-                IsActive = GetGameObjectActive(goPtr),
+                Name = Il2CppHelpers.GetGameObjectName(goPtr) ?? "<unnamed>",
+                IsActive = Il2CppHelpers.GetGameObjectActive(goPtr),
                 Depth = depth,
                 HasChildren = childCount > 0,
                 ChildCount = childCount,
@@ -467,91 +442,170 @@ namespace MDB.Explorer.ImGui
 
         private bool IsRootObject(IntPtr goPtr)
         {
-            IntPtr transform = GetTransform(goPtr);
+            IntPtr transform = Il2CppHelpers.GetTransform(goPtr);
             if (transform == IntPtr.Zero) return true;
 
-            IntPtr parent = GetParentTransform(transform);
+            IntPtr parent = Il2CppHelpers.GetParentTransform(transform);
             return parent == IntPtr.Zero;
         }
 
-        private IntPtr GetTransform(IntPtr goPtr)
+        // ========== Rendering ==========
+
+        /// <summary>
+        /// Render the hierarchy panel contents (scene selector, search, tree view).
+        /// Call this inside an ImGui.Begin/End block.
+        /// </summary>
+        public void Render()
         {
-            try
+            // Scene selector dropdown
+            string currentScene = _selectedSceneIndex < 0 ? "All Scenes" :
+                (_selectedSceneIndex < _scenes.Count ? _scenes[_selectedSceneIndex].Name : "All Scenes");
+
+            if (ImGui.BeginCombo("##SceneSelector", currentScene))
             {
-                IntPtr method = Il2CppBridge.mdb_get_method(_gameObjectClass, "get_transform", 0);
-                if (method == IntPtr.Zero) return IntPtr.Zero;
+                if (ImGui.Selectable("All Scenes", _selectedSceneIndex < 0))
+                {
+                    _selectedSceneIndex = -1;
+                }
 
-                IntPtr exception;
-                return Il2CppBridge.mdb_invoke_method(method, goPtr, Array.Empty<IntPtr>(), out exception);
+                for (int i = 0; i < _scenes.Count; i++)
+                {
+                    var scene = _scenes[i];
+                    string label = $"{scene.Name} ({scene.RootCount} roots)";
+                    if (ImGui.Selectable(label, _selectedSceneIndex == i))
+                    {
+                        _selectedSceneIndex = i;
+                    }
+                }
+                ImGui.EndCombo();
             }
-            catch { return IntPtr.Zero; }
-        }
 
-        private IntPtr GetParentTransform(IntPtr transform)
-        {
-            try
+            // Search bar
+            ImGui.SetNextItemWidth(-1);
+            if (ImGui.InputTextWithHint("##search", "Search...", ref _searchFilter, 256))
             {
-                IntPtr method = Il2CppBridge.mdb_get_method(_transformClass, "get_parent", 0);
-                if (method == IntPtr.Zero) return IntPtr.Zero;
-
-                IntPtr exception;
-                return Il2CppBridge.mdb_invoke_method(method, transform, Array.Empty<IntPtr>(), out exception);
+                SetFilter(_searchFilter);
             }
-            catch { return IntPtr.Zero; }
-        }
 
-        private int GetChildCount(IntPtr transform)
-        {
-            // Use native helper that properly unboxes the int result
-            return Il2CppBridge.mdb_transform_get_child_count(transform);
-        }
+            ImGui.Separator();
 
-        private IntPtr GetChildTransform(IntPtr transform, int index)
-        {
-            // Use native helper that properly handles the int parameter
-            return Il2CppBridge.mdb_transform_get_child(transform, index);
-        }
-
-        private IntPtr GetGameObject(IntPtr transform)
-        {
-            try
+            // Toolbar
+            if (ImGui.Button("Refresh"))
             {
-                IntPtr method = Il2CppBridge.mdb_get_method(_transformClass, "get_gameObject", 0);
-                if (method == IntPtr.Zero) return IntPtr.Zero;
-
-                IntPtr exception;
-                return Il2CppBridge.mdb_invoke_method(method, transform, Array.Empty<IntPtr>(), out exception);
+                Refresh();
             }
-            catch { return IntPtr.Zero; }
-        }
+            ImGui.SameLine();
+            ImGui.Text($"({_rootNodes.Count} roots, {_nodeMap.Count} total)");
 
-        private string GetGameObjectName(IntPtr goPtr)
-        {
-            try
+            ImGui.Separator();
+
+            // Tree view
+            if (ImGui.BeginChild("TreeView"))
             {
-                IntPtr method = Il2CppBridge.mdb_get_method(_gameObjectClass, "get_name", 0);
-                if (method == IntPtr.Zero) return null;
-
-                IntPtr exception;
-                IntPtr result = Il2CppBridge.mdb_invoke_method(method, goPtr, Array.Empty<IntPtr>(), out exception);
-                if (result == IntPtr.Zero) return null;
-
-                return Il2CppBridge.Il2CppStringToManaged(result);
+                foreach (var node in _rootNodes)
+                {
+                    if (MatchesFilter(node))
+                    {
+                        DrawTreeNode(node);
+                    }
+                }
             }
-            catch { return null; }
+            ImGui.EndChild();
         }
 
-        private bool GetGameObjectActive(IntPtr goPtr)
+        private void DrawTreeNode(HierarchyNode node)
         {
-            // Use native helper that properly unboxes the bool result
-            return Il2CppBridge.mdb_gameobject_get_active_self(goPtr);
+            if (node == null) return;
+
+            ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags.OpenOnArrow | ImGuiTreeNodeFlags.SpanAvailWidth;
+
+            if (!node.HasChildren)
+                flags |= ImGuiTreeNodeFlags.Leaf;
+
+            if (_selectedNode?.Pointer == node.Pointer)
+                flags |= ImGuiTreeNodeFlags.Selected;
+
+            if (node.IsExpanded)
+                flags |= ImGuiTreeNodeFlags.DefaultOpen;
+
+            // Dim inactive objects
+            if (!node.IsActive)
+                ImGui.PushStyleColor(ImGuiCol.Text, Theme.Disabled);
+
+            string label = node.HasChildren
+                ? $"{node.Name} ({node.ChildCount})##{node.Pointer}"
+                : $"{node.Name}##{node.Pointer}";
+
+            bool opened = ImGui.TreeNodeEx(label, flags);
+
+            if (!node.IsActive)
+                ImGui.PopStyleColor();
+
+            // Selection
+            if (ImGui.IsItemClicked() && !ImGui.IsItemToggledOpen())
+            {
+                _selectedNode = node;
+                OnNodeSelected?.Invoke(node);
+            }
+
+            // Context menu
+            if (ImGui.BeginPopupContextItem("node_ctx"))
+            {
+                if (ImGui.MenuItem("Copy Name"))
+                    ImGui.SetClipboardText(node.Name);
+                if (ImGui.MenuItem($"Copy Pointer: 0x{node.Pointer.ToInt64():X}"))
+                    ImGui.SetClipboardText($"0x{node.Pointer.ToInt64():X}");
+                ImGui.EndPopup();
+            }
+
+            // Children
+            if (opened)
+            {
+                if (!node.ChildrenLoaded && node.HasChildren)
+                    LoadChildren(node);
+
+                node.IsExpanded = true;
+
+                foreach (var child in node.Children)
+                {
+                    if (MatchesFilter(child))
+                        DrawTreeNode(child);
+                }
+
+                ImGui.TreePop();
+            }
+            else
+            {
+                node.IsExpanded = false;
+            }
         }
 
-        private bool HasChildTransforms(IntPtr goPtr)
+        private bool MatchesFilter(HierarchyNode node)
         {
-            IntPtr transform = GetTransform(goPtr);
-            if (transform == IntPtr.Zero) return false;
-            return GetChildCount(transform) > 0;
+            // Scene filter
+            if (!IsInSelectedScene(node))
+                return false;
+
+            // Text filter
+            if (string.IsNullOrEmpty(_searchFilter)) return true;
+
+            if (node.Name.IndexOf(_searchFilter, StringComparison.OrdinalIgnoreCase) >= 0)
+                return true;
+
+            // Check children for parent visibility
+            if (node.HasChildren)
+            {
+                if (!node.ChildrenLoaded)
+                    LoadChildren(node);
+
+                foreach (var child in node.Children)
+                {
+                    if (MatchesFilter(child))
+                        return true;
+                }
+            }
+
+            return false;
         }
     }
 }

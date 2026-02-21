@@ -75,12 +75,15 @@ namespace MDB.Explorer.ImGui
         private string _assemblyFilter = "";
         private string _classFilter = "";
         private string _memberFilter = "";
-        private bool _showOnlyObfuscated = true;
+        private bool _showOnlyObfuscated;
         private bool _showOnlyMapped;
 
-        // Mapping editor state
+        // Mapping editor state (class level)
         private string _editFriendlyName = "";
         private string _editNotes = "";
+
+        // Member rename state (context menu)
+        private string _editMemberFriendlyName = "";
         private int _editMemberIndex = -1;
         private SymbolType _editMemberKind = SymbolType.Type;
 
@@ -439,6 +442,10 @@ namespace MDB.Explorer.ImGui
 
         private bool ClassMatchesFilter(CachedClass cls)
         {
+            // Skip compiler-generated classes (<>c, <Module>, etc.)
+            if (cls.Name.Length > 0 && (cls.Name[0] == '<' || cls.Name == "<Module>"))
+                return false;
+
             if (_showOnlyObfuscated && !cls.IsObfuscated) return false;
             if (_showOnlyMapped && cls.FriendlyName == null) return false;
 
@@ -612,7 +619,20 @@ namespace MDB.Explorer.ImGui
         {
             // Filter
             ImGui.SetNextItemWidth(180);
-            ImGui.InputTextWithHint("##memberFilter", "Filter...", ref _memberFilter, 256);
+            ImGui.InputTextWithHint($"##memberFilter_{kind}", "Filter...", ref _memberFilter, 256);
+
+            // Column layout widths
+            float availWidth = ImGui.GetContentRegionAvail().X;
+            float nameColEnd = availWidth * 0.45f;
+            float typeColEnd = availWidth * 0.82f;
+
+            // Header row
+            ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.6f, 1f), "Name");
+            ImGui.SameLine(nameColEnd);
+            ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.6f, 1f), "Type");
+            ImGui.SameLine(typeColEnd);
+            ImGui.TextColored(new Vector4(0.5f, 0.5f, 0.6f, 1f), "Info");
+            ImGui.Separator();
 
             if (ImGui.BeginChild($"##memberList_{kind}", new Vector2(0, -1)))
             {
@@ -638,17 +658,16 @@ namespace MDB.Explorer.ImGui
                         ? $"{m.FriendlyName} [{m.Name}]"
                         : m.Name;
 
+                    // Use PushID to scope all widgets in this row
+                    ImGui.PushID(i);
+
+                    // Selectable for the name — this is an interactive item that supports context menus
                     ImGui.PushStyleColor(ImGuiCol.Text, nameColor);
-                    ImGui.Text(displayName);
+                    ImGui.Selectable(displayName, false, ImGuiSelectableFlags.AllowOverlap, new Vector2(nameColEnd - 10, 0));
                     ImGui.PopStyleColor();
 
-                    ImGui.SameLine(ImGui.GetContentRegionAvail().X * 0.55f);
-                    ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.8f, 1f), m.TypeName);
-                    ImGui.SameLine();
-                    ImGui.TextDisabled(m.Extra);
-
-                    // Context menu for renaming
-                    if (ImGui.BeginPopupContextItem($"##ctx_{kind}_{i}"))
+                    // Context menu for renaming (attached to the Selectable)
+                    if (ImGui.BeginPopupContextItem("##ctx"))
                     {
                         ImGui.Text($"Rename: {m.Name}");
                         ImGui.Separator();
@@ -657,16 +676,16 @@ namespace MDB.Explorer.ImGui
                         {
                             _editMemberIndex = i;
                             _editMemberKind = kind;
-                            _editFriendlyName = m.FriendlyName ?? "";
+                            _editMemberFriendlyName = m.FriendlyName ?? "";
                         }
 
                         ImGui.SetNextItemWidth(200);
-                        ImGui.InputText("##memberRename", ref _editFriendlyName, 256);
+                        ImGui.InputText("##memberRename", ref _editMemberFriendlyName, 256);
 
                         if (ImGui.Button("Save"))
                         {
-                            SaveMemberMapping(m, _editFriendlyName);
-                            m.FriendlyName = _editFriendlyName;
+                            SaveMemberMapping(m, _editMemberFriendlyName);
+                            m.FriendlyName = string.IsNullOrWhiteSpace(_editMemberFriendlyName) ? null : _editMemberFriendlyName;
                             ImGui.CloseCurrentPopup();
                         }
                         ImGui.SameLine();
@@ -685,6 +704,16 @@ namespace MDB.Explorer.ImGui
 
                         ImGui.EndPopup();
                     }
+
+                    // Type column
+                    ImGui.SameLine(nameColEnd);
+                    ImGui.TextColored(new Vector4(0.6f, 0.6f, 0.8f, 1f), m.TypeName ?? "?");
+
+                    // Extra info column
+                    ImGui.SameLine(typeColEnd);
+                    ImGui.TextDisabled(m.Extra ?? "");
+
+                    ImGui.PopID();
                 }
             }
             ImGui.EndChild();

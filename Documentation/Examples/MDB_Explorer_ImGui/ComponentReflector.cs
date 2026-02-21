@@ -11,194 +11,6 @@ using GameSDK.ModHost;
 namespace MDB.Explorer.ImGui
 {
     /// <summary>
-    /// Represents an IL2CPP field with cached metadata.
-    /// </summary>
-    public class FieldInfo
-    {
-        public IntPtr Pointer { get; set; }
-        public string Name { get; set; }
-        public IntPtr Type { get; set; }
-        public string TypeName { get; set; }
-        public int TypeEnum { get; set; }
-        public bool IsStatic { get; set; }
-        public bool IsValueType { get; set; }
-        
-        /// <summary>
-        /// Parent class name for qualified lookups.
-        /// </summary>
-        public string ParentClassName { get; set; }
-        
-        /// <summary>
-        /// Display name (deobfuscated if available).
-        /// </summary>
-        public string DisplayName => DeobfuscationHelper.GetFieldName(ParentClassName, Name);
-        
-        /// <summary>
-        /// Display type name (deobfuscated if available).
-        /// </summary>
-        public string DisplayTypeName => DeobfuscationHelper.GetTypeName(TypeName);
-    }
-
-    /// <summary>
-    /// Represents an IL2CPP property with cached metadata.
-    /// </summary>
-    public class PropertyInfo
-    {
-        public IntPtr Pointer { get; set; }
-        public string Name { get; set; }
-        public IntPtr GetterMethod { get; set; }
-        public IntPtr SetterMethod { get; set; }
-        public IntPtr ReturnType { get; set; }
-        public string TypeName { get; set; }
-        public int TypeEnum { get; set; }
-        public bool CanRead => GetterMethod != IntPtr.Zero;
-        public bool CanWrite => SetterMethod != IntPtr.Zero;
-        
-        /// <summary>
-        /// Parent class name for qualified lookups.
-        /// </summary>
-        public string ParentClassName { get; set; }
-        
-        /// <summary>
-        /// Display name (deobfuscated if available).
-        /// </summary>
-        public string DisplayName => DeobfuscationHelper.GetPropertyName(ParentClassName, Name);
-        
-        /// <summary>
-        /// Display type name (deobfuscated if available).
-        /// </summary>
-        public string DisplayTypeName => DeobfuscationHelper.GetTypeName(TypeName);
-    }
-
-    /// <summary>
-    /// Represents an IL2CPP method with cached metadata.
-    /// </summary>
-    public class MethodInfo
-    {
-        public IntPtr Pointer { get; set; }
-        public string Name { get; set; }
-        public int ParameterCount { get; set; }
-        public IntPtr ReturnType { get; set; }
-        public string ReturnTypeName { get; set; }
-        public int Flags { get; set; }
-        public bool IsStatic => (Flags & 0x0010) != 0;  // METHOD_ATTRIBUTE_STATIC
-        public bool IsPublic => (Flags & 0x0006) == 0x0006;  // METHOD_ATTRIBUTE_PUBLIC
-        public bool IsGetter => Name?.StartsWith("get_") ?? false;
-        public bool IsSetter => Name?.StartsWith("set_") ?? false;
-        public bool IsSpecialName => IsGetter || IsSetter || 
-            (Name?.StartsWith("add_") ?? false) || 
-            (Name?.StartsWith("remove_") ?? false);
-        
-        /// <summary>
-        /// Parent class name for qualified lookups.
-        /// </summary>
-        public string ParentClassName { get; set; }
-        
-        /// <summary>
-        /// Display name (deobfuscated if available).
-        /// </summary>
-        public string DisplayName => DeobfuscationHelper.GetMethodName(ParentClassName, Name);
-        
-        /// <summary>
-        /// Display return type name (deobfuscated if available).
-        /// </summary>
-        public string DisplayReturnTypeName => DeobfuscationHelper.GetTypeName(ReturnTypeName);
-    }
-
-    /// <summary>
-    /// Cached reflection data for a component.
-    /// </summary>
-    public class ComponentReflectionData
-    {
-        public IntPtr ClassPointer { get; set; }
-        public string ClassName { get; set; }
-        public List<FieldInfo> Fields { get; set; } = new List<FieldInfo>();
-        public List<PropertyInfo> Properties { get; set; } = new List<PropertyInfo>();
-        public List<MethodInfo> Methods { get; set; } = new List<MethodInfo>();
-        
-        /// <summary>
-        /// Ordered list of class names in inheritance hierarchy (most derived first).
-        /// </summary>
-        public List<string> ClassHierarchy { get; set; } = new List<string>();
-        
-        /// <summary>
-        /// Display class name (deobfuscated if available).
-        /// </summary>
-        public string DisplayClassName => DeobfuscationHelper.GetTypeName(ClassName);
-        
-        /// <summary>
-        /// Display class name with obfuscated hint if applicable.
-        /// </summary>
-        public string DisplayClassNameWithHint => DeobfuscationHelper.GetTypeNameWithHint(ClassName);
-        
-        /// <summary>
-        /// Gets fields grouped by their declaring class, ordered by inheritance (most derived first).
-        /// </summary>
-        public IEnumerable<(string ClassName, string DisplayClassName, List<FieldInfo> Fields)> GetFieldsByClass()
-        {
-            var grouped = new Dictionary<string, List<FieldInfo>>();
-            foreach (var field in Fields)
-            {
-                var key = field.ParentClassName ?? ClassName;
-                if (!grouped.ContainsKey(key))
-                    grouped[key] = new List<FieldInfo>();
-                grouped[key].Add(field);
-            }
-            
-            // Return in hierarchy order (most derived first)
-            foreach (var className in ClassHierarchy)
-            {
-                if (grouped.TryGetValue(className, out var fields))
-                    yield return (className, DeobfuscationHelper.GetTypeName(className), fields);
-            }
-        }
-        
-        /// <summary>
-        /// Gets properties grouped by their declaring class, ordered by inheritance (most derived first).
-        /// </summary>
-        public IEnumerable<(string ClassName, string DisplayClassName, List<PropertyInfo> Properties)> GetPropertiesByClass()
-        {
-            var grouped = new Dictionary<string, List<PropertyInfo>>();
-            foreach (var prop in Properties)
-            {
-                var key = prop.ParentClassName ?? ClassName;
-                if (!grouped.ContainsKey(key))
-                    grouped[key] = new List<PropertyInfo>();
-                grouped[key].Add(prop);
-            }
-            
-            // Return in hierarchy order (most derived first)
-            foreach (var className in ClassHierarchy)
-            {
-                if (grouped.TryGetValue(className, out var props))
-                    yield return (className, DeobfuscationHelper.GetTypeName(className), props);
-            }
-        }
-        
-        /// <summary>
-        /// Gets methods grouped by their declaring class, ordered by inheritance (most derived first).
-        /// </summary>
-        public IEnumerable<(string ClassName, string DisplayClassName, List<MethodInfo> Methods)> GetMethodsByClass()
-        {
-            var grouped = new Dictionary<string, List<MethodInfo>>();
-            foreach (var method in Methods)
-            {
-                var key = method.ParentClassName ?? ClassName;
-                if (!grouped.ContainsKey(key))
-                    grouped[key] = new List<MethodInfo>();
-                grouped[key].Add(method);
-            }
-            
-            // Return in hierarchy order (most derived first)
-            foreach (var className in ClassHierarchy)
-            {
-                if (grouped.TryGetValue(className, out var methods))
-                    yield return (className, DeobfuscationHelper.GetTypeName(className), methods);
-            }
-        }
-    }
-
-    /// <summary>
     /// Provides IL2CPP reflection capabilities for inspecting components.
     /// </summary>
     public static class ComponentReflector
@@ -346,10 +158,24 @@ namespace MDB.Explorer.ImGui
                     IntPtr getter = Il2CppBridge.mdb_property_get_get_method(prop);
                     IntPtr setter = Il2CppBridge.mdb_property_get_set_method(prop);
 
-                    // Skip type info for now - it causes crashes
+                    // Get type info from getter's return type
                     IntPtr returnType = IntPtr.Zero;
                     string typeName = "unknown";
                     int typeEnum = -1;
+                    
+                    if (getter != IntPtr.Zero)
+                    {
+                        try
+                        {
+                            returnType = Il2CppBridge.mdb_method_get_return_type(getter);
+                            if (returnType != IntPtr.Zero)
+                            {
+                                typeEnum = Il2CppBridge.mdb_type_get_type_enum(returnType);
+                                typeName = Il2CppBridge.GetTypeName(returnType) ?? "unknown";
+                            }
+                        }
+                        catch { /* Fall back to unknown */ }
+                    }
 
                     data.Properties.Add(new PropertyInfo
                     {
@@ -383,9 +209,52 @@ namespace MDB.Explorer.ImGui
                     int flags = Il2CppBridge.mdb_method_get_flags(method);
                     int paramCount = Il2CppBridge.mdb_method_get_param_count(method);
 
-                    // Skip type info for now - it causes crashes
+                    // Get actual return type
                     string returnTypeName = "void";
                     IntPtr returnType = IntPtr.Zero;
+                    try
+                    {
+                        returnType = Il2CppBridge.mdb_method_get_return_type(method);
+                        if (returnType != IntPtr.Zero)
+                        {
+                            string rtName = Il2CppBridge.GetTypeName(returnType);
+                            if (!string.IsNullOrEmpty(rtName))
+                                returnTypeName = rtName;
+                        }
+                    }
+                    catch { /* Keep "void" default */ }
+                    
+                    // Build parameter signature
+                    string paramSig = null;
+                    if (paramCount > 0)
+                    {
+                        try
+                        {
+                            var paramParts = new List<string>();
+                            for (int p = 0; p < paramCount; p++)
+                            {
+                                IntPtr paramType = Il2CppBridge.mdb_method_get_param_type(method, p);
+                                if (paramType != IntPtr.Zero)
+                                {
+                                    string ptName = Il2CppBridge.GetTypeName(paramType);
+                                    if (!string.IsNullOrEmpty(ptName))
+                                    {
+                                        // Simplify: remove namespace
+                                        int dot = ptName.LastIndexOf('.');
+                                        paramParts.Add(dot >= 0 ? ptName.Substring(dot + 1) : ptName);
+                                        continue;
+                                    }
+                                }
+                                paramParts.Add("?");
+                            }
+                            paramSig = string.Join(", ", paramParts);
+                        }
+                        catch { paramSig = $"{paramCount} params"; }
+                    }
+                    else
+                    {
+                        paramSig = "";
+                    }
 
                     var methodInfo = new MethodInfo
                     {
@@ -395,7 +264,8 @@ namespace MDB.Explorer.ImGui
                         ReturnType = returnType,
                         ReturnTypeName = returnTypeName,
                         Flags = flags,
-                        ParentClassName = className
+                        ParentClassName = className,
+                        ParameterSignature = paramSig
                     };
 
                     // Skip property accessors and event handlers for the method list
@@ -416,6 +286,74 @@ namespace MDB.Explorer.ImGui
                 {
                     EnumerateMembers(parent, data, includeBase);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Read a static field value.
+        /// </summary>
+        public static object ReadStaticFieldValue(FieldInfo field)
+        {
+            if (field == null || field.Pointer == IntPtr.Zero)
+                return null;
+
+            try
+            {
+                switch (field.TypeEnum)
+                {
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_BOOLEAN:
+                        return ReadStaticPrimitive<bool>(field.Pointer);
+
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_I1:
+                        return (int)ReadStaticPrimitive<sbyte>(field.Pointer);
+
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_U1:
+                        return (int)ReadStaticPrimitive<byte>(field.Pointer);
+
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_I2:
+                        return (int)ReadStaticPrimitive<short>(field.Pointer);
+
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_U2:
+                        return (int)ReadStaticPrimitive<ushort>(field.Pointer);
+
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_I4:
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_ENUM:
+                        return ReadStaticPrimitive<int>(field.Pointer);
+
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_U4:
+                        return ReadStaticPrimitive<uint>(field.Pointer);
+
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_I8:
+                        return ReadStaticPrimitive<long>(field.Pointer);
+
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_U8:
+                        return ReadStaticPrimitive<ulong>(field.Pointer);
+
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_R4:
+                        return ReadStaticPrimitive<float>(field.Pointer);
+
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_R8:
+                        return ReadStaticPrimitive<double>(field.Pointer);
+
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_STRING:
+                        return ReadStaticString(field.Pointer);
+
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_CLASS:
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_OBJECT:
+                        return ReadStaticObjectReference(field.Pointer);
+
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_SZARRAY:
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_ARRAY:
+                        return ReadStaticArrayInfo(field.Pointer);
+
+                    default:
+                        return $"[{DeobfuscationHelper.GetTypeName(field.TypeName)}]";
+                }
+            }
+            catch (Exception ex)
+            {
+                ModLogger.LogInternal(LOG_TAG, $"[ERROR] ReadStaticFieldValue failed for {field.Name}: {ex.Message}");
+                return null;
             }
         }
 
@@ -680,7 +618,7 @@ namespace MDB.Explorer.ImGui
         }
 
         /// <summary>
-        /// Invoke a property getter.
+        /// Invoke a property getter and return the properly typed value.
         /// </summary>
         public static object InvokePropertyGetter(IntPtr instance, PropertyInfo property)
         {
@@ -695,49 +633,191 @@ namespace MDB.Explorer.ImGui
                 if (exception != IntPtr.Zero)
                     return "(exception)";
 
+                if (result == IntPtr.Zero)
+                    return "(null)";
+
                 // Handle based on return type
                 switch (property.TypeEnum)
                 {
                     case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_BOOLEAN:
-                        if (result != IntPtr.Zero)
-                        {
-                            unsafe { return *(bool*)((byte*)result + 16); }
-                        }
-                        return false;
+                        unsafe { return *(bool*)((byte*)result + 16); }
+
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_I1:
+                        unsafe { return (int)*(sbyte*)((byte*)result + 16); }
+
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_U1:
+                        unsafe { return (int)*(byte*)((byte*)result + 16); }
+
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_I2:
+                        unsafe { return (int)*(short*)((byte*)result + 16); }
+
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_U2:
+                        unsafe { return (int)*(ushort*)((byte*)result + 16); }
 
                     case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_I4:
-                        if (result != IntPtr.Zero)
-                        {
-                            unsafe { return *(int*)((byte*)result + 16); }
-                        }
-                        return 0;
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_ENUM:
+                        unsafe { return *(int*)((byte*)result + 16); }
+
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_U4:
+                        unsafe { return *(uint*)((byte*)result + 16); }
+
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_I8:
+                        unsafe { return *(long*)((byte*)result + 16); }
+
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_U8:
+                        unsafe { return *(ulong*)((byte*)result + 16); }
 
                     case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_R4:
-                        if (result != IntPtr.Zero)
-                        {
-                            unsafe { return *(float*)((byte*)result + 16); }
-                        }
-                        return 0f;
+                        unsafe { return *(float*)((byte*)result + 16); }
+
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_R8:
+                        unsafe { return *(double*)((byte*)result + 16); }
 
                     case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_STRING:
-                        if (result != IntPtr.Zero)
                         {
                             var sb = new System.Text.StringBuilder(256);
                             int len = Il2CppBridge.mdb_string_to_utf8(result, sb, sb.Capacity);
                             if (len > 0)
                                 return sb.ToString(0, len);
+                            return "(null)";
                         }
-                        return "(null)";
+
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_VALUETYPE:
+                        {
+                            // Try to identify the value type and unbox
+                            string tn = property.TypeName;
+                            if (tn != null)
+                            {
+                                if (tn.Contains("Vector3") || tn.Contains("float3"))
+                                {
+                                    unsafe
+                                    {
+                                        float* p = (float*)((byte*)result + 16);
+                                        return new System.Numerics.Vector3(p[0], p[1], p[2]);
+                                    }
+                                }
+                                if (tn.Contains("Vector2") || tn.Contains("float2"))
+                                {
+                                    unsafe
+                                    {
+                                        float* p = (float*)((byte*)result + 16);
+                                        return new System.Numerics.Vector2(p[0], p[1]);
+                                    }
+                                }
+                                if (tn.Contains("Color") || tn.Contains("Quaternion") || tn.Contains("float4"))
+                                {
+                                    unsafe
+                                    {
+                                        float* p = (float*)((byte*)result + 16);
+                                        return new System.Numerics.Vector4(p[0], p[1], p[2], p[3]);
+                                    }
+                                }
+                            }
+                            // For other value types, try to show as int (common for enums disguised as ValueType)
+                            unsafe { return *(int*)((byte*)result + 16); }
+                        }
+
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_CLASS:
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_OBJECT:
+                        {
+                            // For reference types, get the class name of the returned object
+                            IntPtr klass = Il2CppBridge.mdb_object_get_class(result);
+                            if (klass != IntPtr.Zero)
+                            {
+                                string cn = Il2CppBridge.GetClassName(klass);
+                                string dn = DeobfuscationHelper.GetTypeName(cn);
+                                return $"[{dn}]";
+                            }
+                            return "[Object]";
+                        }
+
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_SZARRAY:
+                    case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_ARRAY:
+                        {
+                            int length = Il2CppBridge.mdb_array_length(result);
+                            return $"[Array: {length}]";
+                        }
 
                     default:
-                        if (result == IntPtr.Zero)
-                            return "(null)";
+                        // For unknown types, try to show the object's class name
+                        try
+                        {
+                            IntPtr klass = Il2CppBridge.mdb_object_get_class(result);
+                            if (klass != IntPtr.Zero)
+                            {
+                                string cn = Il2CppBridge.GetClassName(klass);
+                                return $"[{DeobfuscationHelper.GetTypeName(cn)}]";
+                            }
+                        }
+                        catch { }
                         return $"0x{result.ToInt64():X}";
                 }
             }
             catch (Exception ex)
             {
                 return $"(error: {ex.Message})";
+            }
+        }
+
+        // ===== Static field reading helpers =====
+
+        private static T ReadStaticPrimitive<T>(IntPtr field) where T : unmanaged
+        {
+            unsafe
+            {
+                T value = default;
+                IntPtr buffer = new IntPtr(&value);
+                Il2CppBridge.mdb_field_static_get_value(field, buffer);
+                return value;
+            }
+        }
+
+        private static string ReadStaticString(IntPtr field)
+        {
+            unsafe
+            {
+                IntPtr strPtr = IntPtr.Zero;
+                IntPtr buffer = new IntPtr(&strPtr);
+                Il2CppBridge.mdb_field_static_get_value(field, buffer);
+                if (strPtr == IntPtr.Zero) return "(null)";
+
+                var sb = new System.Text.StringBuilder(256);
+                int len = Il2CppBridge.mdb_string_to_utf8(strPtr, sb, sb.Capacity);
+                if (len > 0) return sb.ToString(0, len);
+                return "(error)";
+            }
+        }
+
+        private static string ReadStaticObjectReference(IntPtr field)
+        {
+            unsafe
+            {
+                IntPtr objPtr = IntPtr.Zero;
+                IntPtr buffer = new IntPtr(&objPtr);
+                Il2CppBridge.mdb_field_static_get_value(field, buffer);
+                if (objPtr == IntPtr.Zero) return "(null)";
+
+                IntPtr klass = Il2CppBridge.mdb_object_get_class(objPtr);
+                if (klass != IntPtr.Zero)
+                {
+                    string className = Il2CppBridge.GetClassName(klass);
+                    return $"[{DeobfuscationHelper.GetTypeName(className)}]";
+                }
+                return "[Object]";
+            }
+        }
+
+        private static string ReadStaticArrayInfo(IntPtr field)
+        {
+            unsafe
+            {
+                IntPtr arrPtr = IntPtr.Zero;
+                IntPtr buffer = new IntPtr(&arrPtr);
+                Il2CppBridge.mdb_field_static_get_value(field, buffer);
+                if (arrPtr == IntPtr.Zero) return "(null)";
+
+                int length = Il2CppBridge.mdb_array_length(arrPtr);
+                return $"[Array: {length}]";
             }
         }
     }

@@ -138,46 +138,49 @@ To force a full rebuild, delete `MDB/Managed/GameSDK.ModHost.dll` & all of the g
 <a name="first-mod"></a>
 ## Creating Your First Mod
 
-Now that MDB is installed, let's create a simple "Hello World" mod.
+Now that MDB is installed, let's create a simple mod.
 
-### 1. Create a New Project
+### 1. Install the MDB Template
 
-Create a new .NET Framework class library:
+MDB provides a `dotnet new` template (like BepInEx) so you can scaffold mods from the command line:
 
 ```bash
-mkdir MyFirstMod
-cd MyFirstMod
-dotnet new classlib -f net48
+dotnet new install MDB.Templates
 ```
 
-### 2. Add MDB Reference
+> **Local install:** If you cloned the [MDB.Templates](https://github.com/Zaclin-GIT/MDB.Templates) repo instead, install from the local path:
+> ```bash
+> dotnet new install ./path/to/MDB.Templates
+> ```
 
-Edit `MyFirstMod.csproj` and add a reference to the generated SDK:
+### 2. Create a New Mod Project
 
-```xml
-<Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <TargetFramework>net48</TargetFramework>
-    <LangVersion>9.0</LangVersion>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-  </PropertyGroup>
-  
-  <ItemGroup>
-    <!-- Reference the auto-generated SDK -->
-    <Reference Include="GameSDK.ModHost">
-      <HintPath>PATH_TO_GAME\MDB\Managed\GameSDK.ModHost.dll</HintPath>
-    </Reference>
-  </ItemGroup>
-</Project>
+```bash
+dotnet new mdbmod -n MyFirstMod --ModAuthor "YourName" --GamePath "C:\Path\To\Game"
 ```
 
-Replace `PATH_TO_GAME` with your game's folder path.
+This creates a ready-to-build project with:
+- A `.csproj` targeting .NET Framework 4.8.1 with the SDK reference pre-configured
+- A `Mod.cs` entry point with lifecycle methods
+- An `ImGuiWindow.cs` with a starter UI window
+
+**Template options:**
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-n` | Project & mod name | `MyMod` |
+| `--ModAuthor` | Your author name | `ModAuthor` |
+| `--ModDescription` | Short description | `An MDB Framework mod` |
+| `--GamePath` | Path to game folder | *(must be set)* |
+| `--imgui` | Include ImGui boilerplate | `true` |
+
+For a headless mod (no UI): `dotnet new mdbmod -n MyMod --imgui false`
 
 **Important:** The SDK (`GameSDK.ModHost.dll`) is generated on first injection. You must inject MDB once before you can build mods.
 
-### 3. Write Your Mod
+### 3. Review the Generated Code
 
-Replace the contents of `Class1.cs` with:
+The template creates a `Mod.cs` with the core structure:
 
 ```csharp
 using System;
@@ -186,41 +189,26 @@ using GameSDK.ModHost.ImGui;
 
 namespace MyFirstMod
 {
-    [Mod("YourName.MyFirstMod", "My First Mod", "1.0.0", 
-         Author = "Your Name", 
-         Description = "My first MDB mod!")]
-    public class MyFirstMod : ModBase
+    [Mod("YourName.MyFirstMod", "MyFirstMod", "1.0.0", 
+         Author = "YourName", 
+         Description = "An MDB Framework mod")]
+    public class Mod : ModBase
     {
         public override void OnLoad()
         {
-            Logger.Info("My First Mod has loaded!");
-            Logger.Warning("This is a warning message");
-            Logger.Error("This is an error message");
-            
-            // Register an ImGui window
-            ImGuiManager.RegisterCallback(DrawUI, "My First Window", 
-                                         ImGuiCallbackPriority.Normal);
+            Logger.Info("MyFirstMod loaded!");
+            ImGuiWindow.Register(Logger);
         }
 
         public override void OnUpdate()
         {
-            // Called every frame
-            // You can check input, update state, etc.
+            // Your per-frame logic here
         }
 
-        private void DrawUI()
+        public override void OnUnload()
         {
-            if (ImGui.Begin("My First Window"))
-            {
-                ImGui.Text("Hello from my first mod!");
-                ImGui.Separator();
-                
-                if (ImGui.Button("Click Me!"))
-                {
-                    Logger.Info("Button was clicked!");
-                }
-            }
-            ImGui.End();
+            ImGuiWindow.Unregister();
+            Logger.Info("MyFirstMod unloaded.");
         }
     }
 }
@@ -229,18 +217,21 @@ namespace MyFirstMod
 ### 4. Build Your Mod
 
 ```bash
+cd MyFirstMod
 dotnet build -c Release
 ```
 
-Output: `bin/Release/net48/MyFirstMod.dll`
+Output: `bin\Release\MyFirstMod.dll`
 
 ### 5. Deploy Your Mod
 
 Copy the built DLL to the game's mod folder:
 
 ```powershell
-copy bin\Release\net48\MyFirstMod.dll <GameFolder>\MDB\Mods\
+copy bin\Release\MyFirstMod.dll <GameFolder>\MDB\Mods\
 ```
+
+> **Tip:** Uncomment the `CopyToMods` target in the `.csproj` to auto-deploy on every Release build.
 
 ---
 

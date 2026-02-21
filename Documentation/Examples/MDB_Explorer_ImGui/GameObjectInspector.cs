@@ -17,10 +17,7 @@ namespace MDB.Explorer.ImGui
     {
         private const string LOG_TAG = "GameObjectInspector";
 
-        // Cached IL2CPP pointers
-        private IntPtr _gameObjectClass;
-        private IntPtr _transformClass;
-        private IntPtr _componentClass;
+        // IL2CPP class resolution
         private bool _classesResolved;
 
         // Current target
@@ -41,32 +38,30 @@ namespace MDB.Explorer.ImGui
         
         // Cache for string field editing (key = field pointer, value = current edit string)
         private Dictionary<IntPtr, string> _stringEditCache = new Dictionary<IntPtr, string>();
-        
-        public class InspectionContext
-        {
-            public IntPtr Instance { get; set; }
-            public string TypeName { get; set; }
-            public ComponentReflectionData ReflectionData { get; set; }
-            
-            /// <summary>
-            /// Display type name (deobfuscated if available).
-            /// </summary>
-            public string DisplayTypeName => DeobfuscationHelper.GetTypeName(TypeName);
-        }
+
+        // Auto-size: set when target changes so the parent can resize the window
+        private bool _needsAutoSize;
+        private float _desiredWidth;
 
         public HierarchyNode Target => _target;
 
-        public class ComponentInfo
+        /// <summary>
+        /// If true, the inspector wants the window to auto-resize. Consume with ConsumeAutoSizeRequest.
+        /// </summary>
+        public bool NeedsAutoSize => _needsAutoSize;
+
+        /// <summary>
+        /// The computed ideal width. Valid when NeedsAutoSize is true.
+        /// </summary>
+        public float DesiredWidth => _desiredWidth;
+
+        /// <summary>
+        /// Consume the auto-size request (resets the flag). Returns the desired width.
+        /// </summary>
+        public float ConsumeAutoSizeRequest()
         {
-            public IntPtr Pointer { get; set; }
-            public string TypeName { get; set; }
-            public bool IsExpanded { get; set; }
-            public ComponentReflectionData ReflectionData { get; set; }
-            
-            /// <summary>
-            /// Display type name (deobfuscated if available).
-            /// </summary>
-            public string DisplayTypeName => DeobfuscationHelper.GetTypeName(TypeName);
+            _needsAutoSize = false;
+            return _desiredWidth;
         }
 
         /// <summary>
@@ -78,14 +73,7 @@ namespace MDB.Explorer.ImGui
 
             try
             {
-                _gameObjectClass = Il2CppBridge.mdb_find_class("UnityEngine.CoreModule", "UnityEngine", "GameObject");
-                _transformClass = Il2CppBridge.mdb_find_class("UnityEngine.CoreModule", "UnityEngine", "Transform");
-                _componentClass = Il2CppBridge.mdb_find_class("UnityEngine.CoreModule", "UnityEngine", "Component");
-
-                _classesResolved = _gameObjectClass != IntPtr.Zero && 
-                                   _transformClass != IntPtr.Zero && 
-                                   _componentClass != IntPtr.Zero;
-
+                _classesResolved = Il2CppHelpers.ResolveClasses();
                 return _classesResolved;
             }
             catch (Exception ex)
@@ -111,6 +99,50 @@ namespace MDB.Explorer.ImGui
 
             RefreshComponents();
             RefreshTransform();
+            ComputeDesiredWidth();
+        }
+
+        /// <summary>
+        /// Compute the ideal window width based on the widest content in the current components.
+        /// </summary>
+        private void ComputeDesiredWidth()
+        {
+            // Base: padding + indent for tree nodes
+            float maxContentWidth = 200f; // minimum baseline
+            const float charW = 7.5f;
+            const float padding = 80f; // tree indent + margins + scrollbar
+            const float spacing = 30f; // gap between name and value columns
+
+            foreach (var comp in _components)
+            {
+                if (comp.ReflectionData == null) continue;
+                var data = comp.ReflectionData;
+
+                foreach (var field in data.Fields)
+                {
+                    string typeName = GetSimpleTypeName(field.DisplayTypeName);
+                    string fieldName = field.DisplayName ?? "(unnamed)";
+                    // Estimate value width from the field's type name (shown as value for object/class types)
+                    string valueTypeName = GetSimpleTypeName(field.DisplayTypeName);
+                    float valueWidth = Math.Max(80f, valueTypeName.Length * charW + 40f);
+                    float rowWidth = padding + (typeName.Length + fieldName.Length + 2) * charW + spacing + valueWidth;
+                    if (rowWidth > maxContentWidth) maxContentWidth = rowWidth;
+                }
+
+                foreach (var prop in data.Properties)
+                {
+                    string typeName = GetSimpleTypeName(prop.DisplayTypeName);
+                    string propName = prop.DisplayName ?? "(unnamed)";
+                    string valueTypeName = GetSimpleTypeName(prop.DisplayTypeName);
+                    float valueWidth = Math.Max(80f, valueTypeName.Length * charW + 40f);
+                    float rowWidth = padding + (typeName.Length + propName.Length + 2) * charW + spacing + valueWidth;
+                    if (rowWidth > maxContentWidth) maxContentWidth = rowWidth;
+                }
+            }
+
+            // Clamp to reasonable bounds
+            _desiredWidth = Math.Max(350f, Math.Min(maxContentWidth, 1200f));
+            _needsAutoSize = true;
         }
 
         /// <summary>
@@ -142,7 +174,7 @@ namespace MDB.Explorer.ImGui
                     IntPtr compPtr = Il2CppBridge.mdb_array_get_element(result, i);
                     if (compPtr == IntPtr.Zero) continue;
 
-                    string typeName = GetComponentTypeName(compPtr);
+                    string typeName = Il2CppHelpers.GetComponentTypeName(compPtr);
 
                     // Get reflection data for this component
                     ComponentReflectionData reflectionData = ComponentReflector.GetReflectionData(compPtr);
@@ -173,7 +205,7 @@ namespace MDB.Explorer.ImGui
 
             try
             {
-                _transformPtr = GetTransform(_target.Pointer);
+                _transformPtr = Il2CppHelpers.GetTransform(_target.Pointer);
                 if (_transformPtr == IntPtr.Zero) return;
 
                 // Use native helpers that properly handle IL2CPP value type unboxing
@@ -215,7 +247,7 @@ namespace MDB.Explorer.ImGui
             bool active = _target.IsActive;
             if (ImGui.Checkbox("##active", ref active))
             {
-                SetGameObjectActive(_target.Pointer, active);
+                Il2CppHelpers.SetGameObjectActive(_target.Pointer, active);
                 _target.IsActive = active;
             }
             ImGui.SameLine();
@@ -230,8 +262,8 @@ namespace MDB.Explorer.ImGui
 
                 // Position
                 ImGui.Text("Position:");
-                ImGui.SameLine(100);
-                ImGui.SetNextItemWidth(-1);
+                ImGui.SameLine(LayoutConstants.TransformLabelIndent);
+                ImGui.SetNextItemWidth(-RIGHT_PADDING);
                 if (ImGui.DragFloat3("##pos", ref _position, 0.1f))
                 {
                     if (_transformPtr != IntPtr.Zero)
@@ -240,8 +272,8 @@ namespace MDB.Explorer.ImGui
 
                 // Rotation
                 ImGui.Text("Rotation:");
-                ImGui.SameLine(100);
-                ImGui.SetNextItemWidth(-1);
+                ImGui.SameLine(LayoutConstants.TransformLabelIndent);
+                ImGui.SetNextItemWidth(-RIGHT_PADDING);
                 if (ImGui.DragFloat3("##rot", ref _rotation, 1.0f))
                 {
                     if (_transformPtr != IntPtr.Zero)
@@ -250,8 +282,8 @@ namespace MDB.Explorer.ImGui
 
                 // Scale
                 ImGui.Text("Scale:");
-                ImGui.SameLine(100);
-                ImGui.SetNextItemWidth(-1);
+                ImGui.SameLine(LayoutConstants.TransformLabelIndent);
+                ImGui.SetNextItemWidth(-RIGHT_PADDING);
                 if (ImGui.DragFloat3("##scale", ref _scale, 0.01f))
                 {
                     if (_transformPtr != IntPtr.Zero)
@@ -331,7 +363,7 @@ namespace MDB.Explorer.ImGui
                 _inspectionStack.Pop();
             }
             ImGui.SameLine();
-            ImGui.TextColored(new Vector4(1.0f, 0.8f, 0.2f, 1.0f), current.DisplayTypeName ?? "Object");
+            ImGui.TextColored(Theme.Highlight, current.DisplayTypeName ?? "Object");
             
             ImGui.Separator();
             
@@ -355,7 +387,7 @@ namespace MDB.Explorer.ImGui
                     
                     if (isInherited)
                     {
-                        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.6f, 0.6f, 0.8f, 1.0f));
+                        ImGui.PushStyleColor(ImGuiCol.Text, Theme.InheritedClass);
                         bool classExpanded = ImGui.TreeNode($"[{displayClassName}]##drilldown_inherited_fields_{className}");
                         ImGui.PopStyleColor();
                         
@@ -404,7 +436,7 @@ namespace MDB.Explorer.ImGui
                     
                     if (isInherited)
                     {
-                        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.6f, 0.6f, 0.8f, 1.0f));
+                        ImGui.PushStyleColor(ImGuiCol.Text, Theme.InheritedClass);
                         bool classExpanded = ImGui.TreeNode($"[{displayClassName}]##drilldown_inherited_props_{className}");
                         ImGui.PopStyleColor();
                         
@@ -453,7 +485,7 @@ namespace MDB.Explorer.ImGui
                     
                     if (isInherited)
                     {
-                        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.6f, 0.6f, 0.8f, 1.0f));
+                        ImGui.PushStyleColor(ImGuiCol.Text, Theme.InheritedClass);
                         bool classExpanded = ImGui.TreeNode($"[{displayClassName}]##drilldown_inherited_methods_{className}");
                         ImGui.PopStyleColor();
                         
@@ -519,7 +551,7 @@ namespace MDB.Explorer.ImGui
                     if (isInherited)
                     {
                         // Inherited class header with distinct styling
-                        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.6f, 0.6f, 0.8f, 1.0f));
+                        ImGui.PushStyleColor(ImGuiCol.Text, Theme.InheritedClass);
                         bool classExpanded = ImGui.TreeNode($"[{displayClassName}]##inherited_fields_{className}_{compIndex}");
                         ImGui.PopStyleColor();
                         
@@ -569,7 +601,7 @@ namespace MDB.Explorer.ImGui
                     
                     if (isInherited)
                     {
-                        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.6f, 0.6f, 0.8f, 1.0f));
+                        ImGui.PushStyleColor(ImGuiCol.Text, Theme.InheritedClass);
                         bool classExpanded = ImGui.TreeNode($"[{displayClassName}]##inherited_props_{className}_{compIndex}");
                         ImGui.PopStyleColor();
                         
@@ -618,7 +650,7 @@ namespace MDB.Explorer.ImGui
                     
                     if (isInherited)
                     {
-                        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.6f, 0.6f, 0.8f, 1.0f));
+                        ImGui.PushStyleColor(ImGuiCol.Text, Theme.InheritedClass);
                         bool classExpanded = ImGui.TreeNode($"[{displayClassName}]##inherited_methods_{className}_{compIndex}");
                         ImGui.PopStyleColor();
                         
@@ -657,10 +689,54 @@ namespace MDB.Explorer.ImGui
             }
         }
 
-        // Column width constants for field/property display
-        private const float VALUE_COLUMN_WIDTH = 220f;  // Width reserved for value column on right (includes padding)
-        private const float EDIT_WIDGET_WIDTH = 120f;
-        private const int MAX_NAME_CHARS = 32;
+        // Layout constants for inspector field rendering
+        private const float APPROX_CHAR_WIDTH = 7f;
+        private const float RIGHT_PADDING = 16f;
+        private const float CONTENT_MARGIN = 4f;
+        private const float EDIT_WIDGET_MAX = 140f;
+        private const float STRING_WIDGET_MAX = 160f;
+
+        /// <summary>
+        /// Compute dynamic character limits for type and name columns based on available width.
+        /// Allocates roughly 30% to type and 45% to name, leaving the rest for the value.
+        /// </summary>
+        private void ComputeColumnLimits(out int typeMaxChars, out int nameMaxChars)
+        {
+            float avail = ImGui.GetContentRegionAvailX();
+            // Type gets ~30%, name gets ~45%, value gets the remaining ~25%
+            float typeWidth = avail * 0.28f;
+            float nameWidth = avail * 0.40f;
+            typeMaxChars = Math.Max(6, (int)(typeWidth / APPROX_CHAR_WIDTH));
+            nameMaxChars = Math.Max(8, (int)(nameWidth / APPROX_CHAR_WIDTH));
+        }
+
+        /// <summary>
+        /// Position the cursor for right-aligned text. Never moves cursor backward (prevents overlap).
+        /// Call this after SameLine(), before drawing the text.
+        /// </summary>
+        private void RightAlignValue(string text)
+        {
+            float textWidth = ImGui.CalcTextSize(text).X;
+            // Use content region to respect indent/scrollbar, not raw window width
+            float rightEdge = ImGui.GetCursorPosX() + ImGui.GetContentRegionAvailX();
+            float cursorX = ImGui.GetCursorPosX();
+            float rightAligned = rightEdge - textWidth - RIGHT_PADDING;
+            // Only right-align if there's room; otherwise just flow naturally
+            if (rightAligned > cursorX)
+                ImGui.SetCursorPosX(rightAligned);
+        }
+
+        /// <summary>
+        /// Right-align a small widget (checkbox, small button) by reserving a fixed width from the right edge.
+        /// </summary>
+        private void RightAlignWidget(float widgetWidth)
+        {
+            float rightEdge = ImGui.GetCursorPosX() + ImGui.GetContentRegionAvailX();
+            float cursorX = ImGui.GetCursorPosX();
+            float rightAligned = rightEdge - widgetWidth - RIGHT_PADDING;
+            if (rightAligned > cursorX)
+                ImGui.SetCursorPosX(rightAligned);
+        }
 
         /// <summary>
         /// Draw a field with type display, value, and drill-down support.
@@ -678,32 +754,32 @@ namespace MDB.Explorer.ImGui
             bool isArrayType = field.TypeEnum == Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_SZARRAY ||
                                field.TypeEnum == Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_ARRAY;
             
-            // Static indicator (use actual IL2CPP flag)
-            if (field.IsStatic)
-            {
-                ImGui.TextDisabled("[S]");
-                ImGui.SameLine();
-            }
+            // Dynamic column sizing based on available width
+            ComputeColumnLimits(out int typeMaxChars, out int nameMaxChars);
             
-            // Type name in color (truncate if needed)
-            string displayType = TruncateText(typeName, 12);
-            ImGui.TextColored(new Vector4(0.4f, 0.7f, 1.0f, 1.0f), displayType);
+            // Type name in color
+            string displayType = TruncateText(typeName, typeMaxChars);
+            ImGui.TextColored(Theme.TypeName, displayType);
+            if (displayType != typeName && ImGui.IsItemHovered())
+                ImGui.SetTooltip(typeName);
             ImGui.SameLine();
             
-            // Calculate remaining space for field name - use deobfuscated name
-            int nameMaxChars = MAX_NAME_CHARS - displayType.Length - (field.IsStatic ? 4 : 0);
+            // Field name - use deobfuscated name
             string fieldName = field.DisplayName ?? "(unnamed)";
-            string displayName = TruncateText(fieldName, Math.Max(10, nameMaxChars));
+            string displayName = TruncateText(fieldName, nameMaxChars);
             
             // For arrays, use a TreeNode so it can be expanded
-            string arrayKey = $"{compIndex}_{fieldIndex}";
-            if (isArrayType && !field.IsStatic && instance != IntPtr.Zero)
+            if (isArrayType && instance != IntPtr.Zero)
             {
-                // Get array info
-                IntPtr arrPtr = GetArrayPointer(instance, field);
+                // Get array info — works for both static and instance
+                IntPtr arrPtr = field.IsStatic
+                    ? ReadStaticObjectPtr(field.Pointer)
+                    : GetArrayPointer(instance, field);
                 int arrLength = arrPtr != IntPtr.Zero ? Il2CppBridge.mdb_array_length(arrPtr) : 0;
                 
                 bool isExpanded = ImGui.TreeNode($"{displayName} [{arrLength}]##arr_{fieldIndex}");
+                if (displayName != fieldName && ImGui.IsItemHovered())
+                    ImGui.SetTooltip(fieldName);
                 
                 if (isExpanded)
                 {
@@ -714,6 +790,8 @@ namespace MDB.Explorer.ImGui
             else
             {
                 ImGui.Text(displayName);
+                if (displayName != fieldName && ImGui.IsItemHovered())
+                    ImGui.SetTooltip(fieldName);
                 
                 // For object types, add drill-down button
                 if (isObjectType)
@@ -725,18 +803,39 @@ namespace MDB.Explorer.ImGui
                     }
                 }
                 
-                // Value column - right-justified
-                float valueStart = ImGui.GetWindowWidth() - VALUE_COLUMN_WIDTH;
-                ImGui.SameLine(valueStart > 150 ? valueStart : 150);
+                // Value column - auto-flow after name
+                ImGui.SameLine();
                 
-                // Read and display/edit the field value
-                if (!field.IsStatic && instance != IntPtr.Zero)
+                // Pre-read value for read-only displays
+                string preReadValue = null;
+                bool isEditable = !field.IsStatic && instance != IntPtr.Zero && IsEditableType(field.TypeEnum);
+                if (!isEditable)
                 {
-                    DrawFieldValue(instance, field, fieldIndex);
+                    try
+                    {
+                        object val = field.IsStatic
+                            ? ComponentReflector.ReadStaticFieldValue(field)
+                            : (instance != IntPtr.Zero ? ComponentReflector.ReadFieldValue(instance, field) : null);
+                        preReadValue = FormatValue(val);
+                    }
+                    catch { preReadValue = "(error)"; }
                 }
-                else if (field.IsStatic)
+                
+                // Read and display/edit the field value (static or instance)
+                if (field.IsStatic)
                 {
-                    ImGui.TextDisabled("(static)");
+                    DrawReadOnlyValue(preReadValue);
+                }
+                else if (instance != IntPtr.Zero)
+                {
+                    if (isEditable)
+                    {
+                        DrawFieldValue(instance, field, fieldIndex);
+                    }
+                    else
+                    {
+                        DrawReadOnlyValue(preReadValue);
+                    }
                 }
                 else
                 {
@@ -756,17 +855,19 @@ namespace MDB.Explorer.ImGui
                         ImGui.SetClipboardText(field.DisplayTypeName);
                     
                     // Try to get and copy value
-                    if (!field.IsStatic && instance != IntPtr.Zero)
+                    try
                     {
-                        try
+                        object val = field.IsStatic
+                            ? ComponentReflector.ReadStaticFieldValue(field)
+                            : (instance != IntPtr.Zero ? ComponentReflector.ReadFieldValue(instance, field) : null);
+                        if (val != null)
                         {
-                            object val = ComponentReflector.ReadFieldValue(instance, field);
                             string valStr = FormatValue(val);
-                            if (ImGui.MenuItem($"Copy Value: {TruncateText(valStr, 20)}"))
+                            if (ImGui.MenuItem($"Copy Value: {TruncateText(valStr, 30)}"))
                                 ImGui.SetClipboardText(valStr);
                         }
-                        catch { }
                     }
+                    catch { }
                     ImGui.EndPopup();
                 }
             }
@@ -781,14 +882,14 @@ namespace MDB.Explorer.ImGui
         {
             try
             {
-                ImGui.SetNextItemWidth(EDIT_WIDGET_WIDTH);
-                
                 switch (field.TypeEnum)
                 {
                     case Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_BOOLEAN:
                         {
                             object val = ComponentReflector.ReadFieldValue(instance, field);
                             bool boolVal = val is bool b ? b : false;
+                            // Right-align the checkbox (approx 20px wide)
+                            RightAlignWidget(20f);
                             if (ImGui.Checkbox($"##val_{fieldIndex}", ref boolVal))
                             {
                                 ComponentReflector.WriteFieldValue(instance, field, boolVal);
@@ -800,6 +901,11 @@ namespace MDB.Explorer.ImGui
                         {
                             object val = ComponentReflector.ReadFieldValue(instance, field);
                             int intVal = val is int i ? i : 0;
+                            // Cap widget width, right-aligned
+                            float avail = ImGui.GetContentRegionAvailX();
+                            float w = Math.Min(EDIT_WIDGET_MAX, avail - RIGHT_PADDING);
+                            RightAlignWidget(w);
+                            ImGui.SetNextItemWidth(w);
                             if (ImGui.DragInt($"##val_{fieldIndex}", ref intVal, 1.0f))
                             {
                                 ComponentReflector.WriteFieldValue(instance, field, intVal);
@@ -811,6 +917,10 @@ namespace MDB.Explorer.ImGui
                         {
                             object val = ComponentReflector.ReadFieldValue(instance, field);
                             float floatVal = val is float f ? f : 0f;
+                            float avail2 = ImGui.GetContentRegionAvailX();
+                            float w2 = Math.Min(EDIT_WIDGET_MAX, avail2 - RIGHT_PADDING);
+                            RightAlignWidget(w2);
+                            ImGui.SetNextItemWidth(w2);
                             if (ImGui.DragFloat($"##val_{fieldIndex}", ref floatVal, 0.1f))
                             {
                                 ComponentReflector.WriteFieldValue(instance, field, floatVal);
@@ -831,7 +941,11 @@ namespace MDB.Explorer.ImGui
                                 _stringEditCache[field.Pointer] = editStr;
                             }
                             
-                            ImGui.SetNextItemWidth(EDIT_WIDGET_WIDTH + 30);
+                            // Cap string input width, leave room for Set button
+                            float availStr = ImGui.GetContentRegionAvailX();
+                            float strW = Math.Min(STRING_WIDGET_MAX, availStr - 50f);
+                            RightAlignWidget(strW + 40f); // account for Set button
+                            ImGui.SetNextItemWidth(strW);
                             if (ImGui.InputText($"##val_{fieldIndex}", ref editStr, 256))
                             {
                                 _stringEditCache[field.Pointer] = editStr;
@@ -860,7 +974,7 @@ namespace MDB.Explorer.ImGui
                             if (_stringEditCache.TryGetValue(field.Pointer, out string cachedVal) && cachedVal != currentStr)
                             {
                                 ImGui.SameLine();
-                                ImGui.TextColored(new Vector4(1.0f, 0.8f, 0.0f, 1.0f), "*");
+                                ImGui.TextColored(Theme.Highlight, "*");
                             }
                         }
                         break;
@@ -869,6 +983,10 @@ namespace MDB.Explorer.ImGui
                         {
                             object val = ComponentReflector.ReadFieldValue(instance, field);
                             int enumVal = val is int i ? i : 0;
+                            float avail3 = ImGui.GetContentRegionAvailX();
+                            float w3 = Math.Min(EDIT_WIDGET_MAX, avail3 - RIGHT_PADDING);
+                            RightAlignWidget(w3);
+                            ImGui.SetNextItemWidth(w3);
                             if (ImGui.DragInt($"##val_{fieldIndex}", ref enumVal, 1.0f))
                             {
                                 ComponentReflector.WriteFieldValue(instance, field, enumVal);
@@ -880,7 +998,13 @@ namespace MDB.Explorer.ImGui
                         {
                             object value = ComponentReflector.ReadFieldValue(instance, field);
                             string valueStr = FormatValue(value);
-                            ImGui.TextColored(new Vector4(0.8f, 0.9f, 0.6f, 1.0f), valueStr);
+                            float availDef = ImGui.GetContentRegionAvailX();
+                            float wDef = Math.Min(EDIT_WIDGET_MAX, availDef - RIGHT_PADDING);
+                            RightAlignWidget(wDef);
+                            ImGui.SetNextItemWidth(wDef);
+                            ImGui.BeginDisabled();
+                            ImGui.InputText($"##val_{fieldIndex}", ref valueStr, (uint)valueStr.Length + 1, ImGuiInputTextFlags.ReadOnly);
+                            ImGui.EndDisabled();
                         }
                         break;
                 }
@@ -891,6 +1015,49 @@ namespace MDB.Explorer.ImGui
             }
         }
         
+        /// <summary>
+        /// Display a read-only value in a disabled input field for visual consistency.
+        /// </summary>
+        private void DrawReadOnlyValue(string valueStr)
+        {
+            if (valueStr == null) valueStr = "(N/A)";
+            float avail = ImGui.GetContentRegionAvailX();
+            float w = Math.Min(EDIT_WIDGET_MAX, avail - RIGHT_PADDING);
+            RightAlignWidget(w);
+            ImGui.SetNextItemWidth(w);
+            ImGui.BeginDisabled();
+            ImGui.InputText("##ro", ref valueStr, (uint)valueStr.Length + 1, ImGuiInputTextFlags.ReadOnly);
+            ImGui.EndDisabled();
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(valueStr);
+        }
+
+        /// <summary>
+        /// Check if a field type is editable (has a dedicated edit widget).
+        /// </summary>
+        private bool IsEditableType(int typeEnum)
+        {
+            return typeEnum == Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_BOOLEAN ||
+                   typeEnum == Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_I4 ||
+                   typeEnum == Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_R4 ||
+                   typeEnum == Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_STRING ||
+                   typeEnum == Il2CppBridge.Il2CppTypeEnum.IL2CPP_TYPE_ENUM;
+        }
+
+        /// <summary>
+        /// Read a static field's object pointer.
+        /// </summary>
+        private IntPtr ReadStaticObjectPtr(IntPtr fieldPtr)
+        {
+            unsafe
+            {
+                IntPtr objPtr = IntPtr.Zero;
+                IntPtr buffer = new IntPtr(&objPtr);
+                Il2CppBridge.mdb_field_static_get_value(fieldPtr, buffer);
+                return objPtr;
+            }
+        }
+
         /// <summary>
         /// Write an IL2CPP string pointer to a field.
         /// </summary>
@@ -949,7 +1116,7 @@ namespace MDB.Explorer.ImGui
                 
                 ImGui.TextDisabled($"[{i}]");
                 ImGui.SameLine();
-                ImGui.TextColored(new Vector4(0.4f, 0.7f, 1.0f, 1.0f), elementTypeName);
+                ImGui.TextColored(Theme.TypeName, elementTypeName);
                 ImGui.SameLine();
                 
                 if (elementPtr == IntPtr.Zero)
@@ -1045,37 +1212,65 @@ namespace MDB.Explorer.ImGui
             
             ImGui.PushID(propIndex);
             
-            // Read/Write indicator
-            string rwIndicator = prop.CanWrite ? "[RW]" : "[R]";
-            ImGui.TextDisabled(rwIndicator);
+            // Dynamic column sizing based on available width
+            ComputeColumnLimits(out int typeMaxChars, out int nameMaxChars);
+            
+            // Type name in color
+            string typeName = GetSimpleTypeName(prop.DisplayTypeName);
+            string displayType = TruncateText(typeName, typeMaxChars);
+            ImGui.TextColored(Theme.TypeName, displayType);
+            if (displayType != typeName && ImGui.IsItemHovered())
+                ImGui.SetTooltip($"{typeName} ({(prop.CanWrite ? "read/write" : "read-only")})");
             ImGui.SameLine();
             
-            // Property name - use deobfuscated name (truncate if needed)
+            // Property name
             string propName = prop.DisplayName ?? "(unnamed)";
-            string displayName = TruncateText(propName, MAX_NAME_CHARS - 5); // Account for [RW] prefix
+            string displayName = TruncateText(propName, nameMaxChars);
             ImGui.Text(displayName);
+            if (displayName != propName && ImGui.IsItemHovered())
+                ImGui.SetTooltip(propName);
             
-            // Value column - right-justified
-            float valueStart = ImGui.GetWindowWidth() - VALUE_COLUMN_WIDTH;
-            ImGui.SameLine(valueStart > 150 ? valueStart : 150);
+            // Value column - right-aligned
+            ImGui.SameLine();
             
-            // Read and display the property value
+            // Pre-read value text for right-alignment
+            string valueStr = null;
             if (instance != IntPtr.Zero && prop.GetterMethod != IntPtr.Zero)
             {
                 try
                 {
                     object value = ComponentReflector.InvokePropertyGetter(instance, prop);
-                    string valueStr = FormatValue(value);
-                    ImGui.TextColored(new Vector4(0.8f, 0.9f, 0.6f, 1.0f), valueStr);
+                    valueStr = FormatValue(value);
                 }
-                catch
-                {
-                    ImGui.TextDisabled("(error)");
-                }
+                catch { valueStr = "(error)"; }
             }
-            else
+            
+            string displayStr = valueStr ?? "(N/A)";
+            
+            // Show value in a disabled input field for visual consistency
+            float propAvail = ImGui.GetContentRegionAvailX();
+            float propW = Math.Min(EDIT_WIDGET_MAX, propAvail - RIGHT_PADDING);
+            RightAlignWidget(propW);
+            ImGui.SetNextItemWidth(propW);
+            ImGui.BeginDisabled();
+            ImGui.InputText("##pval", ref displayStr, (uint)displayStr.Length + 1, ImGuiInputTextFlags.ReadOnly);
+            ImGui.EndDisabled();
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(displayStr);
+            
+            // Right-click context menu
+            if (ImGui.BeginPopupContextItem("prop_ctx"))
             {
-                ImGui.TextDisabled("(N/A)");
+                string accessStr = prop.CanWrite ? "Read/Write" : "Read-only";
+                ImGui.TextDisabled(accessStr);
+                ImGui.Separator();
+                if (ImGui.MenuItem("Copy Property Name"))
+                    ImGui.SetClipboardText(prop.Name);
+                if (prop.DisplayName != prop.Name && ImGui.MenuItem("Copy Display Name"))
+                    ImGui.SetClipboardText(prop.DisplayName);
+                if (ImGui.MenuItem("Copy Type"))
+                    ImGui.SetClipboardText(prop.TypeName);
+                ImGui.EndPopup();
             }
             
             ImGui.PopID();
@@ -1114,8 +1309,8 @@ namespace MDB.Explorer.ImGui
             
             if (value is string s)
             {
-                if (s.Length > 50)
-                    return $"\"{s.Substring(0, 47)}...\"";
+                if (s.Length > 100)
+                    return $"\"{s.Substring(0, 97)}...\"";
                 return $"\"{s}\"";
             }
             
@@ -1256,7 +1451,7 @@ namespace MDB.Explorer.ImGui
         }
 
         /// <summary>
-        /// Draw a method entry.
+        /// Draw a method entry with return type and parameter info.
         /// </summary>
         private void DrawMethod(MethodInfo method, int compIndex, int methodIndex)
         {
@@ -1272,21 +1467,30 @@ namespace MDB.Explorer.ImGui
                 return;
             }
             
-            // Static indicator
-            if (method.IsStatic)
+            // Dynamic layout
+            ComputeColumnLimits(out int typeMaxChars, out int _nameMax);
+            
+            // Return type in color
+            string retType = GetSimpleTypeName(method.DisplayReturnTypeName ?? "void");
+            string displayRetType = TruncateText(retType, typeMaxChars);
+            ImGui.TextColored(Theme.TypeName, displayRetType);
+            if (displayRetType != retType && ImGui.IsItemHovered())
+                ImGui.SetTooltip(retType);
+            ImGui.SameLine();
+            
+            // Method name with parameter signature
+            string paramSig = method.ParameterSignature ?? $"{method.ParameterCount} params";
+            string methodLabel = $"{name}({paramSig})";
+            ImGui.TextColored(Theme.MethodName, methodLabel);
+            if (ImGui.IsItemHovered())
             {
-                ImGui.TextDisabled("[S]");
-                ImGui.SameLine();
+                string fullSig = $"{retType} {name}({paramSig})";
+                if (method.IsStatic) fullSig = "static " + fullSig;
+                ImGui.SetTooltip(fullSig);
             }
             
-            // Show method with param count
-            ImGui.Text($"{name}({method.ParameterCount})");
-            
-            // NOTE: Method invocation disabled - causes crashes
-            // TODO: Investigate proper IL2CPP method invocation
-            /*
-            // Add invoke button for parameterless methods
-            if (method.ParameterCount == 0)
+            // Invoke button for parameterless methods
+            if (method.ParameterCount == 0 && !method.IsStatic)
             {
                 ImGui.SameLine();
                 if (ImGui.SmallButton($"Invoke##invoke_{methodIndex}"))
@@ -1294,7 +1498,18 @@ namespace MDB.Explorer.ImGui
                     InvokeMethod(method);
                 }
             }
-            */
+            
+            // Right-click context menu
+            if (ImGui.BeginPopupContextItem("method_ctx"))
+            {
+                string fullSig = $"{retType} {name}({paramSig})";
+                if (method.IsStatic) fullSig = "static " + fullSig;
+                if (ImGui.MenuItem("Copy Signature"))
+                    ImGui.SetClipboardText(fullSig);
+                if (ImGui.MenuItem("Copy Method Name"))
+                    ImGui.SetClipboardText(method.Name);
+                ImGui.EndPopup();
+            }
             
             ImGui.PopID();
         }
@@ -1353,133 +1568,6 @@ namespace MDB.Explorer.ImGui
                     return false;
             }
             return true;
-        }
-        
-        /// <summary>
-        /// Check if a field is likely static (event delegates, constants, etc.)
-        /// </summary>
-        private bool IsLikelyStaticField(FieldInfo field)
-        {
-            if (field.IsStatic) return true;
-            
-            string name = field.Name;
-            if (string.IsNullOrEmpty(name)) return true;
-            
-            // Common static field patterns
-            if (name.StartsWith("s_")) return true;  // Static prefix
-            if (name.StartsWith("k") && name.Length > 1 && char.IsUpper(name[1])) return true;  // kConstant
-            if (name.Contains("WillRender")) return true;  // Event delegates
-            if (name.Contains("Callback")) return true;  // Event callbacks
-            if (name.Contains("Event") && !name.StartsWith("m_")) return true;  // Events
-            
-            // Check type name for delegate types
-            if (field.TypeName != null)
-            {
-                if (field.TypeName.Contains("Action") || 
-                    field.TypeName.Contains("Func") ||
-                    field.TypeName.Contains("Delegate") ||
-                    field.TypeName.Contains("Event"))
-                    return true;
-            }
-            
-            return false;
-        }
-
-        // ========== Private Helpers ==========
-
-        private IntPtr GetTransform(IntPtr goPtr)
-        {
-            try
-            {
-                IntPtr method = Il2CppBridge.mdb_get_method(_gameObjectClass, "get_transform", 0);
-                if (method == IntPtr.Zero) return IntPtr.Zero;
-
-                IntPtr exception;
-                return Il2CppBridge.mdb_invoke_method(method, goPtr, Array.Empty<IntPtr>(), out exception);
-            }
-            catch { return IntPtr.Zero; }
-        }
-
-        private Vector3 GetVector3Property(IntPtr obj, string methodName)
-        {
-            try
-            {
-                IntPtr method = Il2CppBridge.mdb_get_method(_transformClass, methodName, 0);
-                if (method == IntPtr.Zero)
-                {
-                    ModLogger.LogInternal(LOG_TAG, $"[WARN] Method not found: {methodName}");
-                    return Vector3.Zero;
-                }
-
-                IntPtr exception;
-                IntPtr result = Il2CppBridge.mdb_invoke_method(method, obj, Array.Empty<IntPtr>(), out exception);
-
-                if (exception != IntPtr.Zero)
-                {
-                    ModLogger.LogInternal(LOG_TAG, $"[WARN] Exception calling {methodName}");
-                    return Vector3.Zero;
-                }
-
-                // For value types, IL2CPP returns a boxed object
-                // The actual data starts at offset 0x10 (16 bytes) after the object header on 64-bit
-                // Or we need to use il2cpp_object_unbox
-                if (result == IntPtr.Zero) return Vector3.Zero;
-
-                // Try to read the Vector3 data
-                // The boxed object has header + data, data starts at object + 2*sizeof(void*) typically
-                unsafe
-                {
-                    // For 64-bit IL2CPP, object header is typically 16 bytes (2 pointers)
-                    byte* basePtr = (byte*)result;
-                    float* dataPtr = (float*)(basePtr + 16); // Skip object header
-                    return new Vector3(dataPtr[0], dataPtr[1], dataPtr[2]);
-                }
-            }
-            catch (Exception ex)
-            {
-                ModLogger.LogInternal(LOG_TAG, $"[ERROR] GetVector3Property failed: {ex.Message}");
-                return Vector3.Zero;
-            }
-        }
-
-        private string GetComponentTypeName(IntPtr compPtr)
-        {
-            try
-            {
-                // Get the object's class
-                IntPtr klass = Il2CppBridge.mdb_object_get_class(compPtr);
-                if (klass == IntPtr.Zero) return null;
-
-                return Il2CppBridge.GetClassName(klass);
-            }
-            catch { return null; }
-        }
-
-        private void SetGameObjectActive(IntPtr goPtr, bool active)
-        {
-            if (goPtr == IntPtr.Zero)
-            {
-                ModLogger.LogInternal(LOG_TAG, "[WARN] SetActive called with null pointer");
-                return;
-            }
-            
-            try
-            {
-                // Use the native helper that properly handles bool boxing for IL2CPP
-                bool success = Il2CppBridge.mdb_gameobject_set_active(goPtr, active);
-                if (!success)
-                {
-                    ModLogger.LogInternal(LOG_TAG, "[WARN] mdb_gameobject_set_active returned false");
-                }
-                else
-                {
-                    ModLogger.LogInternal(LOG_TAG, $"[INFO] SetActive({active}) succeeded");
-                }
-            }
-            catch (Exception ex)
-            {
-                ModLogger.LogInternal(LOG_TAG, $"[ERROR] SetActive failed: {ex.Message}");
-            }
         }
     }
 }

@@ -31,7 +31,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\..\MDB_Core\MDB_Core.csproj" />
+    <Reference Include="GameSDK.MDBUnityStandard">
+      <HintPath>deps\GameSDK.MDBUnityStandard.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
 </Project>
