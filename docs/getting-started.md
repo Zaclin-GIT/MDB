@@ -140,124 +140,37 @@ To force a full rebuild, delete `MDB/Managed/GameSDK.ModHost.dll` & all of the g
 
 Now that MDB is installed, let's create a simple mod.
 
-### 1. Install the MDB Template
+### 1. Clone the Mod Skeleton
 
-MDB provides a `dotnet new` template (like BepInEx) so you can scaffold mods from the command line:
-
-```bash
-dotnet new install MDB.Templates
-```
-
-> **Local install:** If you cloned the [MDB.Templates](https://github.com/Zaclin-GIT/MDB.Templates) repo instead, install from the local path:
-> ```bash
-> dotnet new install ./path/to/MDB.Templates
-> ```
-
-### 2. Create a New Mod Project
+MDB provides a skeleton project you can clone to get started quickly:
 
 ```bash
-dotnet new mdbmod -n MyFirstMod --ModAuthor "YourName" --GamePath "C:\Path\To\Game"
+git clone -b mdbmod https://github.com/Zaclin-GIT/MDB.Templates.git MyFirstMod
 ```
 
-This creates a ready-to-build project with:
-- A `.csproj` targeting .NET Framework 4.8.1 with the SDK reference pre-configured
+This gives you a ready-to-build project with:
+- A `.csproj` targeting .NET Framework 4.8.1
 - A `Mod.cs` entry point with lifecycle methods
 - An `ImGuiWindow.cs` with a starter UI window
 
-**Template options:**
+### 2. Add the SDK
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `-n` | Project & mod name | `MyMod` |
-| `--ModAuthor` | Your author name | `ModAuthor` |
-| `--ModDescription` | Short description | `An MDB Framework mod` |
-| `--GamePath` | Path to game folder | *(must be set)* |
-| `--imgui` | Include ImGui boilerplate | `true` |
+The SDK (`GameSDK.MDBUnityStandard.dll`) is generated on first injection. You must inject MDB into the game at least once before you can build mods.
 
-For a headless mod (no UI): `dotnet new mdbmod -n MyMod --imgui false`
+Once the SDK has been generated, copy it into the mod project's folder
 
-**Important:** The SDK (`GameSDK.ModHost.dll`) is generated on first injection. You must inject MDB once before you can build mods.
-
-### 3. Review the Generated Code
-
-The template creates a `Mod.cs` with the core structure:
-
-```csharp
-using System;
-using GameSDK.ModHost;
-using GameSDK.ModHost.ImGui;
-
-namespace MyFirstMod
-{
-    [Mod("YourName.MyFirstMod", "MyFirstMod", "1.0.0", 
-         Author = "YourName", 
-         Description = "An MDB Framework mod")]
-    public class Mod : ModBase
-    {
-        public override void OnLoad()
-        {
-            Logger.Info("MyFirstMod loaded!");
-            ImGuiWindow.Register(Logger);
-        }
-
-        public override void OnUpdate()
-        {
-            // Your per-frame logic here
-        }
-
-        public override void OnUnload()
-        {
-            ImGuiWindow.Unregister();
-            Logger.Info("MyFirstMod unloaded.");
-        }
-    }
-}
-```
-
-### 4. Build Your Mod
+### 3. Build Your Mod
 
 ```bash
 cd MyFirstMod
 dotnet build -c Release
 ```
 
-Output: `bin\Release\MyFirstMod.dll`
+Output: `bin\Release\net481\MyFirstMod.dll`
 
-### 5. Deploy Your Mod
+### 4. Deploy Your Mod
 
-Copy the built DLL to the game's mod folder:
-
-```powershell
-copy bin\Release\MyFirstMod.dll <GameFolder>\MDB\Mods\
-```
-
-> **Tip:** Uncomment the `CopyToMods` target in the `.csproj` to auto-deploy on every Release build.
-
----
-
-<a name="testing"></a>
-## Testing Your Mod
-
-1. **Launch the game** with MDB_Bridge.dll injected (if not already running)
-
-2. **Press F2** to toggle ImGui input capture (enabled by default)
-
-3. **Look for your window** - "My First Window" should appear
-
-4. **Check the console or logs:**
-   ```
-   MDB/Logs/Mods.log
-   ```
-   You should see:
-   ```
-   [INFO] [MyFirstMod] My First Mod has loaded!
-   [WARN] [MyFirstMod] This is a warning message
-   [ERROR] [MyFirstMod] This is an error message
-   ```
-
-5. **Interact with the UI:**
-   - Click the "Click Me!" button
-   - Check the console or logs for "Button was clicked!"
+Copy the built DLL to the game's mod folder
 
 ---
 
@@ -295,11 +208,11 @@ Congratulations! You've created and loaded your first MDB mod. Here's what to ex
 - Try running the game and injector as administrator
 - Check if anti-cheat is blocking injection
 
-### Build fails: "GameSDK.ModHost.dll not found"
+### Build fails: SDK not found
 
 - You must inject MDB once to generate the SDK
-- Check `MDB/Managed/GameSDK.ModHost.dll` exists
-- Update the `HintPath` in your .csproj to the correct path
+- Copy `GameSDK.MDBUnityStandard.dll` from `<GameFolder>/MDB/Managed/` into your project's `deps/` folder
+- Verify the `HintPath` in your `.csproj` points to `deps\GameSDK.MDBUnityStandard.dll`
 
 ### Mod doesn't load
 
