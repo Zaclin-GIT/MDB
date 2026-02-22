@@ -5,6 +5,7 @@
 // to load and execute the managed mod assemblies.
 
 #include "bridge_exports.h"
+#include "core/mdb_log.h"
 #include "il2cpp/il2cpp_resolver.hpp"
 #include "il2cpp/il2cpp_dumper.hpp"
 // wrapper_generator.hpp removed — dumper now generates wrappers directly
@@ -18,126 +19,12 @@
 
 #pragma comment(lib, "mscoree.lib")
 
-// ==============================
-// Debug/Release Logging Configuration
-// ==============================
-// Define MDB_DEBUG in your project settings for debug builds
-// or uncomment the following line for debug mode:
-// #define MDB_DEBUG
-
-#ifdef MDB_DEBUG
-    #define LOG_DEBUG(fmt, ...) log_message("[DEBUG] " fmt, ##__VA_ARGS__)
-    #define LOG_TRACE(fmt, ...) log_message("[TRACE] " fmt, ##__VA_ARGS__)
-#else
-    #define LOG_DEBUG(fmt, ...) ((void)0)
-    #define LOG_TRACE(fmt, ...) ((void)0)
-#endif
-
-// Always-on logging for errors, warnings, and important info
-#define LOG_ERROR(fmt, ...) log_message("[ERROR] " fmt, ##__VA_ARGS__)
-#define LOG_WARN(fmt, ...)  log_message("[WARN] " fmt, ##__VA_ARGS__)
-#define LOG_INFO(fmt, ...)  log_message("[INFO] " fmt, ##__VA_ARGS__)
-
 // CLR interfaces
 static ICLRMetaHost* g_pMetaHost = nullptr;
 static ICLRRuntimeInfo* g_pRuntimeInfo = nullptr;
 static ICLRRuntimeHost* g_pRuntimeHost = nullptr;
 static bool g_clr_initialized = false;
 static bool g_mods_loaded = false;
-
-// Logging
-static FILE* g_log_file = nullptr;
-static bool g_console_allocated = false;
-
-// Allocate a console window for logging output
-static void allocate_console() {
-    if (g_console_allocated) return;
-    
-    if (AllocConsole()) {
-        FILE* fp;
-        freopen_s(&fp, "CONOUT$", "w", stdout);
-        freopen_s(&fp, "CONOUT$", "w", stderr);
-        freopen_s(&fp, "CONIN$", "r", stdin);
-        
-        SetConsoleTitleA("MDB Framework Console");
-        
-        // Set console colors for better readability
-        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-        
-        // Print header in purple/magenta
-        SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
-        printf("=== MDB Framework Console ===\n\n");
-        
-        // Reset to default gray for subsequent output
-        SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-        
-        g_console_allocated = true;
-    }
-}
-
-static void log_message(const char* format, ...) {
-    // Allocate console on first log (debug builds only)
-    allocate_console();
-    
-    if (!g_log_file) {
-        // Try to open log file
-        char path[MAX_PATH];
-        GetModuleFileNameA(nullptr, path, MAX_PATH);
-        std::filesystem::path exe_path(path);
-        auto log_path = exe_path.parent_path() / "MDB" / "Logs" / "MDB.log";
-        
-        // Create directories if needed
-        std::filesystem::create_directories(log_path.parent_path());
-        
-        g_log_file = fopen(log_path.string().c_str(), "a");
-    }
-    
-    va_list args;
-    va_start(args, format);
-    
-    // Timestamp
-    SYSTEMTIME st;
-    GetLocalTime(&st);
-    char timestamp[32];
-    snprintf(timestamp, sizeof(timestamp), "[%02d:%02d:%02d.%03d] ", 
-             st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
-    
-    // Log to file
-    if (g_log_file) {
-        fprintf(g_log_file, "%s", timestamp);
-        vfprintf(g_log_file, format, args);
-        fprintf(g_log_file, "\n");
-        fflush(g_log_file);
-    }
-    
-    // Also print to console if available
-    if (g_console_allocated) {
-        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
-        
-        // Set color based on log level in format string
-        // Blue for INFO, Yellow for WARN, Red for ERROR
-        if (strstr(format, "[ERROR]")) {
-            SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_INTENSITY);
-        } else if (strstr(format, "[WARN]")) {
-            SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_INTENSITY);
-        } else {
-            // Default to blue for INFO and other messages
-            SetConsoleTextAttribute(hConsole, FOREGROUND_BLUE | FOREGROUND_INTENSITY);
-        }
-        
-        va_list args_copy;
-        va_copy(args_copy, args);
-        printf("%s", timestamp);
-        vprintf(format, args_copy);
-        printf("\n");
-        va_end(args_copy);
-        
-        // Reset to default gray
-        SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
-    }
-    
-    va_end(args);
-}
 
 // Get the MDB directory path (next to the game executable)
 static std::wstring get_mdb_directory() {
@@ -271,14 +158,14 @@ static void shutdown_clr() {
     g_clr_initialized = false;
     g_mods_loaded = false;
     
-    if (g_log_file) {
-        fclose(g_log_file);
-        g_log_file = nullptr;
+    if (mdb_log_detail::log_file()) {
+        fclose(mdb_log_detail::log_file());
+        mdb_log_detail::log_file() = nullptr;
     }
     
-    if (g_console_allocated) {
+    if (mdb_log_detail::console_allocated()) {
         FreeConsole();
-        g_console_allocated = false;
+        mdb_log_detail::console_allocated() = false;
     }
 }
 

@@ -4,6 +4,7 @@
 // Auto-detects DirectX version and provides ImGui rendering hooks.
 
 #include "imgui_integration.h"
+#include "core/mdb_log.h"
 #include <MinHook.h>
 
 // ImGui headers
@@ -17,6 +18,30 @@
 #include <vector>
 #include <string>
 #include <algorithm>
+
+// ========== HRESULT Helper ==========
+
+namespace {
+
+static const char* HResultToStr(HRESULT hr) {
+    switch (hr) {
+    case S_OK:                              return "S_OK";
+    case E_OUTOFMEMORY:                     return "E_OUTOFMEMORY";
+    case E_INVALIDARG:                      return "E_INVALIDARG";
+    case E_FAIL:                            return "E_FAIL";
+    case E_NOINTERFACE:                     return "E_NOINTERFACE";
+    case DXGI_ERROR_DEVICE_REMOVED:         return "DXGI_ERROR_DEVICE_REMOVED";
+    case DXGI_ERROR_DEVICE_HUNG:            return "DXGI_ERROR_DEVICE_HUNG";
+    case DXGI_ERROR_DEVICE_RESET:           return "DXGI_ERROR_DEVICE_RESET";
+    case DXGI_ERROR_INVALID_CALL:           return "DXGI_ERROR_INVALID_CALL";
+    case DXGI_ERROR_ACCESS_DENIED:          return "DXGI_ERROR_ACCESS_DENIED";
+    case DXGI_ERROR_UNSUPPORTED:            return "DXGI_ERROR_UNSUPPORTED";
+    case DXGI_ERROR_SDK_COMPONENT_MISSING:  return "DXGI_ERROR_SDK_COMPONENT_MISSING";
+    default:                                return "UNKNOWN";
+    }
+}
+
+} // anonymous namespace
 
 // ========== Forward declarations ==========
 
@@ -276,53 +301,177 @@ MdbDxVersion DetectDxVersion() {
 
 // ========== SwapChain vTable Hook ==========
 
+// Attempt to create a dummy D3D11 device+swapchain targeting the given HWND.
+// On success, extracts the Present vTable pointer and cleans up.
+static bool TryCreateDummySwapChain(HWND hWnd, const char* label, void*& outPresent) {
+    outPresent = nullptr;
+
+    // Try with explicit FL 11_0 first, then let the runtime pick if that fails
+    D3D_FEATURE_LEVEL requestedLevel = D3D_FEATURE_LEVEL_11_0;
+    D3D_FEATURE_LEVEL* pLevels = &requestedLevel;
+    UINT numLevels = 1;
+
+    for (int attempt = 0; attempt < 2; ++attempt) {
+        DXGI_SWAP_CHAIN_DESC desc = {};
+        desc.BufferCount = 1;
+        desc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+        desc.OutputWindow = hWnd;
+        desc.SampleDesc.Count = 1;
+        desc.Windowed = TRUE;
+        desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+
+        IDXGISwapChain* pSwap = nullptr;
+        ID3D11Device* pDev = nullptr;
+        ID3D11DeviceContext* pCtx = nullptr;
+        D3D_FEATURE_LEVEL achievedLevel{};
+
+        HRESULT hr = D3D11CreateDeviceAndSwapChain(
+            nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0,
+            pLevels, numLevels, D3D11_SDK_VERSION,
+            &desc, &pSwap, &pDev,
+            &achievedLevel, &pCtx
+        );
+
+        if (SUCCEEDED(hr)) {
+            LOG_INFO("[ImGui] [%s] Dummy swapchain created (attempt %d, feature level 0x%x)",
+                      label, attempt + 1, (unsigned)achievedLevel);
+
+            void** vTable = *reinterpret_cast<void***>(pSwap);
+            outPresent = vTable[8]; // IDXGISwapChain::Present
+
+            pSwap->Release();
+            pCtx->Release();
+            pDev->Release();
+            return true;
+        }
+
+        LOG_WARN("[ImGui] [%s] D3D11CreateDeviceAndSwapChain failed (attempt %d): "
+                  "HRESULT=0x%08X (%s), featureLevels=%s",
+                  label, attempt + 1, (unsigned)hr, HResultToStr(hr),
+                  (attempt == 0) ? "11_0 explicit" : "nullptr (runtime default)");
+
+        // Second attempt: let the runtime choose the best feature level
+        pLevels = nullptr;
+        numLevels = 0;
+    }
+
+    return false;
+}
+
 bool HookDX11Present() {
-    // Create dummy device to get vTable
-    D3D_FEATURE_LEVEL featureLevel = D3D_FEATURE_LEVEL_11_0;
-    DXGI_SWAP_CHAIN_DESC swapChainDesc = {};
-    swapChainDesc.BufferCount = 1;
-    swapChainDesc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-    swapChainDesc.OutputWindow = GetDesktopWindow();
-    swapChainDesc.SampleDesc.Count = 1;
-    swapChainDesc.Windowed = TRUE;
-    swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
+    LOG_INFO("[ImGui] HookDX11Present: starting DX11 Present hook sequence");
 
-    IDXGISwapChain* pDummySwapChain = nullptr;
-    ID3D11Device* pDummyDevice = nullptr;
-    ID3D11DeviceContext* pDummyContext = nullptr;
+    void* pPresent = nullptr;
 
-    HRESULT hr = D3D11CreateDeviceAndSwapChain(
-        nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0,
-        &featureLevel, 1, D3D11_SDK_VERSION,
-        &swapChainDesc, &pDummySwapChain, &pDummyDevice,
-        nullptr, &pDummyContext
-    );
+    // ---- Attempt 1: Desktop Window (fast, works on most systems) ----
+    {
+        HWND hDesktop = GetDesktopWindow();
+        LOG_INFO("[ImGui] Attempt 1: Using GetDesktopWindow() -> HWND 0x%p", (void*)hDesktop);
 
-    if (FAILED(hr)) {
+        if (TryCreateDummySwapChain(hDesktop, "DesktopWnd", pPresent)) {
+            LOG_INFO("[ImGui] Attempt 1 succeeded, Present @ 0x%p", pPresent);
+        }
+    }
+
+    // ---- Attempt 2: Hidden temporary window (fallback) ----
+    if (!pPresent) {
+        LOG_WARN("[ImGui] Attempt 1 failed, trying hidden window fallback...");
+
+        const wchar_t* className = L"MDB_DummyDX11Wnd";
+        HINSTANCE hInst = GetModuleHandleW(nullptr);
+
+        WNDCLASSEXW wc = {};
+        wc.cbSize = sizeof(wc);
+        wc.lpfnWndProc = DefWindowProcW;
+        wc.hInstance = hInst;
+        wc.lpszClassName = className;
+
+        if (!RegisterClassExW(&wc)) {
+            DWORD err = GetLastError();
+            // ERROR_CLASS_ALREADY_EXISTS (1410) is fine
+            if (err != ERROR_CLASS_ALREADY_EXISTS) {
+                LOG_ERROR("[ImGui] Attempt 2: RegisterClassExW failed, GetLastError=%lu", err);
+            }
+        }
+
+        HWND hHidden = CreateWindowExW(
+            0, className, L"", WS_OVERLAPPEDWINDOW,
+            0, 0, 100, 100, nullptr, nullptr, hInst, nullptr);
+
+        if (!hHidden) {
+            LOG_ERROR("[ImGui] Attempt 2: CreateWindowExW failed, GetLastError=%lu", GetLastError());
+        } else {
+            LOG_INFO("[ImGui] Attempt 2: Using hidden window -> HWND 0x%p", (void*)hHidden);
+
+            if (TryCreateDummySwapChain(hHidden, "HiddenWnd", pPresent)) {
+                LOG_INFO("[ImGui] Attempt 2 succeeded, Present @ 0x%p", pPresent);
+            } else {
+                LOG_ERROR("[ImGui] Attempt 2 also failed");
+            }
+
+            DestroyWindow(hHidden);
+        }
+
+        UnregisterClassW(className, hInst);
+    }
+
+    // ---- Evaluate results ----
+    if (!pPresent) {
+        LOG_ERROR("[ImGui] HookDX11Present: All attempts to obtain Present vTable pointer failed");
+
+        // Log extra diagnostics to help users report the issue
+        LOG_ERROR("[ImGui]   Diagnostics:");
+
+        // Check adapter info
+        IDXGIFactory* pFactory = nullptr;
+        if (SUCCEEDED(CreateDXGIFactory(IID_PPV_ARGS(&pFactory)))) {
+            IDXGIAdapter* pAdapter = nullptr;
+            for (UINT i = 0; pFactory->EnumAdapters(i, &pAdapter) != DXGI_ERROR_NOT_FOUND; ++i) {
+                DXGI_ADAPTER_DESC adapterDesc;
+                if (SUCCEEDED(pAdapter->GetDesc(&adapterDesc))) {
+                    char adapterName[128];
+                    WideCharToMultiByte(CP_UTF8, 0, adapterDesc.Description, -1, adapterName, sizeof(adapterName), nullptr, nullptr);
+                    LOG_ERROR("[ImGui]     Adapter %u: %s (VRAM: %llu MB, Vendor: 0x%04X, Device: 0x%04X)",
+                              i, adapterName,
+                              (unsigned long long)(adapterDesc.DedicatedVideoMemory / (1024 * 1024)),
+                              adapterDesc.VendorId, adapterDesc.DeviceId);
+                }
+                pAdapter->Release();
+            }
+            pFactory->Release();
+        } else {
+            LOG_ERROR("[ImGui]     CreateDXGIFactory failed - no DXGI available");
+        }
+
+        // Check for RDP / remote session
+        if (GetSystemMetrics(SM_REMOTESESSION)) {
+            LOG_ERROR("[ImGui]     ** Remote Desktop session detected - hardware GPU may not be available **");
+        }
+
         return false;
     }
 
-    // Get vTable
-    void** vTable = *reinterpret_cast<void***>(pDummySwapChain);
+    // ---- Install MinHook ----
+    LOG_INFO("[ImGui] Installing MinHook on Present @ 0x%p", pPresent);
 
-    // Present is at index 8
-    void* pPresent = vTable[8];
-
-    // Cleanup dummy objects
-    pDummySwapChain->Release();
-    pDummyContext->Release();
-    pDummyDevice->Release();
-
-    // Hook Present
-    if (MH_CreateHook(pPresent, &HookedPresent11, reinterpret_cast<void**>(&g_originalPresent)) != MH_OK) {
+    MH_STATUS mhStatus = MH_CreateHook(pPresent, &HookedPresent11, reinterpret_cast<void**>(&g_originalPresent));
+    if (mhStatus != MH_OK) {
+        LOG_ERROR("[ImGui] MH_CreateHook failed: %s (code %d). "
+                  "Another overlay (Steam/Discord/RivaTuner/MSI Afterburner) may have already hooked Present.",
+                  MH_StatusToString(mhStatus), (int)mhStatus);
         return false;
     }
 
-    if (MH_EnableHook(pPresent) != MH_OK) {
+    mhStatus = MH_EnableHook(pPresent);
+    if (mhStatus != MH_OK) {
+        LOG_ERROR("[ImGui] MH_EnableHook failed: %s (code %d)",
+                  MH_StatusToString(mhStatus), (int)mhStatus);
+        MH_RemoveHook(pPresent);
         return false;
     }
 
+    LOG_INFO("[ImGui] HookDX11Present: Present hook installed successfully");
     return true;
 }
 
@@ -344,7 +493,10 @@ MDB_IMGUI_API MdbDxVersion mdb_imgui_get_dx_version() {
 }
 
 MDB_IMGUI_API bool mdb_imgui_init() {
+    LOG_INFO("[ImGui] mdb_imgui_init called");
+
     if (g_initialized.load()) {
+        LOG_INFO("[ImGui] Already initialized, returning true");
         return true;
     }
 
@@ -353,30 +505,53 @@ MDB_IMGUI_API bool mdb_imgui_init() {
     if (!s_mhInitialized) {
         MH_STATUS status = MH_Initialize();
         if (status != MH_OK && status != MH_ERROR_ALREADY_INITIALIZED) {
+            LOG_ERROR("[ImGui] MH_Initialize failed: %s (code %d)",
+                      MH_StatusToString(status), (int)status);
             return false;
         }
+        LOG_INFO("[ImGui] MinHook initialized (status: %s)", MH_StatusToString(status));
         s_mhInitialized = true;
     }
 
+    // Log loaded graphics modules for diagnostics
+    HMODULE hD3D11 = GetModuleHandleW(L"d3d11.dll");
+    HMODULE hD3D12 = GetModuleHandleW(L"d3d12.dll");
+    HMODULE hDXGI  = GetModuleHandleW(L"dxgi.dll");
+    LOG_INFO("[ImGui] Module check: d3d11.dll=0x%p, d3d12.dll=0x%p, dxgi.dll=0x%p",
+              (void*)hD3D11, (void*)hD3D12, (void*)hDXGI);
+
     // Detect DirectX version
     g_dxVersion.store(DetectDxVersion());
+    LOG_INFO("[ImGui] Initial DX detection: %d", (int)g_dxVersion.load());
 
     if (g_dxVersion.load() == MDB_DX_UNKNOWN) {
-        // Try to wait a bit for DirectX to load
+        LOG_WARN("[ImGui] DX version unknown, polling up to 10 times (100ms each)...");
         for (int i = 0; i < 10; i++) {
             Sleep(100);
             g_dxVersion.store(DetectDxVersion());
-            if (g_dxVersion.load() != MDB_DX_UNKNOWN) break;
+            if (g_dxVersion.load() != MDB_DX_UNKNOWN) {
+                LOG_INFO("[ImGui] DX detected after %d polls: %d", i + 1, (int)g_dxVersion.load());
+                break;
+            }
         }
     }
 
     switch (g_dxVersion.load()) {
-    case MDB_DX_11:
-        return HookDX11Present();
+    case MDB_DX_11: {
+        LOG_INFO("[ImGui] Proceeding with DX11 Present hook");
+        bool result = HookDX11Present();
+        if (!result) {
+            LOG_ERROR("[ImGui] DX11 Present hook FAILED - ImGui will not be available");
+        }
+        return result;
+    }
     case MDB_DX_12:
-        // DX12 support deferred
+        LOG_ERROR("[ImGui] DX12 detected but not yet supported");
         return false;
     default:
+        LOG_ERROR("[ImGui] No DirectX version detected after all retries. "
+                  "d3d11.dll loaded: %s, d3d12.dll loaded: %s",
+                  hD3D11 ? "YES" : "NO", hD3D12 ? "YES" : "NO");
         return false;
     }
 }
