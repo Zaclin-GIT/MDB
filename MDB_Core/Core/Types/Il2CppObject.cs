@@ -94,6 +94,20 @@ namespace GameSDK
                 ? $"{GetType().Name}(null)" 
                 : $"{GetType().Name}(0x{NativePtr.ToInt64():X})";
         }
+
+        /// <summary>
+        /// Cast this IL2CPP object to a different wrapper type.
+        /// Useful when a field or method returns a base type (e.g. Il2CppObject)
+        /// but you know the runtime type is a more specific class.
+        /// Example: playerVH.destroyEntity.Cast&lt;FKALGHJIADI&gt;()
+        /// </summary>
+        /// <typeparam name="T">The target wrapper type to cast to</typeparam>
+        /// <returns>A new wrapper of type T pointing to the same native object, or null if invalid</returns>
+        public T Cast<T>() where T : Il2CppObject
+        {
+            if (NativePtr == IntPtr.Zero) return null;
+            return (T)Activator.CreateInstance(typeof(T), NativePtr);
+        }
     }
 
     /// <summary>

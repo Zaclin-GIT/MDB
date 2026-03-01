@@ -131,6 +131,16 @@ extern "C" {
     MDB_API void* mdb_invoke_method(void* method, void* instance, void** args, void** exception);
     
     /// <summary>
+    /// Inflate a generic method definition with concrete type arguments.
+    /// Uses IL2CPP reflection APIs: MethodInfo.MakeGenericMethod(Type[]).
+    /// </summary>
+    /// <param name="method">Pointer to generic MethodInfo definition (m_uGeneric=1)</param>
+    /// <param name="type_classes">Array of Il2CppClass* pointers for each type argument</param>
+    /// <param name="type_count">Number of type arguments</param>
+    /// <returns>Pointer to inflated MethodInfo, or nullptr on failure</returns>
+    MDB_API void* mdb_inflate_generic_method(void* method, void** type_classes, int type_count);
+    
+    /// <summary>
     /// Get the parameter type for a method at a specific index.
     /// </summary>
     /// <param name="method">Pointer to MethodInfo</param>

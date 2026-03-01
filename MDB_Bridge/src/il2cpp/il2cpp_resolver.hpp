@@ -218,6 +218,9 @@ namespace il2cpp {
 					void* m_pRGCTX;
 					void* m_pMethodDefinition;
 				};
+				// Unity 2021+ added a field here (virtual method pointer or interop data).
+				// Must be present to align the generic container and tail fields correctly.
+				void* m_pVirtualCallMethodPointer{};
 				union {
 					void* m_pGenericMethod;
 					void* m_pGenericContainer;
@@ -231,6 +234,15 @@ namespace il2cpp {
 				unsigned char m_uInflated : 1;
 				unsigned char m_uWrapperType : 1;
 				unsigned char m_uMarshaledFromNative : 1;
+			};
+
+			/// Represents an IL2CPP generic parameter container.
+			/// Used to determine the number of type parameters on a generic method/class definition.
+			struct il2cppGenericContainer {
+				int32_t m_iOwnerIndex;   // Index of owning type/method definition
+				int32_t m_iTypeArgc;     // Number of generic type parameters
+				// Remaining fields (is_method, genericParameterStart) omitted —
+				// we only need the type argument count for codegen.
 			};
 
 			struct il2cppPropertyInfo {
@@ -649,6 +661,14 @@ namespace il2cpp {
 		inline uint32_t (__fastcall* il2cpp_method_get_param_count)(const unity_structs::il2cppMethodInfo*) = nullptr;
 		inline const char* (__fastcall* il2cpp_method_get_param_name)(const unity_structs::il2cppMethodInfo*, uint32_t) = nullptr;
 
+		// -- Generic method inflation APIs --
+		inline void* (__fastcall* il2cpp_method_get_object)(const unity_structs::il2cppMethodInfo*, unity_structs::il2cppClass*) = nullptr;
+		inline const unity_structs::il2cppMethodInfo* (__fastcall* il2cpp_method_get_from_reflection)(const void*) = nullptr;
+		inline void* (__fastcall* il2cpp_type_get_object)(const unity_structs::il2cppType*) = nullptr;
+		inline void* (__fastcall* il2cpp_object_get_class)(void*) = nullptr;
+		inline void* (__fastcall* il2cpp_array_new)(unity_structs::il2cppClass*, size_t) = nullptr;
+		inline void* (__fastcall* il2cpp_runtime_invoke)(const unity_structs::il2cppMethodInfo*, void*, void**, void**) = nullptr;
+
 		// --------------------------
 		// Validate exports & bind (LAZY RESOLUTION)
 		// --------------------------
@@ -727,6 +747,14 @@ namespace il2cpp {
 			try_bind(il2cpp_method_get_name,          "il2cpp_method_get_name");
 			try_bind(il2cpp_method_get_param_count,   "il2cpp_method_get_param_count");
 			try_bind(il2cpp_method_get_param_name,    "il2cpp_method_get_param_name");
+
+			// Generic method inflation
+			try_bind(il2cpp_method_get_object,         "il2cpp_method_get_object");
+			try_bind(il2cpp_method_get_from_reflection,"il2cpp_method_get_from_reflection");
+			try_bind(il2cpp_type_get_object,           "il2cpp_type_get_object");
+			try_bind(il2cpp_object_get_class,          "il2cpp_object_get_class");
+			try_bind(il2cpp_array_new,                 "il2cpp_array_new");
+			try_bind(il2cpp_runtime_invoke,            "il2cpp_runtime_invoke");
 
 			// Write export resolution log to game folder
 			write_export_log();

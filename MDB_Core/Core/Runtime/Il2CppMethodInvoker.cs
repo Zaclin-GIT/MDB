@@ -4,6 +4,7 @@
 // Handles all IL2CPP method invocation (instance, static, and RVA-based)
 
 using System;
+using System.Collections.Generic;
 
 namespace GameSDK
 {
@@ -147,6 +148,300 @@ namespace GameSDK
             {
                 LogError($"InvokeVoid({methodName}): {ex.Message}");
             }
+        }
+
+        // ==============================
+        // Generic Instance Method Invocation
+        // ==============================
+
+        /// <summary>
+        /// Call a generic instance method and return the result.
+        /// Inflates the generic method definition with concrete type arguments before invocation.
+        /// </summary>
+        /// <typeparam name="T">Return type</typeparam>
+        /// <param name="instance">The object instance</param>
+        /// <param name="methodName">Name of the method to call</param>
+        /// <param name="genericArgs">Managed Types representing the generic type arguments</param>
+        /// <param name="paramTypes">Parameter types (used for overload resolution)</param>
+        /// <param name="args">Arguments to pass to the method</param>
+        /// <returns>The return value, or default(T) on failure</returns>
+        public static T CallGeneric<T>(object instance, string methodName, Type[] genericArgs, Type[] paramTypes, params object[] args)
+        {
+            EnsureInitialized();
+
+            try
+            {
+                IntPtr nativeInstance = GetNativePointer(instance);
+                if (nativeInstance == IntPtr.Zero)
+                {
+                    if (!SuppressNullErrors)
+                        LogDebug($"Instance is null for generic method {methodName} - returning default");
+                    if (ThrowOnNullPointer)
+                        throw new Il2CppException(MdbErrorCode.NullPointer, $"Instance is null for method {methodName}");
+                    return default(T);
+                }
+
+                IntPtr klass = Il2CppBridge.mdb_object_get_class(nativeInstance);
+                if (klass == IntPtr.Zero)
+                {
+                    if (!SuppressNullErrors)
+                        LogDebug($"Could not get class for instance when calling {methodName}");
+                    return default(T);
+                }
+
+                // Get the generic method definition
+                IntPtr method = GetOrCacheMethod(klass, methodName, paramTypes?.Length ?? 0);
+                if (method == IntPtr.Zero)
+                {
+                    LogError($"Generic method definition not found: {methodName}");
+                    return default(T);
+                }
+
+                // Inflate with concrete type arguments
+                IntPtr inflatedMethod = InflateMethod(method, methodName, genericArgs);
+                if (inflatedMethod == IntPtr.Zero)
+                {
+                    return default(T);
+                }
+
+                // Marshal arguments and invoke the inflated method
+                IntPtr[] nativeArgs = Il2CppMarshaler.MarshalArguments(args);
+                IntPtr exception;
+                IntPtr result = Il2CppBridge.mdb_invoke_method(inflatedMethod, nativeInstance, nativeArgs, out exception);
+
+                if (exception != IntPtr.Zero)
+                {
+                    throw new Il2CppException(exception);
+                }
+
+                return Il2CppMarshaler.MarshalReturn<T>(result);
+            }
+            catch (Exception ex)
+            {
+                LogError($"CallGeneric<{typeof(T).Name}>({methodName}): {ex.Message}");
+                return default(T);
+            }
+        }
+
+        /// <summary>
+        /// Call a generic instance method that returns void.
+        /// Inflates the generic method definition with concrete type arguments before invocation.
+        /// </summary>
+        public static void InvokeGenericVoid(object instance, string methodName, Type[] genericArgs, Type[] paramTypes, params object[] args)
+        {
+            EnsureInitialized();
+
+            try
+            {
+                IntPtr nativeInstance = GetNativePointer(instance);
+                if (nativeInstance == IntPtr.Zero)
+                {
+                    if (!SuppressNullErrors)
+                        LogDebug($"Instance is null for generic method {methodName} - skipping");
+                    if (ThrowOnNullPointer)
+                        throw new Il2CppException(MdbErrorCode.NullPointer, $"Instance is null for method {methodName}");
+                    return;
+                }
+
+                IntPtr klass = Il2CppBridge.mdb_object_get_class(nativeInstance);
+                if (klass == IntPtr.Zero)
+                {
+                    if (!SuppressNullErrors)
+                        LogDebug($"Could not get class for instance when calling {methodName}");
+                    return;
+                }
+
+                IntPtr method = GetOrCacheMethod(klass, methodName, paramTypes?.Length ?? 0);
+                if (method == IntPtr.Zero)
+                {
+                    LogError($"Generic method definition not found: {methodName}");
+                    return;
+                }
+
+                IntPtr inflatedMethod = InflateMethod(method, methodName, genericArgs);
+                if (inflatedMethod == IntPtr.Zero)
+                {
+                    return;
+                }
+
+                IntPtr[] nativeArgs = Il2CppMarshaler.MarshalArguments(args);
+                IntPtr exception;
+                Il2CppBridge.mdb_invoke_method(inflatedMethod, nativeInstance, nativeArgs, out exception);
+
+                if (exception != IntPtr.Zero)
+                {
+                    throw new Il2CppException(exception);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogError($"InvokeGenericVoid({methodName}): {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Call a generic static method and return the result.
+        /// </summary>
+        public static T CallStaticGeneric<T>(string ns, string typeName, string methodName, Type[] genericArgs, Type[] paramTypes, params object[] args)
+        {
+            EnsureInitialized();
+
+            try
+            {
+                IntPtr klass = GetOrCacheClass(DefaultAssembly, ns, typeName);
+                if (klass == IntPtr.Zero)
+                {
+                    LogError($"Class not found: {ns}.{typeName}");
+                    return default(T);
+                }
+
+                IntPtr method = GetOrCacheMethod(klass, methodName, paramTypes?.Length ?? 0);
+                if (method == IntPtr.Zero)
+                {
+                    method = Il2CppBridge.mdb_get_method(klass, methodName, -1);
+                }
+                if (method == IntPtr.Zero)
+                {
+                    LogError($"Static generic method not found: {ns}.{typeName}.{methodName}");
+                    return default(T);
+                }
+
+                IntPtr inflatedMethod = InflateMethod(method, methodName, genericArgs);
+                if (inflatedMethod == IntPtr.Zero)
+                {
+                    return default(T);
+                }
+
+                IntPtr[] nativeArgs = Il2CppMarshaler.MarshalArguments(args);
+                IntPtr exception;
+                IntPtr result = Il2CppBridge.mdb_invoke_method(inflatedMethod, IntPtr.Zero, nativeArgs, out exception);
+
+                if (exception != IntPtr.Zero)
+                {
+                    throw new Il2CppException(exception);
+                }
+
+                return Il2CppMarshaler.MarshalReturn<T>(result);
+            }
+            catch (Exception ex)
+            {
+                LogError($"CallStaticGeneric<{typeof(T).Name}>({ns}.{typeName}.{methodName}): {ex.Message}");
+                return default(T);
+            }
+        }
+
+        /// <summary>
+        /// Call a generic static method that returns void.
+        /// </summary>
+        public static void InvokeStaticGenericVoid(string ns, string typeName, string methodName, Type[] genericArgs, Type[] paramTypes, params object[] args)
+        {
+            EnsureInitialized();
+
+            try
+            {
+                IntPtr klass = GetOrCacheClass(DefaultAssembly, ns, typeName);
+                if (klass == IntPtr.Zero)
+                {
+                    LogError($"Class not found: {ns}.{typeName}");
+                    return;
+                }
+
+                IntPtr method = GetOrCacheMethod(klass, methodName, paramTypes?.Length ?? 0);
+                if (method == IntPtr.Zero)
+                {
+                    method = Il2CppBridge.mdb_get_method(klass, methodName, -1);
+                }
+                if (method == IntPtr.Zero)
+                {
+                    LogError($"Static generic method not found: {ns}.{typeName}.{methodName}");
+                    return;
+                }
+
+                IntPtr inflatedMethod = InflateMethod(method, methodName, genericArgs);
+                if (inflatedMethod == IntPtr.Zero)
+                {
+                    return;
+                }
+
+                IntPtr[] nativeArgs = Il2CppMarshaler.MarshalArguments(args);
+                IntPtr exception;
+                Il2CppBridge.mdb_invoke_method(inflatedMethod, IntPtr.Zero, nativeArgs, out exception);
+
+                if (exception != IntPtr.Zero)
+                {
+                    throw new Il2CppException(exception);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogError($"InvokeStaticGenericVoid({ns}.{typeName}.{methodName}): {ex.Message}");
+            }
+        }
+
+        // ==============================
+        // Generic Inflation Helper
+        // ==============================
+
+        // Cache for inflated generic methods (generic_def_ptr:typeArg1:typeArg2... -> inflated_ptr)
+        private static readonly Dictionary<string, IntPtr> _inflatedMethodCache = new Dictionary<string, IntPtr>();
+
+        /// <summary>
+        /// Inflate a generic method definition with concrete type arguments.
+        /// Caches results for performance.
+        /// </summary>
+        private static IntPtr InflateMethod(IntPtr method, string methodName, Type[] genericArgs)
+        {
+            if (genericArgs == null || genericArgs.Length == 0)
+            {
+                LogError($"No generic type arguments provided for {methodName}");
+                return IntPtr.Zero;
+            }
+
+            // Build cache key
+            string cacheKey = method.ToInt64().ToString("X");
+            for (int i = 0; i < genericArgs.Length; i++)
+            {
+                cacheKey += ":" + genericArgs[i].FullName;
+            }
+
+            lock (_inflatedMethodCache)
+            {
+                if (_inflatedMethodCache.TryGetValue(cacheKey, out IntPtr cached))
+                {
+                    return cached;
+                }
+            }
+
+            // Resolve each Type to an Il2CppClass*
+            IntPtr[] typeClasses = new IntPtr[genericArgs.Length];
+            for (int i = 0; i < genericArgs.Length; i++)
+            {
+                string ns = genericArgs[i].Namespace ?? "";
+                string name = genericArgs[i].Name;
+
+                IntPtr typeClass = GetOrCacheClass(DefaultAssembly, ns, name);
+                if (typeClass == IntPtr.Zero)
+                {
+                    LogError($"Could not resolve generic type argument '{ns}.{name}' for {methodName}");
+                    return IntPtr.Zero;
+                }
+                typeClasses[i] = typeClass;
+            }
+
+            // Call native inflation
+            IntPtr inflated = Il2CppBridge.mdb_inflate_generic_method(method, typeClasses, typeClasses.Length);
+            if (inflated == IntPtr.Zero)
+            {
+                LogError($"Failed to inflate generic method {methodName}: {Il2CppBridge.GetLastError()}");
+                return IntPtr.Zero;
+            }
+
+            lock (_inflatedMethodCache)
+            {
+                _inflatedMethodCache[cacheKey] = inflated;
+            }
+
+            return inflated;
         }
 
         // ==============================

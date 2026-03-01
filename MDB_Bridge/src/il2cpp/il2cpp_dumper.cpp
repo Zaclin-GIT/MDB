@@ -163,7 +163,9 @@ static std::string ResolveEffectiveNamespace(il2cppClass* klass) {
 }
 
 // Forward declarations for mutual recursion
-static std::string GetFullyQualifiedTypeName(const il2cppType* type, const std::string& currentNamespace);
+static std::string GetFullyQualifiedTypeName(const il2cppType* type, const std::string& currentNamespace,
+                                              const std::vector<std::string>* methodGenericParams = nullptr,
+                                              uint32_t mvarBaseIndex = 0);
 static std::string GetFullyQualifiedClassName(il2cppClass* klass, const std::string& currentNamespace);
 
 /// Get the fully-qualified C# type name from an il2cppClass.
@@ -270,15 +272,30 @@ static std::string GetFullyQualifiedClassName(il2cppClass* klass, const std::str
 }
 
 /// Get the fully-qualified C# type name from an il2cppType.
-static std::string GetFullyQualifiedTypeName(const il2cppType* type, const std::string& currentNamespace) {
+/// When methodGenericParams is non-null, IL2CPP_TYPE_MVAR types are resolved to
+/// the named type parameters (T, T0, T1, …) instead of being erased to "object".
+/// mvarBaseIndex is the global generic-parameter index of the method's first type param.
+static std::string GetFullyQualifiedTypeName(const il2cppType* type, const std::string& currentNamespace,
+                                              const std::vector<std::string>* methodGenericParams,
+                                              uint32_t mvarBaseIndex) {
     if (!type) return "object";
 
     // Check for primitive types by IL2CPP type enum
     std::string prim = PrimitiveTypeName(type->m_uType);
     if (!prim.empty()) return prim;
 
-    // Generic type parameters (T, T0, T1, TResult, etc.) → erase to object
-    if (type->m_uType == IL2CPP_TYPE_VAR || type->m_uType == IL2CPP_TYPE_MVAR) {
+    // Method-level generic type parameters (MVAR) — resolve to T / T0 / T1 / … when available
+    if (type->m_uType == IL2CPP_TYPE_MVAR) {
+        if (methodGenericParams && !methodGenericParams->empty()) {
+            uint32_t localIdx = type->m_uGenericParameterIndex - mvarBaseIndex;
+            if (localIdx < methodGenericParams->size())
+                return (*methodGenericParams)[localIdx];
+        }
+        return "object";
+    }
+
+    // Class-level generic type parameters (VAR) — erase to object (our class wrappers are non-generic)
+    if (type->m_uType == IL2CPP_TYPE_VAR) {
         return "object";
     }
 
@@ -291,7 +308,7 @@ static std::string GetFullyQualifiedTypeName(const il2cppType* type, const std::
     if (type->m_uType == IL2CPP_TYPE_SZARRAY) {
         auto elemType = type->m_pType;
         if (elemType) {
-            return GetFullyQualifiedTypeName(elemType, currentNamespace) + "[]";
+            return GetFullyQualifiedTypeName(elemType, currentNamespace, methodGenericParams, mvarBaseIndex) + "[]";
         }
     }
 
@@ -343,7 +360,7 @@ static std::string GetFullyQualifiedTypeName(const il2cppType* type, const std::
                 for (uint32_t i = 0; i < classInst->m_uTypeArgc; ++i) {
                     auto* argType = classInst->m_pTypeArgv[i];
                     if (argType) {
-                        std::string resolved = GetFullyQualifiedTypeName(argType, currentNamespace);
+                        std::string resolved = GetFullyQualifiedTypeName(argType, currentNamespace, methodGenericParams, mvarBaseIndex);
                         // void is not a valid generic type argument — erase to object
                         if (resolved == "void") resolved = "object";
                         typeArgs.push_back(resolved);
@@ -848,6 +865,19 @@ static std::string GenerateClassFields(il2cppClass* klass, const std::string& cu
         // Skip fields whose type is compiler-generated (e.g. <buffer>e__FixedBuffer)
         if (typeName.find('<') != std::string::npos || typeName.find('>') != std::string::npos) continue;
 
+        // If the field type is an IL2CPP interface, use Il2CppObject instead.
+        // C# can't instantiate interfaces, so GetField<InterfaceType> would return null.
+        // Users can call .As<ConcreteType>() to re-wrap the result.
+        {
+            auto fieldClass = api::il2cpp_class_from_type(fieldType);
+            if (fieldClass) {
+                auto classFlags = api::il2cpp_class_get_flags(fieldClass);
+                if (classFlags & TYPE_ATTRIBUTE_INTERFACE) {
+                    typeName = "Il2CppObject";
+                }
+            }
+        }
+
         if (!hasFields) {
             ss << "\n        // Fields\n";
             hasFields = true;
@@ -938,12 +968,20 @@ static std::string GenerateClassProperties(il2cppClass* klass, const std::string
             isStatic = (flags & METHOD_ATTRIBUTE_STATIC) != 0;
             auto retType = api::il2cpp_method_get_return_type(get);
             propTypeName = GetFullyQualifiedTypeName(retType, currentNamespace);
+            // Interface return types can't be instantiated by GetField/Call — use Il2CppObject
+            auto retClass = api::il2cpp_class_from_type(retType);
+            if (retClass && (api::il2cpp_class_get_flags(retClass) & TYPE_ATTRIBUTE_INTERFACE))
+                propTypeName = "Il2CppObject";
         } else if (set) {
             auto flags = api::il2cpp_method_get_flags(set, &iflags);
             vis = GetMethodVisibility(flags);
             isStatic = (flags & METHOD_ATTRIBUTE_STATIC) != 0;
             auto param = api::il2cpp_method_get_param(set, 0);
             propTypeName = GetFullyQualifiedTypeName(param, currentNamespace);
+            // Interface param types — use Il2CppObject
+            auto paramClass = api::il2cpp_class_from_type(param);
+            if (paramClass && (api::il2cpp_class_get_flags(paramClass) & TYPE_ATTRIBUTE_INTERFACE))
+                propTypeName = "Il2CppObject";
         }
 
         if (propTypeName.empty()) continue;
@@ -1029,6 +1067,9 @@ static std::string GenerateClassMethods(il2cppClass* klass, const std::string& c
         // Obfuscation filter: skip fake methods
         if (g_obfuscation_detector && g_obfuscation_detector->IsFakeMethod(method)) continue;
 
+        // Skip inflated (instantiated) generic methods — we only want definitions
+        if (method->m_uInflated) continue;
+
         // Skip constructors, finalizers, and property accessors
         if (methodNameStr == ".ctor" || methodNameStr == ".cctor" || methodNameStr == "Finalize") continue;
         if (propertyMethods.count(methodNameStr)) continue;
@@ -1054,10 +1095,55 @@ static std::string GenerateClassMethods(il2cppClass* klass, const std::string& c
         std::string vis = GetMethodVisibility(flags);
         bool isStatic = (flags & METHOD_ATTRIBUTE_STATIC) != 0;
 
+        // ── Generic method detection ──────────────────────────────────────
+        bool isGenericMethod = method->m_uGeneric != 0;
+        std::vector<std::string> genericParamNames;   // e.g. {"T"} or {"T0","T1"}
+        uint32_t mvarBaseIndex = 0;
+
+        if (isGenericMethod && method->m_pGenericContainer) {
+            auto* container = reinterpret_cast<il2cppGenericContainer*>(method->m_pGenericContainer);
+            int typeArgc = container->m_iTypeArgc;
+            if (typeArgc <= 0) {
+                isGenericMethod = false;    // defensive: treat as non-generic
+            } else {
+                if (typeArgc == 1) {
+                    genericParamNames.push_back("T");
+                } else {
+                    for (int gi = 0; gi < typeArgc; ++gi)
+                        genericParamNames.push_back("T" + std::to_string(gi));
+                }
+
+                // Discover the MVAR base index by scanning the method's return type and params.
+                // IL2CPP stores a global parameter index; we subtract the minimum to get a local one.
+                uint32_t minMvar = UINT32_MAX;
+                auto scanMvar = [&](const il2cppType* t) {
+                    if (t && t->m_uType == IL2CPP_TYPE_MVAR) {
+                        if (t->m_uGenericParameterIndex < minMvar)
+                            minMvar = t->m_uGenericParameterIndex;
+                    }
+                };
+                scanMvar(api::il2cpp_method_get_return_type(method));
+                for (uint32_t i = 0; i < api::il2cpp_method_get_param_count(method); ++i)
+                    scanMvar(api::il2cpp_method_get_param(method, i));
+                mvarBaseIndex = (minMvar == UINT32_MAX) ? 0 : minMvar;
+            }
+        } else {
+            isGenericMethod = false;   // no container pointer
+        }
+
+        const std::vector<std::string>* gpPtr = isGenericMethod ? &genericParamNames : nullptr;
+
         // Return type
         auto returnType = api::il2cpp_method_get_return_type(method);
-        std::string returnTypeName = GetFullyQualifiedTypeName(returnType, currentNamespace);
+        std::string returnTypeName = GetFullyQualifiedTypeName(returnType, currentNamespace, gpPtr, mvarBaseIndex);
         bool isVoid = (returnTypeName == "void");
+
+        // Interface return types can't be instantiated by Call<T> — use Il2CppObject
+        if (!isVoid) {
+            auto retClass = api::il2cpp_class_from_type(returnType);
+            if (retClass && (api::il2cpp_class_get_flags(retClass) & TYPE_ATTRIBUTE_INTERFACE))
+                returnTypeName = "Il2CppObject";
+        }
 
         // Collect parameters first (before writing) for dedup check
         auto paramCount = api::il2cpp_method_get_param_count(method);
@@ -1067,7 +1153,7 @@ static std::string GenerateClassMethods(il2cppClass* klass, const std::string& c
         std::vector<std::string> paramRefKind;  // "", "out ", "in ", "ref "
         for (uint32_t i = 0; i < paramCount; ++i) {
             auto param = api::il2cpp_method_get_param(method, i);
-            std::string pTypeName = GetFullyQualifiedTypeName(param, currentNamespace);
+            std::string pTypeName = GetFullyQualifiedTypeName(param, currentNamespace, gpPtr, mvarBaseIndex);
             const char* pName = api::il2cpp_method_get_param_name(method, i);
             std::string pNameStr = (pName && pName[0] != '\0') ? pName : ("arg" + std::to_string(i));
             paramNames.push_back(pNameStr);
@@ -1087,7 +1173,7 @@ static std::string GenerateClassMethods(il2cppClass* klass, const std::string& c
             paramRefKind.push_back(refKind);
         }
 
-        // Build signature key for dedup (methodName + param types)
+        // Build signature key for dedup (methodName + generic arity + param types)
         // Resolve method display name from mappings
         std::string displayMethodName = methodNameStr;
         bool methodIsDeobfuscated = false;
@@ -1099,7 +1185,9 @@ static std::string GenerateClassMethods(il2cppClass* klass, const std::string& c
             }
         }
 
-        std::string sigKey = displayMethodName + "(";
+        std::string sigKey = displayMethodName;
+        if (isGenericMethod) sigKey += "`" + std::to_string(genericParamNames.size());
+        sigKey += "(";
         for (uint32_t i = 0; i < paramCount; ++i) {
             if (i > 0) sigKey += ",";
             sigKey += paramTypeNames[i];
@@ -1118,12 +1206,29 @@ static std::string GenerateClassMethods(il2cppClass* klass, const std::string& c
         }
         ss << "        " << vis;
         if (isStatic) ss << " static";
-        ss << " " << returnTypeName << " " << displayMethodName << "(";
+        ss << " " << returnTypeName << " " << displayMethodName;
+        // Append generic type parameters for generic method definitions
+        if (isGenericMethod) {
+            ss << "<";
+            for (size_t gi = 0; gi < genericParamNames.size(); ++gi) {
+                if (gi > 0) ss << ", ";
+                ss << genericParamNames[gi];
+            }
+            ss << ">";
+        }
+        ss << "(";
         for (uint32_t i = 0; i < paramCount; ++i) {
             if (i > 0) ss << ", ";
             ss << paramRefKind[i] << paramTypeNames[i] << " " << paramNames[i];
         }
-        ss << ")\n";
+        ss << ")";
+        // Emit generic constraints — use 'class' so Call<T> marshaling works for reference types
+        if (isGenericMethod) {
+            for (size_t gi = 0; gi < genericParamNames.size(); ++gi) {
+                ss << "\n            where " << genericParamNames[gi] << " : class";
+            }
+        }
+        ss << "\n";
         ss << "        {\n";
 
         // Emit default assignments for 'out' parameters (CS0269/CS0177)
@@ -1133,7 +1238,7 @@ static std::string GenerateClassMethods(il2cppClass* klass, const std::string& c
             }
         }
 
-        // Build Type[] expression
+        // Build Type[] expression for parameter types
         std::string typeArrayExpr;
         if (paramCount == 0) {
             typeArrayExpr = "global::System.Type.EmptyTypes";
@@ -1146,21 +1251,53 @@ static std::string GenerateClassMethods(il2cppClass* klass, const std::string& c
             typeArrayExpr += " }";
         }
 
-        // Method body
-        if (isStatic) {
-            if (isVoid) {
-                ss << "            Il2CppRuntime.InvokeStaticVoid(\"" << staticNs << "\", \""
-                   << className << "\", \"" << methodNameStr << "\", " << typeArrayExpr;
+        // Build generic args expression for generic methods
+        std::string genericArgsExpr;
+        if (isGenericMethod) {
+            genericArgsExpr = "new global::System.Type[] { ";
+            for (size_t gi = 0; gi < genericParamNames.size(); ++gi) {
+                if (gi > 0) genericArgsExpr += ", ";
+                genericArgsExpr += "typeof(" + genericParamNames[gi] + ")";
+            }
+            genericArgsExpr += " }";
+        }
+
+        // Method body — use CallGeneric/InvokeGenericVoid for generic methods
+        if (isGenericMethod) {
+            // Generic method invocation (requires inflation)
+            if (isStatic) {
+                if (isVoid) {
+                    ss << "            Il2CppRuntime.InvokeStaticGenericVoid(\"" << staticNs << "\", \""
+                       << className << "\", \"" << methodNameStr << "\", " << genericArgsExpr << ", " << typeArrayExpr;
+                } else {
+                    ss << "            return Il2CppRuntime.CallStaticGeneric<" << returnTypeName << ">(\""
+                       << staticNs << "\", \"" << className << "\", \"" << methodNameStr << "\", " << genericArgsExpr << ", " << typeArrayExpr;
+                }
             } else {
-                ss << "            return Il2CppRuntime.CallStatic<" << returnTypeName << ">(\""
-                   << staticNs << "\", \"" << className << "\", \"" << methodNameStr << "\", " << typeArrayExpr;
+                if (isVoid) {
+                    ss << "            Il2CppRuntime.InvokeGenericVoid(this, \"" << methodNameStr << "\", " << genericArgsExpr << ", " << typeArrayExpr;
+                } else {
+                    ss << "            return Il2CppRuntime.CallGeneric<" << returnTypeName << ">(this, \""
+                       << methodNameStr << "\", " << genericArgsExpr << ", " << typeArrayExpr;
+                }
             }
         } else {
-            if (isVoid) {
-                ss << "            Il2CppRuntime.InvokeVoid(this, \"" << methodNameStr << "\", " << typeArrayExpr;
+            // Non-generic method invocation (original path)
+            if (isStatic) {
+                if (isVoid) {
+                    ss << "            Il2CppRuntime.InvokeStaticVoid(\"" << staticNs << "\", \""
+                       << className << "\", \"" << methodNameStr << "\", " << typeArrayExpr;
+                } else {
+                    ss << "            return Il2CppRuntime.CallStatic<" << returnTypeName << ">(\""
+                       << staticNs << "\", \"" << className << "\", \"" << methodNameStr << "\", " << typeArrayExpr;
+                }
             } else {
-                ss << "            return Il2CppRuntime.Call<" << returnTypeName << ">(this, \""
-                   << methodNameStr << "\", " << typeArrayExpr;
+                if (isVoid) {
+                    ss << "            Il2CppRuntime.InvokeVoid(this, \"" << methodNameStr << "\", " << typeArrayExpr;
+                } else {
+                    ss << "            return Il2CppRuntime.Call<" << returnTypeName << ">(this, \""
+                       << methodNameStr << "\", " << typeArrayExpr;
+                }
             }
         }
 

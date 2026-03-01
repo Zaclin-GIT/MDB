@@ -98,6 +98,17 @@ namespace GameSDK
         public static extern IntPtr mdb_invoke_method(IntPtr method, IntPtr instance, IntPtr[] args, out IntPtr exception);
 
         /// <summary>
+        /// Inflate a generic method definition with concrete type arguments.
+        /// Uses IL2CPP reflection APIs: MethodInfo.MakeGenericMethod(Type[]).
+        /// </summary>
+        /// <param name="method">Pointer to generic MethodInfo definition (m_uGeneric=1)</param>
+        /// <param name="typeClasses">Array of Il2CppClass* pointers for each type argument</param>
+        /// <param name="typeCount">Number of type arguments</param>
+        /// <returns>Pointer to inflated MethodInfo, or IntPtr.Zero on failure</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern IntPtr mdb_inflate_generic_method(IntPtr method, IntPtr[] typeClasses, int typeCount);
+
+        /// <summary>
         /// Invoke a method on an instance with raw pointer to args array.
         /// Use this when you need precise control over argument passing.
         /// For il2cpp_runtime_invoke, each arg must be a POINTER TO the value.

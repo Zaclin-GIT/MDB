@@ -237,6 +237,138 @@ MDB_API void* mdb_invoke_method(void* method, void* instance, void** args, void*
     return result;
 }
 
+// ==============================
+// Generic Method Inflation
+// ==============================
+
+MDB_API void* mdb_inflate_generic_method(void* method, void** type_classes, int type_count) {
+    clear_error();
+    if (!method || !type_classes || type_count <= 0) {
+        set_error(MdbErrorCode::InvalidArgument, "Invalid arguments for generic inflation");
+        return nullptr;
+    }
+
+    auto status = il2cpp::ensure_thread_attached();
+    if (status != Il2CppStatus::OK) {
+        set_error(MdbErrorCode::ThreadNotAttached, status);
+        return nullptr;
+    }
+
+    using namespace il2cpp::_internal;
+    namespace us = il2cpp::_internal::unity_structs;
+
+    // Verify we have all the required exports
+    if (!il2cpp_method_get_object || !il2cpp_method_get_from_reflection ||
+        !il2cpp_type_get_object || !il2cpp_class_get_type || !il2cpp_object_get_class ||
+        !il2cpp_array_new || !il2cpp_runtime_invoke || !il2cpp_class_from_name ||
+        !il2cpp_class_get_method_from_name) {
+        set_error(MdbErrorCode::ExportNotFound, "Missing IL2CPP exports for generic inflation");
+        return nullptr;
+    }
+
+    auto* mi = reinterpret_cast<us::il2cppMethodInfo*>(method);
+
+    // 1. Get the MethodInfo as an IL2CPP reflection object (System.Reflection.MethodInfo)
+    auto* reflMethod = il2cpp_method_get_object(mi, mi->m_pClass);
+    if (!reflMethod) {
+        set_error(MdbErrorCode::NullPointer, "il2cpp_method_get_object returned null");
+        return nullptr;
+    }
+
+    // 2. Build a System.Type[] array with the type arguments
+    //    First, find the System.Type Il2CppClass so we can create an array of that type
+    auto* reflMethodClass = reinterpret_cast<us::il2cppClass*>(il2cpp_object_get_class(reflMethod));
+    if (!reflMethodClass) {
+        set_error(MdbErrorCode::NullPointer, "Could not get class of reflection method");
+        return nullptr;
+    }
+
+    // Find System.Type class via the mscorlib/corlib image
+    us::il2cppClass* systemTypeClass = nullptr;
+    {
+        auto domain = il2cpp_domain_get ? il2cpp_domain_get() : nullptr;
+        if (!domain) {
+            set_error(MdbErrorCode::NotInitialized, "Domain unavailable");
+            return nullptr;
+        }
+        size_t asmCount = 0;
+        auto assemblies = il2cpp_domain_get_assemblies(domain, &asmCount);
+        for (size_t i = 0; i < asmCount && !systemTypeClass; ++i) {
+            auto img = il2cpp_assembly_get_image(assemblies[i]);
+            if (!img) continue;
+            systemTypeClass = il2cpp_class_from_name(img, "System", "Type");
+        }
+    }
+    if (!systemTypeClass) {
+        set_error(MdbErrorCode::ClassNotFound, "Could not find System.Type class");
+        return nullptr;
+    }
+
+    // Create a System.Type[] array
+    auto* typeArray = il2cpp_array_new(systemTypeClass, type_count);
+    if (!typeArray) {
+        set_error(MdbErrorCode::NullPointer, "Failed to create Type[] array");
+        return nullptr;
+    }
+
+    // IL2CPP array layout: 4 pointers header (klass, monitor, bounds, max_length) then elements
+    // For reference type arrays, elements are void* (pointers to objects)
+    void** elements = reinterpret_cast<void**>(reinterpret_cast<char*>(typeArray) + sizeof(void*) * 4);
+
+    for (int i = 0; i < type_count; ++i) {
+        auto* argClass = reinterpret_cast<us::il2cppClass*>(type_classes[i]);
+        if (!argClass) {
+            set_error(MdbErrorCode::NullPointer, "Null type class argument");
+            return nullptr;
+        }
+        auto* argType = il2cpp_class_get_type(argClass);
+        if (!argType) {
+            set_error(MdbErrorCode::NullPointer, "il2cpp_class_get_type returned null");
+            return nullptr;
+        }
+        auto* argReflType = il2cpp_type_get_object(argType);
+        if (!argReflType) {
+            set_error(MdbErrorCode::NullPointer, "il2cpp_type_get_object returned null");
+            return nullptr;
+        }
+        elements[i] = argReflType;
+    }
+
+    // 3. Find MakeGenericMethod on the reflection MethodInfo class
+    //    Walk up the class hierarchy to find it (may be on MethodInfo base class)
+    us::il2cppMethodInfo* makeGenericMethodDef = nullptr;
+    auto* searchClass = reflMethodClass;
+    while (searchClass && !makeGenericMethodDef) {
+        makeGenericMethodDef = il2cpp_class_get_method_from_name(searchClass, "MakeGenericMethod", 1);
+        if (!makeGenericMethodDef) {
+            searchClass = il2cpp_class_get_parent(searchClass);
+        }
+    }
+
+    if (!makeGenericMethodDef) {
+        set_error(MdbErrorCode::MethodNotFound, "Could not find MakeGenericMethod on MethodInfo");
+        return nullptr;
+    }
+
+    // 4. Call MakeGenericMethod(Type[] typeArguments) on the reflection method
+    void* invokeArgs[] = { typeArray };
+    void* exc = nullptr;
+    auto* inflatedReflMethod = il2cpp_runtime_invoke(makeGenericMethodDef, reflMethod, invokeArgs, &exc);
+    if (exc || !inflatedReflMethod) {
+        set_error(MdbErrorCode::ExceptionThrown, "MakeGenericMethod threw an exception");
+        return nullptr;
+    }
+
+    // 5. Get the underlying MethodInfo* from the inflated reflection method
+    auto* inflatedMethod = il2cpp_method_get_from_reflection(inflatedReflMethod);
+    if (!inflatedMethod) {
+        set_error(MdbErrorCode::NullPointer, "il2cpp_method_get_from_reflection returned null");
+        return nullptr;
+    }
+
+    return const_cast<us::il2cppMethodInfo*>(inflatedMethod);
+}
+
 MDB_API void* mdb_method_get_param_type(void* method, int index) {
     clear_error();
     if (!method) {
