@@ -13,6 +13,12 @@
   <a href="https://buymeacoffee.com/winnforge"><img src="https://img.shields.io/badge/Buy%20Me%20A%20Coffee-%23FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy Me A Coffee"></a>
 </p>
 
+<p align="center">
+  <a href="https://discord.gg/zmzvnCqphY">
+    <img src="https://img.shields.io/badge/Discord-Join%20the%20Community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Official MDB Discord">
+  </a>
+</p>
+
 ---
 
 Inject `MDB_Bridge.dll` into any Unity IL2CPP game (x64). The framework automatically dumps metadata, generates C# wrappers, compiles an SDK, hosts the .NET CLR, and loads your mods.
