@@ -52,10 +52,14 @@ body {
 .project-name {
   font-weight: 700;
   letter-spacing: -0.5px;
-  background: linear-gradient(135deg, #e6edf3 0%, #a371f7 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: #c9a0ff;
+
+  @supports (-webkit-background-clip: text) or (background-clip: text) {
+    background: linear-gradient(135deg, #e6edf3 0%, #a371f7 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
 }
 
 .project-tagline {
@@ -384,6 +388,15 @@ ul, ol {
 ::selection {
   background: rgba(110, 64, 201, 0.4);
   color: #fff;
+}
+
+// --- Embedded Mode (inside launcher iframe) ---
+body.embedded {
+  .site-nav a[href*="github"],
+  .btn[href*="github"],
+  .site-footer-owner {
+    display: none;
+  }
 }
 
 // --- Responsive Adjustments ---

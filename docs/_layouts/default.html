@@ -11,6 +11,14 @@
     /* Prevent flash of unstyled content */
     body { background-color: #0d1117; }
   </style>
+  <script>
+    if (window.self !== window.top || /[?&]embedded=1/.test(location.search)) {
+      document.documentElement.classList.add('embedded-pending');
+      document.addEventListener('DOMContentLoaded', function () {
+        document.body.classList.add('embedded');
+      });
+    }
+  </script>
 </head>
 <body>
   <nav class="site-nav">
