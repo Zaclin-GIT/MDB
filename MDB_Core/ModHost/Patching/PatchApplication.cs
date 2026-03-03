@@ -182,10 +182,50 @@ namespace GameSDK.ModHost.Patching
                     detour = d5;
                     detourPtr = Marshal.GetFunctionPointerForDelegate(d5);
                     break;
-                default:
+                case 6:
                     var d6 = CreateDetour6(patchInfo);
                     detour = d6;
                     detourPtr = Marshal.GetFunctionPointerForDelegate(d6);
+                    break;
+                case 7:
+                    var d7 = CreateDetour7(patchInfo);
+                    detour = d7;
+                    detourPtr = Marshal.GetFunctionPointerForDelegate(d7);
+                    break;
+                case 8:
+                    var d8 = CreateDetour8(patchInfo);
+                    detour = d8;
+                    detourPtr = Marshal.GetFunctionPointerForDelegate(d8);
+                    break;
+                case 9:
+                    var d9 = CreateDetour9(patchInfo);
+                    detour = d9;
+                    detourPtr = Marshal.GetFunctionPointerForDelegate(d9);
+                    break;
+                case 10:
+                    var d10 = CreateDetour10(patchInfo);
+                    detour = d10;
+                    detourPtr = Marshal.GetFunctionPointerForDelegate(d10);
+                    break;
+                case 11:
+                    var d11 = CreateDetour11(patchInfo);
+                    detour = d11;
+                    detourPtr = Marshal.GetFunctionPointerForDelegate(d11);
+                    break;
+                case 12:
+                    var d12 = CreateDetour12(patchInfo);
+                    detour = d12;
+                    detourPtr = Marshal.GetFunctionPointerForDelegate(d12);
+                    break;
+                case 13:
+                    var d13 = CreateDetour13(patchInfo);
+                    detour = d13;
+                    detourPtr = Marshal.GetFunctionPointerForDelegate(d13);
+                    break;
+                default:
+                    var d14 = CreateDetour14(patchInfo);
+                    detour = d14;
+                    detourPtr = Marshal.GetFunctionPointerForDelegate(d14);
                     break;
             }
 
@@ -246,8 +286,32 @@ namespace GameSDK.ModHost.Patching
                     case 5:
                         patchInfo.OriginalDelegate = Marshal.GetDelegateForFunctionPointer<Detour5>(originalPtr);
                         break;
-                    default:
+                    case 6:
                         patchInfo.OriginalDelegate = Marshal.GetDelegateForFunctionPointer<Detour6>(originalPtr);
+                        break;
+                    case 7:
+                        patchInfo.OriginalDelegate = Marshal.GetDelegateForFunctionPointer<Detour7>(originalPtr);
+                        break;
+                    case 8:
+                        patchInfo.OriginalDelegate = Marshal.GetDelegateForFunctionPointer<Detour8>(originalPtr);
+                        break;
+                    case 9:
+                        patchInfo.OriginalDelegate = Marshal.GetDelegateForFunctionPointer<Detour9>(originalPtr);
+                        break;
+                    case 10:
+                        patchInfo.OriginalDelegate = Marshal.GetDelegateForFunctionPointer<Detour10>(originalPtr);
+                        break;
+                    case 11:
+                        patchInfo.OriginalDelegate = Marshal.GetDelegateForFunctionPointer<Detour11>(originalPtr);
+                        break;
+                    case 12:
+                        patchInfo.OriginalDelegate = Marshal.GetDelegateForFunctionPointer<Detour12>(originalPtr);
+                        break;
+                    case 13:
+                        patchInfo.OriginalDelegate = Marshal.GetDelegateForFunctionPointer<Detour13>(originalPtr);
+                        break;
+                    default:
+                        patchInfo.OriginalDelegate = Marshal.GetDelegateForFunctionPointer<Detour14>(originalPtr);
                         break;
                 }
             }
@@ -331,7 +395,15 @@ namespace GameSDK.ModHost.Patching
                         case 3: return Marshal.GetDelegateForFunctionPointer<Detour3>(originalPtr);
                         case 4: return Marshal.GetDelegateForFunctionPointer<Detour4>(originalPtr);
                         case 5: return Marshal.GetDelegateForFunctionPointer<Detour5>(originalPtr);
-                        default: return Marshal.GetDelegateForFunctionPointer<Detour6>(originalPtr);
+                        case 6: return Marshal.GetDelegateForFunctionPointer<Detour6>(originalPtr);
+                        case 7: return Marshal.GetDelegateForFunctionPointer<Detour7>(originalPtr);
+                        case 8: return Marshal.GetDelegateForFunctionPointer<Detour8>(originalPtr);
+                        case 9: return Marshal.GetDelegateForFunctionPointer<Detour9>(originalPtr);
+                        case 10: return Marshal.GetDelegateForFunctionPointer<Detour10>(originalPtr);
+                        case 11: return Marshal.GetDelegateForFunctionPointer<Detour11>(originalPtr);
+                        case 12: return Marshal.GetDelegateForFunctionPointer<Detour12>(originalPtr);
+                        case 13: return Marshal.GetDelegateForFunctionPointer<Detour13>(originalPtr);
+                        default: return Marshal.GetDelegateForFunctionPointer<Detour14>(originalPtr);
                     }
             }
         }
@@ -451,6 +523,166 @@ namespace GameSDK.ModHost.Patching
                         else if (!patch.IsStatic && modifiedArgs.Length >= 5)
                             return ((Detour6)patch.OriginalDelegate)(arg0, modifiedArgs[0], modifiedArgs[1], modifiedArgs[2], modifiedArgs[3], modifiedArgs[4], methodInfo);
                         return ((Detour6)patch.OriginalDelegate)(arg0, arg1, arg2, arg3, arg4, arg5, methodInfo);
+                    });
+            };
+        }
+
+        private static Detour7 CreateDetour7(PatchInfo patch)
+        {
+            return (IntPtr arg0, IntPtr arg1, IntPtr arg2, IntPtr arg3, IntPtr arg4, IntPtr arg5, IntPtr arg6, IntPtr methodInfo) =>
+            {
+                IntPtr instance = patch.IsStatic ? IntPtr.Zero : arg0;
+                IntPtr[] args = patch.IsStatic 
+                    ? new[] { arg0, arg1, arg2, arg3, arg4, arg5, arg6 } 
+                    : new[] { arg1, arg2, arg3, arg4, arg5, arg6 };
+                
+                return ExecutePatch(patch, instance, args, methodInfo,
+                    (modifiedArgs) => {
+                        if (patch.IsStatic && modifiedArgs.Length >= 7)
+                            return ((Detour7)patch.OriginalDelegate)(modifiedArgs[0], modifiedArgs[1], modifiedArgs[2], modifiedArgs[3], modifiedArgs[4], modifiedArgs[5], modifiedArgs[6], methodInfo);
+                        else if (!patch.IsStatic && modifiedArgs.Length >= 6)
+                            return ((Detour7)patch.OriginalDelegate)(arg0, modifiedArgs[0], modifiedArgs[1], modifiedArgs[2], modifiedArgs[3], modifiedArgs[4], modifiedArgs[5], methodInfo);
+                        return ((Detour7)patch.OriginalDelegate)(arg0, arg1, arg2, arg3, arg4, arg5, arg6, methodInfo);
+                    });
+            };
+        }
+
+        private static Detour8 CreateDetour8(PatchInfo patch)
+        {
+            return (IntPtr arg0, IntPtr arg1, IntPtr arg2, IntPtr arg3, IntPtr arg4, IntPtr arg5, IntPtr arg6, IntPtr arg7, IntPtr methodInfo) =>
+            {
+                IntPtr instance = patch.IsStatic ? IntPtr.Zero : arg0;
+                IntPtr[] args = patch.IsStatic 
+                    ? new[] { arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7 } 
+                    : new[] { arg1, arg2, arg3, arg4, arg5, arg6, arg7 };
+                
+                return ExecutePatch(patch, instance, args, methodInfo,
+                    (modifiedArgs) => {
+                        if (patch.IsStatic && modifiedArgs.Length >= 8)
+                            return ((Detour8)patch.OriginalDelegate)(modifiedArgs[0], modifiedArgs[1], modifiedArgs[2], modifiedArgs[3], modifiedArgs[4], modifiedArgs[5], modifiedArgs[6], modifiedArgs[7], methodInfo);
+                        else if (!patch.IsStatic && modifiedArgs.Length >= 7)
+                            return ((Detour8)patch.OriginalDelegate)(arg0, modifiedArgs[0], modifiedArgs[1], modifiedArgs[2], modifiedArgs[3], modifiedArgs[4], modifiedArgs[5], modifiedArgs[6], methodInfo);
+                        return ((Detour8)patch.OriginalDelegate)(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, methodInfo);
+                    });
+            };
+        }
+
+        private static Detour9 CreateDetour9(PatchInfo patch)
+        {
+            return (IntPtr arg0, IntPtr arg1, IntPtr arg2, IntPtr arg3, IntPtr arg4, IntPtr arg5, IntPtr arg6, IntPtr arg7, IntPtr arg8, IntPtr methodInfo) =>
+            {
+                IntPtr instance = patch.IsStatic ? IntPtr.Zero : arg0;
+                IntPtr[] args = patch.IsStatic 
+                    ? new[] { arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8 } 
+                    : new[] { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8 };
+                
+                return ExecutePatch(patch, instance, args, methodInfo,
+                    (modifiedArgs) => {
+                        if (patch.IsStatic && modifiedArgs.Length >= 9)
+                            return ((Detour9)patch.OriginalDelegate)(modifiedArgs[0], modifiedArgs[1], modifiedArgs[2], modifiedArgs[3], modifiedArgs[4], modifiedArgs[5], modifiedArgs[6], modifiedArgs[7], modifiedArgs[8], methodInfo);
+                        else if (!patch.IsStatic && modifiedArgs.Length >= 8)
+                            return ((Detour9)patch.OriginalDelegate)(arg0, modifiedArgs[0], modifiedArgs[1], modifiedArgs[2], modifiedArgs[3], modifiedArgs[4], modifiedArgs[5], modifiedArgs[6], modifiedArgs[7], methodInfo);
+                        return ((Detour9)patch.OriginalDelegate)(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, methodInfo);
+                    });
+            };
+        }
+
+        private static Detour10 CreateDetour10(PatchInfo patch)
+        {
+            return (IntPtr arg0, IntPtr arg1, IntPtr arg2, IntPtr arg3, IntPtr arg4, IntPtr arg5, IntPtr arg6, IntPtr arg7, IntPtr arg8, IntPtr arg9, IntPtr methodInfo) =>
+            {
+                IntPtr instance = patch.IsStatic ? IntPtr.Zero : arg0;
+                IntPtr[] args = patch.IsStatic 
+                    ? new[] { arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9 } 
+                    : new[] { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9 };
+                
+                return ExecutePatch(patch, instance, args, methodInfo,
+                    (modifiedArgs) => {
+                        if (patch.IsStatic && modifiedArgs.Length >= 10)
+                            return ((Detour10)patch.OriginalDelegate)(modifiedArgs[0], modifiedArgs[1], modifiedArgs[2], modifiedArgs[3], modifiedArgs[4], modifiedArgs[5], modifiedArgs[6], modifiedArgs[7], modifiedArgs[8], modifiedArgs[9], methodInfo);
+                        else if (!patch.IsStatic && modifiedArgs.Length >= 9)
+                            return ((Detour10)patch.OriginalDelegate)(arg0, modifiedArgs[0], modifiedArgs[1], modifiedArgs[2], modifiedArgs[3], modifiedArgs[4], modifiedArgs[5], modifiedArgs[6], modifiedArgs[7], modifiedArgs[8], methodInfo);
+                        return ((Detour10)patch.OriginalDelegate)(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, methodInfo);
+                    });
+            };
+        }
+
+        private static Detour11 CreateDetour11(PatchInfo patch)
+        {
+            return (IntPtr arg0, IntPtr arg1, IntPtr arg2, IntPtr arg3, IntPtr arg4, IntPtr arg5, IntPtr arg6, IntPtr arg7, IntPtr arg8, IntPtr arg9, IntPtr arg10, IntPtr methodInfo) =>
+            {
+                IntPtr instance = patch.IsStatic ? IntPtr.Zero : arg0;
+                IntPtr[] args = patch.IsStatic 
+                    ? new[] { arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10 } 
+                    : new[] { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10 };
+                
+                return ExecutePatch(patch, instance, args, methodInfo,
+                    (modifiedArgs) => {
+                        if (patch.IsStatic && modifiedArgs.Length >= 11)
+                            return ((Detour11)patch.OriginalDelegate)(modifiedArgs[0], modifiedArgs[1], modifiedArgs[2], modifiedArgs[3], modifiedArgs[4], modifiedArgs[5], modifiedArgs[6], modifiedArgs[7], modifiedArgs[8], modifiedArgs[9], modifiedArgs[10], methodInfo);
+                        else if (!patch.IsStatic && modifiedArgs.Length >= 10)
+                            return ((Detour11)patch.OriginalDelegate)(arg0, modifiedArgs[0], modifiedArgs[1], modifiedArgs[2], modifiedArgs[3], modifiedArgs[4], modifiedArgs[5], modifiedArgs[6], modifiedArgs[7], modifiedArgs[8], modifiedArgs[9], methodInfo);
+                        return ((Detour11)patch.OriginalDelegate)(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, methodInfo);
+                    });
+            };
+        }
+
+        private static Detour12 CreateDetour12(PatchInfo patch)
+        {
+            return (IntPtr arg0, IntPtr arg1, IntPtr arg2, IntPtr arg3, IntPtr arg4, IntPtr arg5, IntPtr arg6, IntPtr arg7, IntPtr arg8, IntPtr arg9, IntPtr arg10, IntPtr arg11, IntPtr methodInfo) =>
+            {
+                IntPtr instance = patch.IsStatic ? IntPtr.Zero : arg0;
+                IntPtr[] args = patch.IsStatic 
+                    ? new[] { arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11 } 
+                    : new[] { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11 };
+                
+                return ExecutePatch(patch, instance, args, methodInfo,
+                    (modifiedArgs) => {
+                        if (patch.IsStatic && modifiedArgs.Length >= 12)
+                            return ((Detour12)patch.OriginalDelegate)(modifiedArgs[0], modifiedArgs[1], modifiedArgs[2], modifiedArgs[3], modifiedArgs[4], modifiedArgs[5], modifiedArgs[6], modifiedArgs[7], modifiedArgs[8], modifiedArgs[9], modifiedArgs[10], modifiedArgs[11], methodInfo);
+                        else if (!patch.IsStatic && modifiedArgs.Length >= 11)
+                            return ((Detour12)patch.OriginalDelegate)(arg0, modifiedArgs[0], modifiedArgs[1], modifiedArgs[2], modifiedArgs[3], modifiedArgs[4], modifiedArgs[5], modifiedArgs[6], modifiedArgs[7], modifiedArgs[8], modifiedArgs[9], modifiedArgs[10], methodInfo);
+                        return ((Detour12)patch.OriginalDelegate)(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, methodInfo);
+                    });
+            };
+        }
+
+        private static Detour13 CreateDetour13(PatchInfo patch)
+        {
+            return (IntPtr arg0, IntPtr arg1, IntPtr arg2, IntPtr arg3, IntPtr arg4, IntPtr arg5, IntPtr arg6, IntPtr arg7, IntPtr arg8, IntPtr arg9, IntPtr arg10, IntPtr arg11, IntPtr arg12, IntPtr methodInfo) =>
+            {
+                IntPtr instance = patch.IsStatic ? IntPtr.Zero : arg0;
+                IntPtr[] args = patch.IsStatic 
+                    ? new[] { arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12 } 
+                    : new[] { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12 };
+                
+                return ExecutePatch(patch, instance, args, methodInfo,
+                    (modifiedArgs) => {
+                        if (patch.IsStatic && modifiedArgs.Length >= 13)
+                            return ((Detour13)patch.OriginalDelegate)(modifiedArgs[0], modifiedArgs[1], modifiedArgs[2], modifiedArgs[3], modifiedArgs[4], modifiedArgs[5], modifiedArgs[6], modifiedArgs[7], modifiedArgs[8], modifiedArgs[9], modifiedArgs[10], modifiedArgs[11], modifiedArgs[12], methodInfo);
+                        else if (!patch.IsStatic && modifiedArgs.Length >= 12)
+                            return ((Detour13)patch.OriginalDelegate)(arg0, modifiedArgs[0], modifiedArgs[1], modifiedArgs[2], modifiedArgs[3], modifiedArgs[4], modifiedArgs[5], modifiedArgs[6], modifiedArgs[7], modifiedArgs[8], modifiedArgs[9], modifiedArgs[10], modifiedArgs[11], methodInfo);
+                        return ((Detour13)patch.OriginalDelegate)(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, methodInfo);
+                    });
+            };
+        }
+
+        private static Detour14 CreateDetour14(PatchInfo patch)
+        {
+            return (IntPtr arg0, IntPtr arg1, IntPtr arg2, IntPtr arg3, IntPtr arg4, IntPtr arg5, IntPtr arg6, IntPtr arg7, IntPtr arg8, IntPtr arg9, IntPtr arg10, IntPtr arg11, IntPtr arg12, IntPtr arg13, IntPtr methodInfo) =>
+            {
+                IntPtr instance = patch.IsStatic ? IntPtr.Zero : arg0;
+                IntPtr[] args = patch.IsStatic 
+                    ? new[] { arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13 } 
+                    : new[] { arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13 };
+                
+                return ExecutePatch(patch, instance, args, methodInfo,
+                    (modifiedArgs) => {
+                        if (patch.IsStatic && modifiedArgs.Length >= 14)
+                            return ((Detour14)patch.OriginalDelegate)(modifiedArgs[0], modifiedArgs[1], modifiedArgs[2], modifiedArgs[3], modifiedArgs[4], modifiedArgs[5], modifiedArgs[6], modifiedArgs[7], modifiedArgs[8], modifiedArgs[9], modifiedArgs[10], modifiedArgs[11], modifiedArgs[12], modifiedArgs[13], methodInfo);
+                        else if (!patch.IsStatic && modifiedArgs.Length >= 13)
+                            return ((Detour14)patch.OriginalDelegate)(arg0, modifiedArgs[0], modifiedArgs[1], modifiedArgs[2], modifiedArgs[3], modifiedArgs[4], modifiedArgs[5], modifiedArgs[6], modifiedArgs[7], modifiedArgs[8], modifiedArgs[9], modifiedArgs[10], modifiedArgs[11], modifiedArgs[12], methodInfo);
+                        return ((Detour14)patch.OriginalDelegate)(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, methodInfo);
                     });
             };
         }
