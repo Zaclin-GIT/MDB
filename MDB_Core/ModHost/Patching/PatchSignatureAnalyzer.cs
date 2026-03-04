@@ -95,8 +95,20 @@ namespace GameSDK.ModHost.Patching
             // Primitive types - IL2CPP passes small values directly in the pointer
             if (targetType == typeof(int))
                 return ptr.ToInt32();
+            if (targetType == typeof(uint))
+                return unchecked((uint)ptr.ToInt32());
             if (targetType == typeof(long))
                 return ptr.ToInt64();
+            if (targetType == typeof(ulong))
+                return unchecked((ulong)ptr.ToInt64());
+            if (targetType == typeof(short))
+                return unchecked((short)ptr.ToInt32());
+            if (targetType == typeof(ushort))
+                return unchecked((ushort)ptr.ToInt32());
+            if (targetType == typeof(byte))
+                return unchecked((byte)ptr.ToInt32());
+            if (targetType == typeof(sbyte))
+                return unchecked((sbyte)ptr.ToInt32());
             if (targetType == typeof(bool))
                 return ptr != IntPtr.Zero && ptr.ToInt32() != 0;
             if (targetType == typeof(float))
@@ -142,8 +154,26 @@ namespace GameSDK.ModHost.Patching
             if (value is int i)
                 return new IntPtr(i);
             
+            if (value is uint ui)
+                return new IntPtr(unchecked((int)ui));
+            
             if (value is long l)
                 return new IntPtr(l);
+            
+            if (value is ulong ul)
+                return new IntPtr(unchecked((long)ul));
+            
+            if (value is short sh)
+                return new IntPtr(sh);
+            
+            if (value is ushort ush)
+                return new IntPtr(ush);
+            
+            if (value is byte by)
+                return new IntPtr(by);
+            
+            if (value is sbyte sb)
+                return new IntPtr(sb);
             
             if (value is bool b)
                 return new IntPtr(b ? 1 : 0);

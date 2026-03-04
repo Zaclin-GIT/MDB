@@ -1013,6 +1013,9 @@ namespace GameSDK.ModHost.Patching
             // Track __result parameter index for writeback
             int resultParamIndex = -1;
             bool resultIsRef = false;
+            
+            // Track positional arg index for non-special parameters
+            int nextPositionalArg = 0;
 
             for (int i = 0; i < parameters.Length; i++)
             {
@@ -1053,12 +1056,28 @@ namespace GameSDK.ModHost.Patching
                     }
                     else
                     {
-                        invokeArgs[i] = GetDefault(elementType);
+                        // Non-special parameter name — treat as positional arg
+                        if (nextPositionalArg < args.Length)
+                        {
+                            invokeArgs[i] = ConvertToType(args[nextPositionalArg], elementType);
+                            argIndexMapping[i] = nextPositionalArg; // Track for ref writeback
+                            nextPositionalArg++;
+                        }
+                        else
+                        {
+                            invokeArgs[i] = GetDefault(elementType);
+                        }
                     }
                 }
                 catch
                 {
                     invokeArgs[i] = GetDefault(elementType);
+                    // Still advance positional counter for non-special names
+                    if (name != "__instance" && name != "__result" && name != "__exception" 
+                        && !(name.StartsWith("__") && int.TryParse(name.Substring(2), out _)))
+                    {
+                        nextPositionalArg++;
+                    }
                 }
             }
 
@@ -1123,6 +1142,9 @@ namespace GameSDK.ModHost.Patching
             // Track __result parameter index for writeback
             int resultParamIndex = -1;
             bool resultIsRef = false;
+            
+            // Track positional arg index for non-special parameters
+            int nextPositionalArg = 0;
 
             for (int i = 0; i < parameters.Length; i++)
             {
@@ -1183,12 +1205,46 @@ namespace GameSDK.ModHost.Patching
                     }
                     else
                     {
-                        invokeArgs[i] = GetDefault(elementType);
+                        // Non-special parameter name — treat as positional arg
+                        if (nextPositionalArg < args.Length)
+                        {
+                            object arg = args[nextPositionalArg];
+                            if (arg != null && elementType.IsAssignableFrom(arg.GetType()))
+                            {
+                                invokeArgs[i] = arg;
+                            }
+                            else if (arg is IntPtr ptr)
+                            {
+                                invokeArgs[i] = ConvertToType(ptr, elementType);
+                            }
+                            else if (arg is float f && elementType == typeof(float))
+                            {
+                                invokeArgs[i] = f;
+                            }
+                            else if (arg is double d && elementType == typeof(double))
+                            {
+                                invokeArgs[i] = d;
+                            }
+                            else
+                            {
+                                invokeArgs[i] = GetDefault(elementType);
+                            }
+                            nextPositionalArg++;
+                        }
+                        else
+                        {
+                            invokeArgs[i] = GetDefault(elementType);
+                        }
                     }
                 }
                 catch
                 {
                     invokeArgs[i] = GetDefault(elementType);
+                    if (name != "__instance" && name != "__result" && name != "__exception" 
+                        && !(name.StartsWith("__") && int.TryParse(name.Substring(2), out _)))
+                    {
+                        nextPositionalArg++;
+                    }
                 }
             }
 

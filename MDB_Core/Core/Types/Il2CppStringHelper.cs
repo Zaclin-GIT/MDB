@@ -52,12 +52,12 @@ namespace GameSDK
             {
                 DebugLog("ToString: Trying bridge conversion...");
                 string result = Il2CppBridge.Il2CppStringToManaged(il2cppStringPtr);
-                if (!string.IsNullOrEmpty(result))
+                if (result != null)
                 {
                     DebugLog($"ToString: Bridge succeeded, length={result.Length}");
                     return result;
                 }
-                DebugLog("ToString: Bridge returned null/empty");
+                DebugLog("ToString: Bridge returned null");
             }
             catch (Exception ex)
             {
@@ -69,12 +69,12 @@ namespace GameSDK
             {
                 DebugLog("ToString: Trying direct memory read...");
                 string result = ReadStringDirect(il2cppStringPtr);
-                if (!string.IsNullOrEmpty(result))
+                if (result != null)
                 {
                     DebugLog($"ToString: Direct read succeeded, length={result.Length}");
                     return result;
                 }
-                DebugLog("ToString: Direct read returned null/empty");
+                DebugLog("ToString: Direct read returned null");
             }
             catch (Exception ex)
             {
@@ -109,12 +109,12 @@ namespace GameSDK
             {
                 DebugLog("ObjectToString: Trying ReadStringDirect...");
                 string directString = ReadStringDirect(objectPtr);
-                if (!string.IsNullOrEmpty(directString))
+                if (directString != null)
                 {
                     DebugLog($"ObjectToString: ReadStringDirect succeeded: \"{directString.Substring(0, Math.Min(50, directString.Length))}...\"");
                     return directString;
                 }
-                DebugLog("ObjectToString: ReadStringDirect returned null/empty");
+                DebugLog("ObjectToString: ReadStringDirect returned null");
             }
             catch (Exception ex)
             {
@@ -126,12 +126,12 @@ namespace GameSDK
             {
                 DebugLog("ObjectToString: Trying bridge Il2CppStringToManaged...");
                 string bridgeString = Il2CppBridge.Il2CppStringToManaged(objectPtr);
-                if (!string.IsNullOrEmpty(bridgeString))
+                if (bridgeString != null)
                 {
                     DebugLog($"ObjectToString: Bridge succeeded: \"{bridgeString.Substring(0, Math.Min(50, bridgeString.Length))}...\"");
                     return bridgeString;
                 }
-                DebugLog("ObjectToString: Bridge returned null/empty");
+                DebugLog("ObjectToString: Bridge returned null");
             }
             catch (Exception ex)
             {
@@ -195,10 +195,16 @@ namespace GameSDK
             }
             
             // Sanity checks
-            if (length <= 0 || length > 1000000)
+            if (length < 0 || length > 1000000)
             {
                 DebugLog($"ReadStringDirect: Invalid length {length}, aborting");
                 return null;
+            }
+
+            if (length == 0)
+            {
+                DebugLog("ReadStringDirect: Empty string");
+                return string.Empty;
             }
 
             // Read chars at offset 0x14
