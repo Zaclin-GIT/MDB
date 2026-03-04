@@ -194,8 +194,8 @@ Congratulations! You've created and loaded your first MDB mod. Here's what to ex
 
 ### Advanced Topics
 
-- **[Patch Attributes]({{ '/api/patch-attributes' | relative_url }})** - Declarative method hooking
-- **[HookManager]({{ '/api/hookmanager' | relative_url }})** - Manual hook and modify game methods
+- **[Patch Attributes]({{ '/api/patch-attributes' | relative_url }})** - Declarative method hooking (recommended approach)
+- **[HookManager]({{ '/api/hookmanager' | relative_url }})** - Advanced fallback for dynamic runtime hook management
 - **[IL2CPP Bridge]({{ '/api/il2cpp-bridge' | relative_url }})** - Direct IL2CPP runtime access
 
 ---

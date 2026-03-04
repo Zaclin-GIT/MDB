@@ -5,7 +5,7 @@ title: Patch Attributes API
 
 # Patch Attributes API
 
-The MDB Framework provides a HarmonyX-compatible declarative patching system using attributes. Patches are automatically discovered and applied when mods load, allowing you to hook into game methods without manual hook management.
+The MDB Framework provides a declarative patching system using attributes. This is the **primary and recommended** way to hook game methods. Patches are automatically discovered and applied when mods load, giving you type-safe parameter handling without any manual hook management.
 
 **Namespace:** `GameSDK.ModHost.Patching`
 
@@ -17,12 +17,11 @@ The patching system consists of:
 
 1. **[Patch]** - Declares the target type to patch
 2. **[PatchMethod]** - Specifies the method name and parameter count
-3. **[PatchRva]** - Targets methods by RVA offset (for obfuscated code)
-4. **[Prefix]** - Runs before the original method
-5. **[Postfix]** - Runs after the original method
-6. **[Finalizer]** - Runs even if the original throws an exception
+3. **[Prefix]** - Runs before the original method
+4. **[Postfix]** - Runs after the original method
+5. **[Finalizer]** - Runs even if the original throws an exception
 
-All patches use special parameters like `__instance`, `__0`/`__1`, `ref __result`, `__state`, and `__exception` to interact with the original method's execution.
+Patch methods receive parameters by name. You can use special names like `__instance`, `__result`, `__state`, and `__exception`, or use the **actual IL2CPP parameter names** from the generated SDK to receive method arguments with full type safety.
 
 ---
 
@@ -56,7 +55,6 @@ public static class PlayerPatch
     [Prefix]
     public static bool Prefix(IntPtr __instance, int __0)
     {
-        // __0 is the damage amount parameter
         return true;
     }
 }
@@ -68,9 +66,9 @@ public static class PlayerPatch
 [Patch(string namespace, string typeName)]
 ```
 
-Directly specifies the IL2CPP namespace and type name. Use this for types without generated wrappers or for obfuscated types.
+Directly specifies the IL2CPP namespace and type name. Use this for types without generated wrappers, for obfuscated types, or for types in the global namespace.
 
-**Example:**
+**Example — Named namespace:**
 ```csharp
 [Patch("UnityEngine", "Debug")]
 [PatchMethod("Log", 1)]
@@ -80,6 +78,22 @@ public static class DebugLogPatch
     public static bool Prefix(string __0)
     {
         Logger.Info($"Unity logged: {__0}");
+        return true;
+    }
+}
+```
+
+**Example — Global namespace (empty string):**
+```csharp
+// For types in the global namespace, use an empty string ""
+[Patch("", "ClassName")]
+[PatchMethod("MethodName", 1)]
+public static class CustomPatch
+{
+    [Prefix]
+    public static bool Prefix(IntPtr __instance)
+    {
+        Logger.Info("Method called");
         return true;
     }
 }
@@ -102,7 +116,7 @@ public static class ScreenWidthPatch
     [Postfix]
     public static void Postfix(ref int __result)
     {
-        __result = 1920; // Override screen width
+        __result = 1920;
     }
 }
 ```
@@ -126,7 +140,7 @@ public static class ScreenWidthPatch
 public class PatchMethodAttribute : Attribute
 ```
 
-Specifies the target method name and optionally the parameter count for overload resolution.
+Specifies the target method name and the parameter count. The parameter count is important for overload resolution — IL2CPP games frequently have multiple methods with the same name but different parameter counts.
 
 #### Constructors
 
@@ -138,60 +152,16 @@ Specifies the target method name and optionally the parameter count for overload
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `methodName` | `string` | Name of the method to patch |
-| `parameterCount` | `int` | Number of parameters (use -1 for any) |
+| `parameterCount` | `int` | Number of IL2CPP parameters (use -1 for any) |
 
-**Example - Simple Method:**
-```csharp
-[Patch("MyNamespace", "MyClass")]
-[PatchMethod("DoSomething")]  // No parameter count = any overload
-public static class MyPatch { }
-```
+**Always specify the parameter count** when you know it — this prevents accidentally hooking the wrong overload.
 
-**Example - Overload Resolution:**
+**Example:**
 ```csharp
 [Patch("UnityEngine", "Debug")]
 [PatchMethod("Log", 1)]  // Specifically targets Debug.Log(object)
 public static class DebugLogPatch { }
 ```
-
----
-
-### [PatchRva]
-
-```csharp
-[AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = false)]
-public class PatchRvaAttribute : Attribute
-```
-
-Targets a method by its RVA (Relative Virtual Address) offset. Use this for heavily obfuscated methods that can't be found by name.
-
-#### Constructor
-
-```csharp
-[PatchRva(ulong rva)]
-```
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `rva` | `ulong` | The RVA offset from the IL2CPP dump |
-
-**Example:**
-```csharp
-[Patch("ObfuscatedNamespace", "ObfuscatedClass")]
-[PatchRva(0x1A3B5C0)]  // RVA from IL2CPP dump
-public static class ObfuscatedMethodPatch
-{
-    [Prefix]
-    public static bool Prefix(IntPtr __instance)
-    {
-        Logger.Info("Hooked obfuscated method by RVA");
-        return true;
-    }
-}
-```
-
-**Finding RVAs:**
-RVA offsets are found in the IL2CPP metadata dump that MDB generates on first run. Look in `MDB_Core/Generated/` for dump files.
 
 ---
 
@@ -211,7 +181,22 @@ Marks a method as a prefix patch. Prefix methods run **BEFORE** the original met
 - Can modify parameters passed to the original via `ref` parameters
 - Can set the return value via `ref __result` when skipping the original
 
-**Example - Skip Original:**
+**Example — Log and continue:**
+```csharp
+[Patch("GameNamespace", "Player")]
+[PatchMethod("TakeDamage", 1)]
+public static class LogDamagePatch
+{
+    [Prefix]
+    public static bool Prefix(IntPtr __instance, ref int __0)
+    {
+        Logger.Info($"Received {__0} damage");
+        return true; // Continue to original = damage taken
+    }
+}
+```
+
+**Example — Skip original:**
 ```csharp
 [Patch("GameNamespace", "Player")]
 [PatchMethod("TakeDamage", 1)]
@@ -220,25 +205,8 @@ public static class InvincibilityPatch
     [Prefix]
     public static bool Prefix(IntPtr __instance, ref int __0)
     {
-        // __0 is the damage parameter
-        Logger.Info($"Player would take {__0} damage - blocking!");
+        Logger.Info($"Blocked {__0} damage");
         return false; // Skip original = no damage taken
-    }
-}
-```
-
-**Example - Modify Return Value:**
-```csharp
-[Patch("GameNamespace", "Inventory")]
-[PatchMethod("HasItem", 1)]
-public static class UnlockAllItemsPatch
-{
-    [Prefix]
-    public static bool Prefix(string __0, ref bool __result)
-    {
-        // Always return true for HasItem checks
-        __result = true;
-        return false; // Skip original
     }
 }
 ```
@@ -261,7 +229,7 @@ Marks a method as a postfix patch. Postfix methods run **AFTER** the original me
 - Can access the original parameters and instance
 - Cannot skip the original (it already ran)
 
-**Example - Modify Return Value:**
+**Example — Modify return value:**
 ```csharp
 [Patch("UnityEngine", "Screen")]
 [PatchMethod("get_width", 0)]
@@ -270,13 +238,12 @@ public static class ForceResolutionPatch
     [Postfix]
     public static void Postfix(ref int __result)
     {
-        Logger.Debug($"Original width: {__result}");
         __result = 1920; // Override screen width
     }
 }
 ```
 
-**Example - Log Method Calls:**
+**Example — Log method results:**
 ```csharp
 [Patch("GameNamespace", "SaveManager")]
 [PatchMethod("SaveGame", 1)]
@@ -312,7 +279,7 @@ Marks a method as a finalizer patch. Finalizer methods run **EVEN IF** the origi
 - Return an `Exception` instance to throw a different exception
 - Return the original `__exception` to re-throw it
 
-**Example - Catch and Log Exceptions:**
+**Example — Catch and log exceptions:**
 ```csharp
 [Patch("GameNamespace", "FileManager")]
 [PatchMethod("LoadFile", 1)]
@@ -331,81 +298,49 @@ public static class LoadFileSafety
 }
 ```
 
-**Example - Transform Exceptions:**
+---
+
+## Parameter Naming
+
+Patch methods support two approaches for receiving method parameters:
+
+### Approach 1: Named Parameters (Recommended)
+
+Use the **actual IL2CPP parameter names** from the generated SDK or dump files. The framework maps them by position automatically. This is the most readable approach for obfuscated games where the parameter names come directly from the game's metadata.
+
 ```csharp
-[Patch("GameNamespace", "NetworkManager")]
-[PatchMethod("Connect", 1)]
-public static class NetworkErrorHandler
+[Patch("", "HBEAKBIHANL")]
+[PatchMethod("KOBMINBDOBD", 12)]
+public static class BulletSpawnPatch
 {
-    [Finalizer]
-    public static Exception Finalizer(Exception __exception)
+    [Prefix]
+    public static bool Prefix(
+        IntPtr __instance,
+        ref ObjectProperties ODEMIJKAJMH,    // Positional arg 0
+        ref ProjectileProperties GIEJOHKLGJO, // Positional arg 1
+        ref int HHCCBONIIOM,                  // Positional arg 2
+        ref uint KLHOFENGJNM,                // Positional arg 3
+        ref float FFFFKPDHEFP,               // Positional arg 4
+        ref int GHEBEMMJLDJ,                 // Positional arg 5
+        ref string CFJBHEKKLNF,              // Positional arg 6
+        ref string JCADLABDPIO,              // Positional arg 7
+        ref float AFCNMCJIKFD,               // Positional arg 8
+        ref float KDAJOMOFMJB,               // Positional arg 9
+        ref bool KCHJBMCNIIA,                // Positional arg 10
+        ref bool PBGHBKMHACI)                // Positional arg 11
     {
-        if (__exception is System.Net.Sockets.SocketException)
-        {
-            Logger.Error("Network connection failed");
-            return new Exception("Custom network error", __exception);
-        }
-        return __exception; // Re-throw other exceptions
+        Logger.Info($"Damage={HHCCBONIIOM}, Count={KLHOFENGJNM}");
+        return true;
     }
 }
 ```
 
----
+Non-special parameter names (anything that doesn't start with `__`) are mapped **positionally** — the first non-special parameter maps to arg 0, the second to arg 1, etc.
 
-## Special Parameters
+### Approach 2: Indexed Parameters
 
-Patch methods can use special parameter names to access information about the original method's execution. Parameters are injected based on their name.
+Use `__0`, `__1`, `__2`, etc. to reference parameters by zero-based index:
 
-### __instance
-
-```csharp
-IntPtr __instance
-```
-
-The object instance that the method is called on (the `this` pointer).
-
-- Type is always `IntPtr` (IL2CPP object pointer)
-- `IntPtr.Zero` for static methods
-- Can be passed to IL2CPP bridge functions
-- Can be wrapped using generated wrapper types
-
-**Example:**
-```csharp
-[Patch("GameNamespace", "Player")]
-[PatchMethod("GetHealth", 0)]
-public static class PlayerHealthPatch
-{
-    [Postfix]
-    public static void Postfix(IntPtr __instance, ref float __result)
-    {
-        if (__instance != IntPtr.Zero)
-        {
-            Logger.Info($"Player instance 0x{__instance:X} has {__result} health");
-        }
-    }
-}
-```
-
----
-
-### __0, __1, __2, ... (Method Parameters)
-
-```csharp
-Type __0  // First parameter
-Type __1  // Second parameter
-Type __2  // Third parameter
-// etc.
-```
-
-Original method parameters by zero-based index. The type must match the parameter's IL2CPP type.
-
-**Type Mapping:**
-- Value types: Use the C# equivalent (`int`, `float`, `bool`, etc.)
-- Strings: Use `string` or `IntPtr`
-- Objects: Use `IntPtr` (IL2CPP object pointer)
-- Enums: Use the underlying integer type
-
-**Example:**
 ```csharp
 [Patch("GameNamespace", "Calculator")]
 [PatchMethod("Add", 2)]
@@ -421,142 +356,52 @@ public static class CalculatorPatch
 }
 ```
 
-**Example with ref:**
-```csharp
-[Patch("GameNamespace", "Player")]
-[PatchMethod("ModifyStats", 2)]
-public static class StatModifierPatch
-{
-    [Prefix]
-    public static void Prefix(ref int __0, ref float __1)
-    {
-        // Modify parameters before they reach the original
-        __0 *= 2;  // Double the first parameter
-        __1 += 5f; // Add to the second parameter
-    }
-}
-```
+### Special Parameters
+
+These parameter names have special meaning and are not mapped positionally:
+
+| Name | Type | Description |
+|------|------|-------------|
+| `__instance` | `IntPtr` | The `this` pointer (IL2CPP object). `IntPtr.Zero` for static methods. |
+| `__result` | `ref T` | The method return value. Must use `ref`. |
+| `__state` | `ref object` | Shared state between Prefix and Postfix. |
+| `__exception` | `Exception` | The thrown exception (Finalizer only). |
+| `__0`, `__1`, ... | `T` | Parameter by zero-based index. |
 
 ---
 
-### ref __result
+## Supported Parameter Types
+
+The patching system automatically marshals between IL2CPP native pointers and managed types:
+
+| C# Type | IL2CPP Representation | Notes |
+|----------|-----------------------|-------|
+| `int` | Passed directly in pointer | |
+| `uint` | Passed directly in pointer | |
+| `long` | Passed directly in pointer | |
+| `ulong` | Passed directly in pointer | |
+| `short` | Passed directly in pointer | |
+| `ushort` | Passed directly in pointer | |
+| `byte` | Passed directly in pointer | |
+| `sbyte` | Passed directly in pointer | |
+| `bool` | Non-zero = true | |
+| `float` | Bit-cast from int32 | Handled automatically |
+| `double` | Bit-cast from int64 | Handled automatically |
+| `string` | IL2CPP String pointer | Auto-converted to/from managed string |
+| `IntPtr` | Raw pointer passthrough | Use for object references |
+| IL2CPP wrapper types | Pointer wrapped via `Activator.CreateInstance` | e.g., `ObjectProperties`, `PlayerClass` |
+
+### Using `ref` Parameters
+
+All non-special parameters can be declared with `ref` to allow modification. When you modify a `ref` parameter, the change is written back to the native args array, affecting the original method call:
 
 ```csharp
-ref ReturnType __result
-```
-
-The return value of the original method. Must be passed by reference (`ref`).
-
-**In [Prefix]:**
-- Set this value when returning `false` to skip the original
-- Provides the return value to the caller
-
-**In [Postfix]:**
-- Read or modify the value returned by the original method
-- Changes are visible to the caller
-
-**Type:** Must match the original method's return type. Use `IntPtr` for objects.
-
-**Example - Prefix:**
-```csharp
-[Patch("GameNamespace", "Inventory")]
-[PatchMethod("GetItemCount", 1)]
-public static class UnlimitedItemsPatch
+[Prefix]
+public static bool Prefix(ref int HHCCBONIIOM, ref float FFFFKPDHEFP)
 {
-    [Prefix]
-    public static bool Prefix(string __0, ref int __result)
-    {
-        __result = 999; // Always have 999 of every item
-        return false; // Skip original
-    }
-}
-```
-
-**Example - Postfix:**
-```csharp
-[Patch("GameNamespace", "DamageCalculator")]
-[PatchMethod("CalculateDamage", 2)]
-public static class DoubleDamagePatch
-{
-    [Postfix]
-    public static void Postfix(ref float __result)
-    {
-        __result *= 2f; // Double all damage
-    }
-}
-```
-
----
-
-### __state
-
-```csharp
-ref object __state
-```
-
-Shared state between Prefix and Postfix. Use this to pass data from your Prefix to your Postfix.
-
-- Always type `object` - cast to your desired type
-- Set in Prefix, read in Postfix
-- Scoped to a single method call
-
-**Example:**
-```csharp
-[Patch("GameNamespace", "Timer")]
-[PatchMethod("MeasurePerformance", 0)]
-public static class PerformanceTrackerPatch
-{
-    [Prefix]
-    public static void Prefix(ref object __state)
-    {
-        // Store start time in __state
-        __state = System.Diagnostics.Stopwatch.StartNew();
-    }
-
-    [Postfix]
-    public static void Postfix(ref object __state)
-    {
-        // Retrieve and stop the stopwatch
-        if (__state is System.Diagnostics.Stopwatch sw)
-        {
-            sw.Stop();
-            Logger.Info($"Method took {sw.ElapsedMilliseconds}ms");
-        }
-    }
-}
-```
-
----
-
-### __exception
-
-```csharp
-Exception __exception
-```
-
-The exception thrown by the original method. Only available in **[Finalizer]** patches.
-
-- `null` if the original method completed successfully
-- Contains the actual exception if one was thrown
-- Read-only (use return value to modify exception handling)
-
-**Example:**
-```csharp
-[Patch("GameNamespace", "RiskyOperation")]
-[PatchMethod("DoSomethingDangerous", 0)]
-public static class SafetyWrapper
-{
-    [Finalizer]
-    public static Exception Finalizer(Exception __exception)
-    {
-        if (__exception != null)
-        {
-            Logger.Error($"RiskyOperation failed: {__exception.Message}");
-            Logger.Error($"Stack trace: {__exception.StackTrace}");
-            return null; // Swallow exception
-        }
-        return null;
-    }
+    HHCCBONIIOM = 0;     // Zero out damage
+    FFFFKPDHEFP *= 0.5f; // Halve the angle
+    return true;         // Continue with modified args
 }
 ```
 
@@ -564,35 +409,28 @@ public static class SafetyWrapper
 
 ## Complete Examples
 
-### Example 1: Simple Method Hook
+### Example 1: Intercepting Game Methods with Named Parameters
+
+A real-world example hooking an obfuscated method in a Unity IL2CPP game. The method has 12 parameters including structs, primitives, strings, and booleans.
 
 ```csharp
+using System;
 using GameSDK.ModHost;
 using GameSDK.ModHost.Patching;
 
-[Mod("Author.SimpleHook", "Simple Hook Example", "1.0.0")]
-public class SimpleHookMod : ModBase
+[Mod("Author.BulletMonitor", "Bullet Monitor", "1.0.0")]
+public class BulletMonitorMod : ModBase
 {
+    public static ModLogger Log;
+
     public override void OnLoad()
     {
-        Logger.Info("Simple hook installed");
+        Log = Logger;
+        Logger.Info("Bullet monitor loaded");
     }
 }
 
-[Patch("UnityEngine", "Debug")]
-[PatchMethod("Log", 1)]
-public static class DebugLogPatch
-{
-    [Prefix]
-    public static bool Prefix(string __0)
-    {
-        ModLogger.LogInternal("Unity", __0 ?? "<null>", System.ConsoleColor.Gray);
-        return true; // Allow original to run
-    }
-}
-```
-
-### Example 2: Skip Original with Custom Logic
+### Example 2: Skip Original with Return Value
 
 ```csharp
 [Patch("GameNamespace", "Player")]
@@ -607,10 +445,10 @@ public static class GodModePatch
         if (_godMode)
         {
             Logger.Info($"God mode: blocked {__0} damage from {__1}");
-            __result = false; // Indicate no damage taken
-            return false; // Skip original method
+            __result = false;
+            return false; // Skip original
         }
-        return true; // Normal damage
+        return true;
     }
 }
 ```
@@ -625,14 +463,12 @@ public static class HealthBoostPatch
     [Postfix]
     public static void Postfix(IntPtr __instance, ref float __result)
     {
-        Logger.Debug($"Original max health: {__result}");
         __result *= 1.5f; // 50% health boost
-        Logger.Debug($"Modified max health: {__result}");
     }
 }
 ```
 
-### Example 4: Track Method Call Duration
+### Example 4: Track Method Duration with __state
 
 ```csharp
 [Patch("GameNamespace", "AssetLoader")]
@@ -659,7 +495,7 @@ public static class LoadAssetTimerPatch
 }
 ```
 
-### Example 5: Exception Handling
+### Example 5: Exception Handling with Finalizer
 
 ```csharp
 [Patch("GameNamespace", "NetworkManager")]
@@ -672,14 +508,13 @@ public static class NetworkSafetyPatch
         if (__exception != null)
         {
             Logger.Error($"Failed to send packet: {__exception.Message}");
-            
-            // Decide whether to swallow or re-throw
+
             if (__exception is System.Net.Sockets.SocketException)
             {
-                Logger.Warning("Network error - swallowing exception");
+                Logger.Warning("Network error — swallowing exception");
                 return null; // Swallow
             }
-            
+
             return __exception; // Re-throw other exceptions
         }
         return null;
@@ -690,7 +525,6 @@ public static class NetworkSafetyPatch
 ### Example 6: Multiple Patches on Same Type
 
 ```csharp
-// Patch class 1
 [Patch("UnityEngine", "Debug")]
 [PatchMethod("Log", 1)]
 public static class DebugLogPatch
@@ -703,7 +537,6 @@ public static class DebugLogPatch
     }
 }
 
-// Patch class 2 - same type, different method
 [Patch("UnityEngine", "Debug")]
 [PatchMethod("LogWarning", 1)]
 public static class DebugLogWarningPatch
@@ -716,7 +549,6 @@ public static class DebugLogWarningPatch
     }
 }
 
-// Patch class 3 - same type, different method
 [Patch("UnityEngine", "Debug")]
 [PatchMethod("LogError", 1)]
 public static class DebugLogErrorPatch
@@ -730,203 +562,9 @@ public static class DebugLogErrorPatch
 }
 ```
 
-### Example 7: RVA-Based Patching (Obfuscated Code)
+### Example 7: Combining Prefix, Postfix, and Finalizer
 
-```csharp
-[Patch("ObfuscatedGame.Core", "㐀㐀㐀")]  // Obfuscated class name
-[PatchRva(0x1A3B5C0)]  // RVA from IL2CPP dump
-public static class ObfuscatedPatch
-{
-    [Prefix]
-    public static bool Prefix(IntPtr __instance, int __0, float __1)
-    {
-        Logger.Info($"Hooked obfuscated method: param0={__0}, param1={__1}");
-        return true;
-    }
-}
-```
-
----
-
-## Best Practices
-
-### ✅ Do
-
-- **Use static classes** for patch containers - instance classes won't work
-- **Use static methods** for Prefix/Postfix/Finalizer - instance methods won't work
-- **Match parameter types** exactly to the IL2CPP method signature
-- **Return `false` carefully** - only skip the original when you've handled all side effects
-- **Use `ref __result`** when skipping the original in a Prefix
-- **Log important events** for debugging patch behavior
-- **Test with and without patches** to ensure your changes work correctly
-- **Use [PatchMethod]** with parameter count for overload resolution
-- **Check for IntPtr.Zero** before dereferencing object pointers
-
-### ❌ Don't
-
-- **Don't use instance classes or methods** - patches must be static
-- **Don't modify game memory directly** - use the IL2CPP bridge or wrappers
-- **Don't skip the original without setting __result** - caller expects a return value
-- **Don't throw exceptions in patches** - wrap in try/catch or use Finalizer
-- **Don't assume parameter types** - check the IL2CPP dump for exact types
-- **Don't forget Prefix return values** - `void` means "continue", `false` means "skip"
-- **Don't rely on method names for obfuscated code** - use RVA patching
-- **Don't patch the same method twice in the same mod** - undefined behavior
-
----
-
-## Common Mistakes
-
-### Mistake 1: Non-Static Patch Class
-
-```csharp
-// ❌ WRONG - Instance class
-[Patch("Namespace", "Type")]
-public class MyPatch  // Missing 'static'
-{
-    [Prefix]
-    public static bool Prefix() { return true; }
-}
-```
-
-```csharp
-// ✅ CORRECT - Static class
-[Patch("Namespace", "Type")]
-public static class MyPatch
-{
-    [Prefix]
-    public static bool Prefix() { return true; }
-}
-```
-
-### Mistake 2: Non-Static Patch Method
-
-```csharp
-// ❌ WRONG - Instance method
-[Patch("Namespace", "Type")]
-[PatchMethod("Method", 0)]
-public static class MyPatch
-{
-    [Prefix]
-    public bool Prefix() { return true; }  // Missing 'static'
-}
-```
-
-```csharp
-// ✅ CORRECT - Static method
-[Patch("Namespace", "Type")]
-[PatchMethod("Method", 0)]
-public static class MyPatch
-{
-    [Prefix]
-    public static bool Prefix() { return true; }
-}
-```
-
-### Mistake 3: Skipping Original Without Setting __result
-
-```csharp
-// ❌ WRONG - Returns false but doesn't set __result
-[Patch("Namespace", "Type")]
-[PatchMethod("GetValue", 0)]
-public static class MyPatch
-{
-    [Prefix]
-    public static bool Prefix()
-    {
-        return false; // Caller gets undefined value!
-    }
-}
-```
-
-```csharp
-// ✅ CORRECT - Sets __result before skipping
-[Patch("Namespace", "Type")]
-[PatchMethod("GetValue", 0)]
-public static class MyPatch
-{
-    [Prefix]
-    public static bool Prefix(ref int __result)
-    {
-        __result = 42; // Provide return value
-        return false; // Now safe to skip
-    }
-}
-```
-
-### Mistake 4: Wrong Parameter Type
-
-```csharp
-// ❌ WRONG - Parameter type mismatch
-[Patch("UnityEngine", "Debug")]
-[PatchMethod("Log", 1)]
-public static class MyPatch
-{
-    [Prefix]
-    public static bool Prefix(int __0)  // Debug.Log takes 'object', not 'int'
-    {
-        return true;
-    }
-}
-```
-
-```csharp
-// ✅ CORRECT - Use string or IntPtr for object parameters
-[Patch("UnityEngine", "Debug")]
-[PatchMethod("Log", 1)]
-public static class MyPatch
-{
-    [Prefix]
-    public static bool Prefix(string __0)  // Correct type
-    {
-        Logger.Info(__0);
-        return true;
-    }
-}
-```
-
-### Mistake 5: Forgetting 'ref' on __result
-
-```csharp
-// ❌ WRONG - __result without ref
-[Patch("Namespace", "Type")]
-[PatchMethod("Calculate", 0)]
-public static class MyPatch
-{
-    [Postfix]
-    public static void Postfix(int __result)  // Missing 'ref'
-    {
-        __result *= 2; // Changes local copy, not the actual return value
-    }
-}
-```
-
-```csharp
-// ✅ CORRECT - Use ref to modify return value
-[Patch("Namespace", "Type")]
-[PatchMethod("Calculate", 0)]
-public static class MyPatch
-{
-    [Postfix]
-    public static void Postfix(ref int __result)
-    {
-        __result *= 2; // Actually modifies the return value
-    }
-}
-```
-
----
-
-## Advanced Topics
-
-### Combining Prefix, Postfix, and Finalizer
-
-You can have multiple patch types in the same class. They execute in this order:
-
-1. **Prefix** - Before original
-2. **Original Method** - If Prefix returns true
-3. **Postfix** - After original (if no exception)
-4. **Finalizer** - Always runs, even on exception
+Execution order: Prefix → Original → Postfix → Finalizer (always)
 
 ```csharp
 [Patch("GameNamespace", "CriticalOperation")]
@@ -958,42 +596,18 @@ public static class CompletePatch
             sw.Stop();
             Logger.Error($"Operation failed after {sw.ElapsedMilliseconds}ms: {__exception.Message}");
         }
-        return __exception; // Re-throw
+        return __exception;
     }
 }
 ```
 
-### Working with IL2CPP Object Pointers
+### Example 8: Hooking Properties
 
-When a parameter or `__instance` is `IntPtr`, you're working with IL2CPP object pointers:
-
-```csharp
-[Patch("GameNamespace", "GameObject")]
-[PatchMethod("GetComponent", 1)]
-public static class ComponentPatch
-{
-    [Postfix]
-    public static void Postfix(IntPtr __instance, string __0, IntPtr __result)
-    {
-        if (__instance != IntPtr.Zero)
-        {
-            // Use IL2CPP bridge to inspect the object
-            IntPtr klass = Il2CppBridge.mdb_object_get_class(__instance);
-            string className = Il2CppBridge.mdb_class_get_name(klass);
-            Logger.Info($"GameObject type: {className}, GetComponent<{__0}> returned: 0x{__result:X}");
-        }
-    }
-}
-```
-
-### Handling Properties
-
-Unity properties are compiled to `get_PropertyName` and `set_PropertyName` methods:
+Unity properties compile to `get_PropertyName` and `set_PropertyName` methods:
 
 ```csharp
-// Hooking a property getter
 [Patch("UnityEngine", "Screen")]
-[PatchMethod("get_width", 0)]  // Property getter
+[PatchMethod("get_width", 0)]
 public static class ScreenWidthPatch
 {
     [Postfix]
@@ -1003,34 +617,137 @@ public static class ScreenWidthPatch
     }
 }
 
-// Hooking a property setter
 [Patch("GameNamespace", "Settings")]
-[PatchMethod("set_Volume", 1)]  // Property setter
+[PatchMethod("set_Volume", 1)]
 public static class VolumeSetterPatch
 {
     [Prefix]
     public static void Prefix(ref float __0)
     {
-        // Clamp volume to safe range
-        __0 = Math.Max(0f, Math.Min(__0, 1f));
+        __0 = Math.Max(0f, Math.Min(__0, 1f)); // Clamp to safe range
     }
 }
 ```
 
-### Float Parameter Handling
+---
 
-The patching system automatically handles float parameters correctly for x64 calling conventions:
+## Best Practices
+
+### Do
+
+- **Use static classes and static methods** — patches must be fully static
+- **Always specify the parameter count** in `[PatchMethod]` for reliable overload resolution
+- **Use named parameters** from the generated SDK for readability
+- **Use `ref` on `__result`** — without it, modifications are lost
+- **Set `__result` before returning `false`** — the caller expects a return value
+- **Wrap expensive logic in try/catch** — exceptions in patches can crash the game
+- **Throttle logging** in frequently-called methods to avoid log spam
+- **Use `[Patch("", "TypeName")]`** for global namespace types (empty string, not omitted)
+
+### Don't
+
+- **Don't use instance classes or methods** — the framework can't instantiate patch classes
+- **Don't skip the original without setting `__result`** — caller gets undefined values
+- **Don't assume parameter types** — check the generated SDK or dump for exact types
+- **Don't patch the same method twice in the same mod** — undefined behavior
+- **Don't log in hot-path methods** without throttling — you'll flood the log
+
+---
+
+## Common Mistakes
+
+### Mistake 1: Non-Static Patch Class
 
 ```csharp
+// WRONG — Instance class
+[Patch("Namespace", "Type")]
+public class MyPatch
+{
+    [Prefix]
+    public static bool Prefix() { return true; }
+}
+```
+
+```csharp
+// CORRECT — Static class
+[Patch("Namespace", "Type")]
+public static class MyPatch
+{
+    [Prefix]
+    public static bool Prefix() { return true; }
+}
+```
+
+### Mistake 2: Skipping Original Without Setting __result
+
+```csharp
+// WRONG — Caller gets garbage return value
+[Prefix]
+public static bool Prefix()
+{
+    return false;
+}
+```
+
+```csharp
+// CORRECT — Provide the return value
+[Prefix]
+public static bool Prefix(ref int __result)
+{
+    __result = 42;
+    return false;
+}
+```
+
+### Mistake 3: Forgetting `ref` on __result
+
+```csharp
+// WRONG — Modifies local copy only
+[Postfix]
+public static void Postfix(int __result)
+{
+    __result *= 2; // Does nothing
+}
+```
+
+```csharp
+// CORRECT
+[Postfix]
+public static void Postfix(ref int __result)
+{
+    __result *= 2; // Actually modifies the return value
+}
+```
+
+### Mistake 4: Logging in Hot Paths
+
+```csharp
+// WRONG — Logs every frame
 [Patch("UnityEngine", "Time")]
 [PatchMethod("get_deltaTime", 0)]
-public static class DeltaTimePatch
+public static class BadPatch
 {
     [Postfix]
-    public static void Postfix(ref float __result)
+    public static void Postfix(float __result)
     {
-        // Framework handles float return values automatically
-        __result *= 0.5f; // Slow down game time
+        Logger.Info($"deltaTime: {__result}"); // Spams logs!
+    }
+}
+```
+
+```csharp
+// CORRECT — Throttled logging
+[Patch("UnityEngine", "Time")]
+[PatchMethod("get_deltaTime", 0)]
+public static class GoodPatch
+{
+    private static int _callCount = 0;
+
+    [Postfix]
+    public static void Postfix(float __result)
+    {
+        if (++_callCount % 60 == 0) // Log once per second at 60fps
+            Logger.Info($"deltaTime: {__result}");
     }
 }
 ```
@@ -1048,102 +765,56 @@ public static class DeltaTimePatch
 2. Ensure patch methods are **static**
 3. Check that namespace and type name exactly match the IL2CPP names
 4. Verify method name and parameter count are correct
-5. Check the logs - patch discovery errors are logged to `MDB/Logs/MDB.log`
-6. Use `[PatchRva]` if the method name is obfuscated
+5. Check the logs — patch discovery errors are logged to `MDB/Logs/MDB.log`
+6. For global namespace types, use `[Patch("", "TypeName")]` (empty string, not null)
 
-### Wrong Parameter Types
+### Parameters Show as Zero/Default
 
-**Problem:** Patch applies but crashes or doesn't receive correct values.
+**Problem:** Patch applies but parameters are always 0/null/false.
 
 **Solutions:**
-1. Check the IL2CPP dump for exact parameter types
-2. Use `IntPtr` for object references
-3. Use `string` for string parameters (not `IntPtr`)
-4. Match primitive types exactly (`int`, `float`, `bool`, etc.)
-5. For enums, use the underlying integer type
+1. Make sure your parameter names don't accidentally match a special name (`__instance`, `__result`, etc.)
+2. Verify the parameter count in `[PatchMethod]` matches exactly
+3. Check that parameter types match the IL2CPP types (see type mapping table)
+4. For unsigned types, use `uint`/`ulong`/`ushort`/`byte` — not `int`
+
+### Strings Show as Empty or `<object>`
+
+**Problem:** String parameters appear empty or as pointer addresses.
+
+**Solutions:**
+1. Declare string parameters as `ref string` — IL2CPP strings are pointers
+2. Verify the method actually passes non-empty strings (some parameters are genuinely empty)
+3. Check the logs for string conversion errors
 
 ### Prefix Not Skipping Original
 
 **Problem:** Returning `false` from Prefix but original still runs.
 
 **Solutions:**
-1. Ensure you're returning `bool`, not `void`
+1. Ensure the return type is `bool`, not `void`
 2. Make sure the method signature is correct
 3. Check logs for patch application errors
-4. Verify special parameters are spelled correctly
 
-### Can't Modify __result
+### Game Crashes on Hook
 
-**Problem:** Changes to `__result` don't affect the return value.
+**Problem:** Game crashes when the hooked method is called.
 
 **Solutions:**
-1. Add `ref` keyword: `ref int __result` not `int __result`
-2. Ensure parameter type matches return type
-3. Use `IntPtr` for object return values
-4. In Prefix, you must return `false` after setting `ref __result`
-
----
-
-## Performance Considerations
-
-### Overhead
-
-Each patch adds minimal overhead:
-- **Prefix:** ~10-50 nanoseconds per call
-- **Postfix:** ~10-50 nanoseconds per call
-- **Finalizer:** ~20-100 nanoseconds per call (exception handling overhead)
-
-Patches are implemented using MinHook with direct trampolines, so overhead is negligible for most use cases.
-
-### Hot Path Methods
-
-Avoid patching methods called thousands of times per frame (e.g., Vector3 operations, math functions) unless absolutely necessary. The overhead is small but can add up.
-
-### Logging in Patches
-
-Be careful with logging in frequently-called methods:
-
-```csharp
-// ❌ BAD - Logs every frame
-[Patch("UnityEngine", "Time")]
-[PatchMethod("get_deltaTime", 0)]
-public static class BadPatch
-{
-    [Postfix]
-    public static void Postfix(float __result)
-    {
-        Logger.Info($"deltaTime: {__result}"); // Spams logs!
-    }
-}
-```
-
-```csharp
-// ✅ GOOD - Throttled logging
-[Patch("UnityEngine", "Time")]
-[PatchMethod("get_deltaTime", 0)]
-public static class GoodPatch
-{
-    private static int _callCount = 0;
-    
-    [Postfix]
-    public static void Postfix(float __result)
-    {
-        if (++_callCount % 60 == 0) // Log once per second at 60fps
-            Logger.Info($"deltaTime: {__result}");
-    }
-}
-```
+1. Check that parameter types match exactly
+2. Wrap your patch logic in try/catch
+3. Verify the parameter count matches the actual IL2CPP method
+4. Try a minimal Prefix that just returns `true` to isolate the issue
 
 ---
 
 ## See Also
 
-- [ModBase]({{ '/api/modbase' | relative_url }}) - Mod lifecycle and base class
-- [ModAttribute]({{ '/api/modattribute' | relative_url }}) - Mod metadata declaration
-- [HookManager]({{ '/api/hookmanager' | relative_url }}) - Manual native hooking API
-- [IL2CPP Bridge]({{ '/api/il2cpp-bridge' | relative_url }}) - Direct IL2CPP runtime access
-- [Examples]({{ '/examples' | relative_url }}) - Working mod examples
-- [Getting Started]({{ '/getting-started' | relative_url }}) - Creating your first mod
+- [HookManager]({{ '/api/hookmanager' | relative_url }}) — Manual hook API (advanced fallback)
+- [ModBase]({{ '/api/modbase' | relative_url }}) — Mod lifecycle and base class
+- [IL2CPP Bridge]({{ '/api/il2cpp-bridge' | relative_url }}) — Direct IL2CPP runtime access
+- [Examples]({{ '/examples' | relative_url }}) — Working mod examples
+- [Getting Started]({{ '/getting-started' | relative_url }}) — Creating your first mod
 
 ---
 

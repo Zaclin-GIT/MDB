@@ -19,14 +19,13 @@ Complete reference documentation for all MDB Framework APIs.
 
 ### Patching System
 
-- **[Patch Attributes]({{ '/api/patch-attributes' | relative_url }})** - Declarative method hooking (Harmony-style)
+- **[Patch Attributes]({{ '/api/patch-attributes' | relative_url }})** - Declarative method hooking (Harmony-style) — **recommended**
   - `[Patch]` - Target a class for patching
-  - `[PatchMethod]` - Target a specific method
-  - `[PatchRva]` - Target by RVA (for obfuscated methods)
+  - `[PatchMethod]` - Target a specific method by name and parameter count
   - `[Prefix]` - Run before original method
   - `[Postfix]` - Run after original method
   - `[Finalizer]` - Run even if original throws
-- **[HookManager]({{ '/api/hookmanager' | relative_url }})** - Manual hooking API for runtime method hooks
+- **[HookManager]({{ '/api/hookmanager' | relative_url }})** - Advanced fallback for runtime hook management
 
 ### IL2CPP Bridge
 
@@ -62,11 +61,11 @@ Complete reference documentation for all MDB Framework APIs.
 - [ImGuiManager]({{ '/api/imgui-manager' | relative_url }}) - Basic UI registration
 
 #### 🟡 Intermediate
-- [Patch Attributes]({{ '/api/patch-attributes' | relative_url }}) - Declarative hooks
+- [Patch Attributes]({{ '/api/patch-attributes' | relative_url }}) - Declarative hooks (primary patching method)
 - [ImGui]({{ '/api/imgui' | relative_url }}) - UI construction
 
 #### 🔴 Advanced
-- [HookManager]({{ '/api/hookmanager' | relative_url }}) - Manual hooking
+- [HookManager]({{ '/api/hookmanager' | relative_url }}) - Manual hooking (advanced fallback)
 - [Il2CppBridge]({{ '/api/il2cpp-bridge' | relative_url }}) - Direct IL2CPP access
 
 ---
@@ -104,8 +103,9 @@ Logger.Debug("Debug message");
 public static class MyPatch
 {
     [Prefix]
-    public static bool Prefix(IntPtr __instance, int __0, float __1)
+    public static bool Prefix(IntPtr __instance, int damage, float multiplier)
     {
+        // Named parameters map positionally to native args
         // Return false to skip original
         return true;
     }
@@ -160,7 +160,7 @@ float health = Il2CppBridge.mdb_field_get_value<float>(instance, field);
 - [ModAttribute - Mod Metadata]({{ '/api/modattribute' | relative_url }})
 - [ModLogger - Logging System]({{ '/api/logger' | relative_url }})
 - [Patch Attributes - Declarative Hooks]({{ '/api/patch-attributes' | relative_url }})
-- [HookManager - Manual Hooks]({{ '/api/hookmanager' | relative_url }})
+- [HookManager - Manual Hooks (Fallback)]({{ '/api/hookmanager' | relative_url }})
 - [Il2CppBridge - IL2CPP Runtime Access]({{ '/api/il2cpp-bridge' | relative_url }})
 - [ImGuiManager - UI Management]({{ '/api/imgui-manager' | relative_url }})
 - [ImGui - UI Construction]({{ '/api/imgui' | relative_url }})

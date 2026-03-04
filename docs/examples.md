@@ -13,7 +13,7 @@ Working example mods covering every major MDB API. Each targets universal Unity 
 |---------|-----------|----------|
 | [HelloWorld](#helloworld) | 🟢 Simple | ModBase, Logger, ImGui widgets |
 | [UnityDebugInterceptor](#unity-debug-interceptor) | 🟢 Simple | Declarative patching |
-| [GameStats](#gamestats) | 🟡 Medium | Patching, IL2CPP Bridge, HookManager |
+| [GameStats](#gamestats) | 🟡 Medium | Patching, IL2CPP Bridge |
 | [MDB Explorer](#mdb-explorer) | 🔴 Complex | Full IL2CPP reflection, scene traversal |
 
 All examples build with `dotnet build -c Release` and deploy to `<GameDir>/MDB/Mods/`.
@@ -124,16 +124,16 @@ A medium-complexity mod that tracks game statistics and demonstrates the full pa
 
 **What you'll learn:**
 - All patch types: `[Prefix]`, `[Postfix]`, `[Finalizer]`
-- Targeting by string, by wrapper type, and by RVA (`[PatchRva]`)
+- Targeting by namespace + class name, including obfuscated names and global namespace classes
 - Special parameters: `__instance`, `__0`/`__1`, `ref __result`, `__exception`
-- `HookManager` for manual native hooks with enable/disable
+- Positional parameter mapping with named parameters
 - IL2CPP Bridge: find classes, invoke methods, read fields
 - Advanced ImGui: tabs, trees, tooltips, popups, menus, draw list overlay
 
 ### Patching APIs Covered
 
 ```csharp
-// Target by class name
+// Target by namespace + class name
 [Patch("UnityEngine", "Time")]
 [PatchMethod("get_deltaTime", 0)]
 public static class TimePatch
@@ -142,22 +142,18 @@ public static class TimePatch
     public static void Postfix(ref IntPtr __result) { /* modify return */ }
 }
 
-// Target by RVA (for obfuscated methods)
-[Patch("UnityEngine", "Application")]
-[PatchRva(0xDEAD)]
-public static class ApplicationPatch
+// Target obfuscated classes (global namespace)
+[Patch("", "ABCDEFGHIJK")]
+[PatchMethod("LMNOPQRSTUV", 3)]
+public static class ObfuscatedPatch
 {
-    [Finalizer]
-    public static void Finalizer(Exception __exception) { /* catch errors */ }
+    [Prefix]
+    public static bool Prefix(IntPtr __instance, int damage, float multiplier, bool isCritical)
+    {
+        // Named parameters map positionally to IL2CPP args
+        return true;
+    }
 }
-```
-
-### Manual Hooking
-
-```csharp
-IntPtr methodPtr = Il2CppBridge.mdb_get_method_pointer(method);
-HookManager.CreateHook(methodPtr, detour, out original);
-HookManager.SetHookEnabled(handle, true);
 ```
 
 ### IL2CPP Bridge

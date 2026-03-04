@@ -48,8 +48,9 @@ Inject `MDB_Bridge.dll` into your game and you're done. No manual dumping, no ex
 public static class PlayerPatch
 {
     [Prefix]
-    public static bool Prefix(IntPtr __instance, int __0)
+    public static bool Prefix(IntPtr __instance, int damage)
     {
+        // Named parameters map positionally to native args
         // Return false to skip original method
         return true;
     }
@@ -124,7 +125,7 @@ The framework includes four example mods demonstrating every major API:
 |---------|-----------|-------------|
 | [HelloWorld](examples/helloworld) | 🟢 Simple | Lifecycle, Logger, basic ImGui |
 | [UnityDebugInterceptor](examples/unity-debug-interceptor) | 🟢 Simple | Declarative patching, hooking Debug.Log |
-| [GameStats](examples/gamestats) | 🟡 Medium | Advanced patching, IL2CPP Bridge, HookManager |
+| [GameStats](examples/gamestats) | 🟡 Medium | Advanced patching, IL2CPP Bridge |
 | [MDB_Explorer_ImGui](examples/mdb-explorer) | 🔴 Complex | Full IL2CPP reflection, scene traversal |
 
 All examples target universal Unity types and work across any Unity IL2CPP game.
