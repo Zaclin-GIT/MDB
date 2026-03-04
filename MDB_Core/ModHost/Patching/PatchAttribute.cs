@@ -49,7 +49,10 @@ namespace GameSDK.ModHost.Patching
             
             // Extract namespace and type name from the wrapper type
             // Wrapper types store original IL2CPP namespace/name in constants
-            Namespace = targetType.Namespace ?? "";
+            // The "Global" C# namespace is used for IL2CPP types with no namespace,
+            // so map it back to "" for IL2CPP lookup
+            var ns = targetType.Namespace ?? "";
+            Namespace = ns == "Global" ? "" : ns;
             TypeName = targetType.Name;
         }
 

@@ -78,9 +78,9 @@ namespace GameSDK.ModHost.Patching
                 patchInfo.Il2CppMethod = method;
                 
                 // Build parameter signature for float-aware detour selection
-                _logger.Info($"  Building parameter signature for {patchInfo.TargetMethodName} (paramCount={patchInfo.ParameterCount})...");
+                _logger.Debug($"  Building parameter signature for {patchInfo.TargetMethodName} (paramCount={patchInfo.ParameterCount})...");
                 BuildParameterSignature(patchInfo, method);
-                _logger.Info($"  Detected signature: '{patchInfo.ParameterSignature}'");
+                _logger.Debug($"  Detected signature: '{patchInfo.ParameterSignature}'");
 
                 methodPtr = Il2CppBridge.mdb_get_method_pointer(method);
                 if (methodPtr == IntPtr.Zero)
