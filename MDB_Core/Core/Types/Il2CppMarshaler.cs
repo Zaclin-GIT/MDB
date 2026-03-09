@@ -164,6 +164,9 @@ namespace GameSDK
         {
             // Get the IL2CPP class for this type
             string ns = managedType.Namespace ?? "";
+            // The "Global" C# namespace is used for IL2CPP types with no namespace,
+            // so map it back to "" for IL2CPP lookup
+            if (ns == "Global") ns = "";
             string name = managedType.Name;
             
             // Find the class in IL2CPP - signature is (assembly, ns, name)

@@ -307,6 +307,7 @@ static std::string GetFullyQualifiedTypeName(const il2cppType* type, const std::
     // For SZARRAY (T[])
     if (type->m_uType == IL2CPP_TYPE_SZARRAY) {
         auto elemType = type->m_pType;
+
         if (elemType) {
             return GetFullyQualifiedTypeName(elemType, currentNamespace, methodGenericParams, mvarBaseIndex) + "[]";
         }
@@ -455,50 +456,18 @@ struct ClassInfo {
 };
 
 static std::string GetVisibility(int flags) {
-    auto visibility = flags & TYPE_ATTRIBUTE_VISIBILITY_MASK;
-    switch (visibility) {
-    case TYPE_ATTRIBUTE_PUBLIC:
-    case TYPE_ATTRIBUTE_NESTED_PUBLIC:
-        return "public";
-    case TYPE_ATTRIBUTE_NOT_PUBLIC:
-    case TYPE_ATTRIBUTE_NESTED_FAM_AND_ASSEM:
-    case TYPE_ATTRIBUTE_NESTED_ASSEMBLY:
-        return "internal";
-    case TYPE_ATTRIBUTE_NESTED_PRIVATE:
-        return "private";
-    case TYPE_ATTRIBUTE_NESTED_FAMILY:
-        return "protected";
-    case TYPE_ATTRIBUTE_NESTED_FAM_OR_ASSEM:
-        return "protected internal";
-    default:
-        return "internal";
-    }
+    (void)flags;
+    return "public";
 }
 
 static std::string GetMethodVisibility(uint32_t flags) {
-    auto access = flags & METHOD_ATTRIBUTE_MEMBER_ACCESS_MASK;
-    switch (access) {
-    case METHOD_ATTRIBUTE_PRIVATE:        return "private";
-    case METHOD_ATTRIBUTE_PUBLIC:         return "public";
-    case METHOD_ATTRIBUTE_FAMILY:         return "protected";
-    case METHOD_ATTRIBUTE_ASSEM:
-    case METHOD_ATTRIBUTE_FAM_AND_ASSEM:  return "internal";
-    case METHOD_ATTRIBUTE_FAM_OR_ASSEM:   return "protected internal";
-    default:                              return "private";
-    }
+    (void)flags;
+    return "public";
 }
 
 static std::string GetFieldVisibility(uint32_t attrs) {
-    auto access = attrs & FIELD_ATTRIBUTE_FIELD_ACCESS_MASK;
-    switch (access) {
-    case FIELD_ATTRIBUTE_PRIVATE:        return "private";
-    case FIELD_ATTRIBUTE_PUBLIC:         return "public";
-    case FIELD_ATTRIBUTE_FAMILY:         return "protected";
-    case FIELD_ATTRIBUTE_ASSEMBLY:
-    case FIELD_ATTRIBUTE_FAM_AND_ASSEM:  return "internal";
-    case FIELD_ATTRIBUTE_FAM_OR_ASSEM:   return "protected internal";
-    default:                              return "private";
-    }
+    (void)attrs;
+    return "public";
 }
 
 /// Check if a class is a delegate (parent is System.MulticastDelegate)
@@ -1115,11 +1084,25 @@ static std::string GenerateClassMethods(il2cppClass* klass, const std::string& c
 
                 // Discover the MVAR base index by scanning the method's return type and params.
                 // IL2CPP stores a global parameter index; we subtract the minimum to get a local one.
+                // Must recurse into SZARRAY elements and GENERICINST type args to find nested MVARs.
                 uint32_t minMvar = UINT32_MAX;
-                auto scanMvar = [&](const il2cppType* t) {
-                    if (t && t->m_uType == IL2CPP_TYPE_MVAR) {
+                std::function<void(const il2cppType*)> scanMvar = [&](const il2cppType* t) {
+                    if (!t) return;
+                    if (t->m_uType == IL2CPP_TYPE_MVAR) {
                         if (t->m_uGenericParameterIndex < minMvar)
                             minMvar = t->m_uGenericParameterIndex;
+                    } else if (t->m_uType == IL2CPP_TYPE_SZARRAY) {
+                        // Recurse into array element type
+                        scanMvar(t->m_pType);
+                    } else if (t->m_uType == IL2CPP_TYPE_GENERICINST) {
+                        // Recurse into generic type arguments (e.g., List<T>)
+                        if (t->m_pGenericClass) {
+                            auto* classInst = t->m_pGenericClass->m_Context.m_pClassInst;
+                            if (classInst && classInst->m_pTypeArgv) {
+                                for (uint32_t gi = 0; gi < classInst->m_uTypeArgc; ++gi)
+                                    scanMvar(classInst->m_pTypeArgv[gi]);
+                            }
+                        }
                     }
                 };
                 scanMvar(api::il2cpp_method_get_return_type(method));
@@ -1328,8 +1311,8 @@ static std::string GenerateClass(const ClassInfo& info, const std::string& curre
     ss << "    {\n";
 
     // IL2CPP metadata constants (always emit for runtime reflection)
-    ss << "        private const string _il2cppClassName = \"" << info.rawName << "\";\n";
-    ss << "        private const string _il2cppNamespace = \"" << info.rawNs << "\";\n\n";
+    ss << "        public const string _il2cppClassName = \"" << info.rawName << "\";\n";
+    ss << "        public const string _il2cppNamespace = \"" << info.rawNs << "\";\n\n";
 
     ss << "        public " << displayName << "(IntPtr nativePtr) : base(nativePtr) { }\n";
 

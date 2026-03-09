@@ -417,6 +417,9 @@ namespace GameSDK
             for (int i = 0; i < genericArgs.Length; i++)
             {
                 string ns = genericArgs[i].Namespace ?? "";
+                // The "Global" C# namespace is used for IL2CPP types with no namespace,
+                // so map it back to "" for IL2CPP lookup
+                if (ns == "Global") ns = "";
                 string name = genericArgs[i].Name;
 
                 IntPtr typeClass = GetOrCacheClass(DefaultAssembly, ns, name);
