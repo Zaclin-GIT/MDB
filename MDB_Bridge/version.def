@@ -1,0 +1,25 @@
+; ==============================
+; Version.dll Proxy - Module Definition
+; ==============================
+; Maps the real version.dll export names to our _impl forwarding functions.
+; The linker uses this to produce a DLL whose export table matches the
+; real version.dll, so the game's import table resolves correctly.
+
+EXPORTS
+    GetFileVersionInfoA        = GetFileVersionInfoA_impl
+    GetFileVersionInfoByHandle = GetFileVersionInfoByHandle_impl
+    GetFileVersionInfoExA      = GetFileVersionInfoExA_impl
+    GetFileVersionInfoExW      = GetFileVersionInfoExW_impl
+    GetFileVersionInfoSizeA    = GetFileVersionInfoSizeA_impl
+    GetFileVersionInfoSizeExA  = GetFileVersionInfoSizeExA_impl
+    GetFileVersionInfoSizeExW  = GetFileVersionInfoSizeExW_impl
+    GetFileVersionInfoSizeW    = GetFileVersionInfoSizeW_impl
+    GetFileVersionInfoW        = GetFileVersionInfoW_impl
+    VerFindFileA               = VerFindFileA_impl
+    VerFindFileW               = VerFindFileW_impl
+    VerInstallFileA            = VerInstallFileA_impl
+    VerInstallFileW            = VerInstallFileW_impl
+    VerLanguageNameA           = VerLanguageNameA_impl
+    VerLanguageNameW           = VerLanguageNameW_impl
+    VerQueryValueA             = VerQueryValueA_impl
+    VerQueryValueW             = VerQueryValueW_impl

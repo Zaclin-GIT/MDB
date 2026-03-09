@@ -8,6 +8,7 @@
 #include "core/mdb_log.h"
 #include "il2cpp/il2cpp_resolver.hpp"
 #include "il2cpp/il2cpp_dumper.hpp"
+#include "proxy/version_proxy.h"
 // wrapper_generator.hpp removed — dumper now generates wrappers directly
 #include "codegen/build_trigger.hpp"
 
@@ -287,6 +288,36 @@ static bool prepare_game_sdk() {
     return true;
 }
 
+// If the bridge is loaded under a different name (e.g. version.dll proxy),
+// ensure a copy named MDB_Bridge.dll exists so managed P/Invoke can find it.
+static void ensure_bridge_alias() {
+    wchar_t ownPath[MAX_PATH];
+    GetModuleFileNameW(GetModuleHandleA(nullptr), ownPath, MAX_PATH);
+    std::filesystem::path exeDir = std::filesystem::path(ownPath).parent_path();
+    std::filesystem::path bridgePath = exeDir / L"MDB_Bridge.dll";
+
+    // If MDB_Bridge.dll already exists, nothing to do
+    if (std::filesystem::exists(bridgePath)) return;
+
+    // Get our own DLL path
+    wchar_t selfPath[MAX_PATH];
+    HMODULE hSelf = nullptr;
+    GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                       GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                       reinterpret_cast<LPCWSTR>(&ensure_bridge_alias),
+                       &hSelf);
+    GetModuleFileNameW(hSelf, selfPath, MAX_PATH);
+
+    // Copy ourselves as MDB_Bridge.dll
+    try {
+        std::filesystem::copy_file(selfPath, bridgePath,
+                                   std::filesystem::copy_options::overwrite_existing);
+        LOG_INFO("Created MDB_Bridge.dll alias for proxy-loaded bridge");
+    } catch (const std::exception& e) {
+        LOG_WARN("Could not create MDB_Bridge.dll alias: %s", e.what());
+    }
+}
+
 // Background thread for initialization
 // We delay initialization to ensure the game has loaded IL2CPP
 static DWORD WINAPI initialization_thread(LPVOID lpParam) {
@@ -306,6 +337,9 @@ static DWORD WINAPI initialization_thread(LPVOID lpParam) {
     }
     
     LOG_DEBUG("GameAssembly.dll found at: 0x%p", hGameAssembly);
+    
+    // Ensure MDB_Bridge.dll exists for managed P/Invoke (proxy-load support)
+    ensure_bridge_alias();
     
     // Ensure the expected directory structure exists
     if (!ensure_directory_structure()) {
@@ -357,15 +391,35 @@ static DWORD WINAPI initialization_thread(LPVOID lpParam) {
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
     switch (ul_reason_for_call) {
         case DLL_PROCESS_ATTACH:
+        {
             DisableThreadLibraryCalls(hModule);
+            
+            // If we're the P/Invoke alias copy (MDB_Bridge.dll loaded while
+            // our proxy version.dll is in the game directory), skip init.
+            // We can't just check GetModuleHandle("version.dll") because the
+            // system version.dll is always loaded. Instead, check if a
+            // version.dll exists in the game's own directory.
+            wchar_t modPath[MAX_PATH];
+            GetModuleFileNameW(hModule, modPath, MAX_PATH);
+            std::wstring modName = std::filesystem::path(modPath).filename().wstring();
+            bool isAliasCopy = false;
+            if (_wcsicmp(modName.c_str(), L"MDB_Bridge.dll") == 0) {
+                auto gameDir = std::filesystem::path(modPath).parent_path().parent_path();
+                isAliasCopy = std::filesystem::exists(gameDir / L"version.dll");
+            }
+            if (isAliasCopy) {
+                break;
+            }
             
             // Create initialization thread
             CreateThread(nullptr, 0, initialization_thread, nullptr, 0, nullptr);
             break;
+        }
             
         case DLL_PROCESS_DETACH:
             shutdown_clr();
             il2cpp::cleanup();
+            VersionProxy_Cleanup();
             break;
             
         case DLL_THREAD_ATTACH:

@@ -66,6 +66,7 @@
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalDependencies>mscoree.lib;d3d11.lib;d3d12.lib;dxgi.lib;d3dcompiler.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <ModuleDefinitionFile>version.def</ModuleDefinitionFile>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -86,6 +87,7 @@
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalDependencies>mscoree.lib;d3d11.lib;d3d12.lib;dxgi.lib;d3dcompiler.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <ModuleDefinitionFile>version.def</ModuleDefinitionFile>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -102,6 +104,10 @@
     </ClCompile>
     <ClCompile Include="src\il2cpp\obfuscation_detector.cpp">
       <Filter>Source Files\il2cpp</Filter>
+    </ClCompile>
+    <!-- Proxy -->
+    <ClCompile Include="src\proxy\version_proxy.cpp">
+      <Filter>Source Files\proxy</Filter>
     </ClCompile>
     <!-- Codegen -->
     <ClCompile Include="src\codegen\build_trigger.cpp">
@@ -130,6 +136,8 @@
     <ClCompile Include="thirdparty\imgui\backends\imgui_impl_dx11.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Proxy headers -->
+    <ClInclude Include="src\proxy\version_proxy.h" />
     <!-- Core headers -->
     <ClInclude Include="src\core\bridge_exports.h" />
     <!-- IL2CPP headers -->
