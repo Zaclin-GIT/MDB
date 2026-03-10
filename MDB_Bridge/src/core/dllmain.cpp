@@ -288,33 +288,61 @@ static bool prepare_game_sdk() {
     return true;
 }
 
-// If the bridge is loaded under a different name (e.g. version.dll proxy),
-// ensure a copy named MDB_Bridge.dll exists so managed P/Invoke can find it.
-static void ensure_bridge_alias() {
-    wchar_t ownPath[MAX_PATH];
-    GetModuleFileNameW(GetModuleHandleA(nullptr), ownPath, MAX_PATH);
-    std::filesystem::path exeDir = std::filesystem::path(ownPath).parent_path();
-    std::filesystem::path bridgePath = exeDir / L"MDB_Bridge.dll";
+// Ensure P/Invoke can resolve "MDB_Bridge.dll" regardless of how we were loaded.
+// When injected:  MDB_Bridge.dll lives in  Production\MDB\  → parent is MDB\
+// When proxied:   version.dll   lives in   Production\      → need MDB\ subdir
+//
+// Strategy: pre-load MDB_Bridge.dll by its FULL path.  Once Windows has a
+// module with base-name "MDB_Bridge.dll" in the process, P/Invoke's
+// LoadLibrary("MDB_Bridge.dll") will find it immediately.
+static void ensure_bridge_searchable() {
+    // If a module called MDB_Bridge.dll is already loaded, nothing to do
+    // (covers the manual-injection case where we ARE MDB_Bridge.dll).
+    if (GetModuleHandleW(L"MDB_Bridge.dll")) {
+        LOG_DEBUG("MDB_Bridge.dll already loaded — skipping pre-load");
+        return;
+    }
 
-    // If MDB_Bridge.dll already exists, nothing to do
-    if (std::filesystem::exists(bridgePath)) return;
-
-    // Get our own DLL path
-    wchar_t selfPath[MAX_PATH];
+    // Find our own directory
     HMODULE hSelf = nullptr;
     GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
                        GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                       reinterpret_cast<LPCWSTR>(&ensure_bridge_alias),
+                       reinterpret_cast<LPCWSTR>(&ensure_bridge_searchable),
                        &hSelf);
+    wchar_t selfPath[MAX_PATH];
     GetModuleFileNameW(hSelf, selfPath, MAX_PATH);
+    std::filesystem::path selfDir = std::filesystem::path(selfPath).parent_path();
 
-    // Copy ourselves as MDB_Bridge.dll
-    try {
-        std::filesystem::copy_file(selfPath, bridgePath,
-                                   std::filesystem::copy_options::overwrite_existing);
-        LOG_INFO("Created MDB_Bridge.dll alias for proxy-loaded bridge");
-    } catch (const std::exception& e) {
-        LOG_WARN("Could not create MDB_Bridge.dll alias: %s", e.what());
+    // Determine the MDB directory
+    std::filesystem::path mdbDir;
+    if (selfDir.filename() == L"MDB") {
+        mdbDir = selfDir;
+    } else {
+        mdbDir = selfDir / L"MDB";
+    }
+
+    // Pre-load by full path so the module name "MDB_Bridge.dll" is known
+    std::filesystem::path bridgePath = mdbDir / L"MDB_Bridge.dll";
+
+    // If the file doesn't exist yet, copy ourselves there
+    if (!std::filesystem::exists(bridgePath)) {
+        std::filesystem::create_directories(mdbDir);
+        std::error_code ec;
+        std::filesystem::copy_file(selfPath, bridgePath, ec);
+        if (ec) {
+            LOG_ERROR("Failed to copy self to %ls: %s", bridgePath.wstring().c_str(), ec.message().c_str());
+        } else {
+            LOG_INFO("Copied self to %ls for P/Invoke resolution", bridgePath.wstring().c_str());
+        }
+    }
+
+    if (std::filesystem::exists(bridgePath)) {
+        HMODULE h = LoadLibraryW(bridgePath.wstring().c_str());
+        if (h) {
+            LOG_INFO("Pre-loaded %ls for P/Invoke resolution", bridgePath.wstring().c_str());
+        } else {
+            LOG_ERROR("Failed to pre-load %ls (error %lu)", bridgePath.wstring().c_str(), GetLastError());
+        }
     }
 }
 
@@ -338,8 +366,8 @@ static DWORD WINAPI initialization_thread(LPVOID lpParam) {
     
     LOG_DEBUG("GameAssembly.dll found at: 0x%p", hGameAssembly);
     
-    // Ensure MDB_Bridge.dll exists for managed P/Invoke (proxy-load support)
-    ensure_bridge_alias();
+    // Ensure P/Invoke can find MDB_Bridge.dll in our directory
+    ensure_bridge_searchable();
     
     // Ensure the expected directory structure exists
     if (!ensure_directory_structure()) {
@@ -387,34 +415,35 @@ static DWORD WINAPI initialization_thread(LPVOID lpParam) {
     return 0;
 }
 
+// Guard: only the FIRST loaded instance should initialise.
+// In proxy mode version.dll loads first, then P/Invoke loads MDB_Bridge.dll
+// from the MDB folder — that second load must be a no-op.
+// We use a process-wide named event because the two loads are distinct module
+// images, each with their own copy of any static variable.
+static HANDLE g_init_event = nullptr;
+
 // DLL entry point
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
     switch (ul_reason_for_call) {
         case DLL_PROCESS_ATTACH:
-        {
             DisableThreadLibraryCalls(hModule);
             
-            // If we're the P/Invoke alias copy (MDB_Bridge.dll loaded while
-            // our proxy version.dll is in the game directory), skip init.
-            // We can't just check GetModuleHandle("version.dll") because the
-            // system version.dll is always loaded. Instead, check if a
-            // version.dll exists in the game's own directory.
-            wchar_t modPath[MAX_PATH];
-            GetModuleFileNameW(hModule, modPath, MAX_PATH);
-            std::wstring modName = std::filesystem::path(modPath).filename().wstring();
-            bool isAliasCopy = false;
-            if (_wcsicmp(modName.c_str(), L"MDB_Bridge.dll") == 0) {
-                auto gameDir = std::filesystem::path(modPath).parent_path().parent_path();
-                isAliasCopy = std::filesystem::exists(gameDir / L"version.dll");
-            }
-            if (isAliasCopy) {
+            // NOTE: Do NOT call LoadLibrary (e.g. VersionProxy_Init) here —
+            // we are under the loader lock and it can deadlock or crash.
+            // The version proxy functions lazy-load the real DLL on first call.
+            
+            // Process-wide init guard: only the first module to create
+            // this event will proceed; subsequent loads see ALREADY_EXISTS.
+            g_init_event = CreateEventW(nullptr, TRUE, FALSE, L"Local\\MDB_Bridge_InitGuard");
+            if (GetLastError() == ERROR_ALREADY_EXISTS) {
+                // Another instance already initialised — skip
+                if (g_init_event) { CloseHandle(g_init_event); g_init_event = nullptr; }
                 break;
             }
             
             // Create initialization thread
             CreateThread(nullptr, 0, initialization_thread, nullptr, 0, nullptr);
             break;
-        }
             
         case DLL_PROCESS_DETACH:
             shutdown_clr();

@@ -7,5 +7,9 @@
 
 #pragma once
 
+/// Call as early as possible (DLL_PROCESS_ATTACH) to load the real
+/// system version.dll so that forwarded APIs are ready immediately.
+void VersionProxy_Init();
+
 /// Call during DLL_PROCESS_DETACH to free the real version.dll handle.
 void VersionProxy_Cleanup();
