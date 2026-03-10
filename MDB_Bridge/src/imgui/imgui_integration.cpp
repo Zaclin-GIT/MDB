@@ -57,6 +57,7 @@ std::atomic<MdbDxVersion> g_dxVersion{ MDB_DX_UNKNOWN };
 // Initialization state
 std::atomic<bool> g_initialized{ false };
 std::atomic<bool> g_inputEnabled{ true };
+std::atomic<bool> g_shutting_down{ false };
 
 // Toggle key
 std::atomic<int> g_toggleKey{ VK_F2 };
@@ -158,6 +159,7 @@ void CleanupRenderTarget11() {
 // ========== WndProc Hook ==========
 
 LRESULT WINAPI HookedWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+
     // Handle toggle key
     if (msg == WM_KEYDOWN && wParam == static_cast<WPARAM>(g_toggleKey.load())) {
         if (!g_toggleKeyWasDown) {
@@ -244,8 +246,9 @@ HRESULT WINAPI HookedPresent11(IDXGISwapChain* pSwapChain, UINT SyncInterval, UI
         }
     }
 
-    // Render ImGui
-    if (g_initialized.load()) {
+    // Render ImGui — skip entirely when shutting down or DX state is gone
+    if (g_initialized.load() && !g_shutting_down.load()
+        && g_pd3dDevice11 && g_pd3dDeviceContext && g_mainRenderTargetView) {
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
@@ -557,11 +560,22 @@ MDB_IMGUI_API bool mdb_imgui_init() {
 }
 
 MDB_IMGUI_API void mdb_imgui_shutdown() {
-    if (!g_initialized.load()) {
-        return;
+    // Idempotent: only run cleanup once regardless of how many callers.
+    static std::atomic<bool> s_done{ false };
+    bool expected = false;
+    if (!s_done.compare_exchange_strong(expected, true)) {
+        return; // already cleaned up
     }
 
+    LOG_INFO("[Shutdown] mdb_imgui_shutdown() running");
+
+    // Stop the Present hook from touching ImGui/DX resources.
+    g_shutting_down.store(true);
     g_initialized.store(false);
+
+    // Brief settle — let any in-flight Present call finish the
+    // fast path (it just calls g_originalPresent and returns).
+    Sleep(50);
 
     // Clear all callbacks
     {
@@ -576,7 +590,9 @@ MDB_IMGUI_API void mdb_imgui_shutdown() {
         g_originalWndProc = nullptr;
     }
 
-    // Cleanup ImGui
+    // Cleanup ImGui backends + context.
+    // The g_shutting_down flag already prevents the Present hook from
+    // calling into ImGui, so we don't need MH_DisableHook here.
     if (g_dxVersion.load() == MDB_DX_11) {
         ImGui_ImplDX11_Shutdown();
         ImGui_ImplWin32_Shutdown();
@@ -584,8 +600,7 @@ MDB_IMGUI_API void mdb_imgui_shutdown() {
         CleanupRenderTarget11();
     }
 
-    // Disable hooks
-    MH_DisableHook(MH_ALL_HOOKS);
+    LOG_INFO("[Shutdown] mdb_imgui_shutdown() complete");
 }
 
 MDB_IMGUI_API bool mdb_imgui_is_initialized() {

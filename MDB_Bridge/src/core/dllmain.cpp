@@ -10,6 +10,10 @@
 #include "il2cpp/il2cpp_dumper.hpp"
 #include "proxy/version_proxy.h"
 // wrapper_generator.hpp removed — dumper now generates wrappers directly
+
+// Forward-declare from imgui_integration.h (can't include directly due to
+// enum redefinition with bridge_exports.h)
+extern "C" void mdb_imgui_shutdown();
 #include "codegen/build_trigger.hpp"
 
 #include <windows.h>
@@ -17,6 +21,7 @@
 #include <mscoree.h>
 #include <string>
 #include <filesystem>
+#include <atomic>
 
 #pragma comment(lib, "mscoree.lib")
 
@@ -346,6 +351,81 @@ static void ensure_bridge_searchable() {
     }
 }
 
+// ========== Application.Quit Hook ==========
+// Unity IL2CPP exits the main thread without calling ExitProcess(),
+// leaving our helper threads alive and the process "frozen".
+// Hooking Application.Quit lets us clean up and force-exit.
+
+typedef void (*Fn_Application_Quit)();
+static Fn_Application_Quit g_original_quit = nullptr;
+
+static void hooked_application_quit() {
+    LOG_INFO("[Shutdown] Application.Quit() intercepted — cleaning up");
+
+    // 1. Shut down ImGui (idempotent — safe to call multiple times)
+    mdb_imgui_shutdown();
+
+    // 2. Suppress console re-allocation so no LOG_INFO after this
+    //    can create a new console window (the flicker).
+    mdb_log_detail::console_suppressed() = true;
+
+    // 3. Free console + close log file
+    if (mdb_log_detail::console_allocated()) {
+        FreeConsole();
+        mdb_log_detail::console_allocated() = false;
+    }
+    if (mdb_log_detail::log_file()) {
+        fclose(mdb_log_detail::log_file());
+        mdb_log_detail::log_file() = nullptr;
+    }
+
+    // 4. Force-exit.  Do NOT call g_original_quit() — Unity's async
+    //    teardown path is what causes the error dialog.  ExitProcess
+    //    will trigger DLL_PROCESS_DETACH for final CLR cleanup.
+    ExitProcess(0);
+}
+
+// Install the Application.Quit hook using the IL2CPP bridge
+static bool install_quit_hook() {
+    void* appClass = mdb_find_class("UnityEngine.CoreModule", "UnityEngine", "Application");
+    if (!appClass) {
+        LOG_WARN("[Shutdown] Could not find Application class for quit hook");
+        return false;
+    }
+
+    void* quitMethod = mdb_get_method(appClass, "Quit", 0);
+    if (!quitMethod) {
+        LOG_WARN("[Shutdown] Could not find Application.Quit(0) method");
+        return false;
+    }
+
+    void* quitPtr = mdb_get_method_pointer(quitMethod);
+    if (!quitPtr) {
+        LOG_WARN("[Shutdown] Could not get Application.Quit method pointer");
+        return false;
+    }
+
+    int64_t hookResult = mdb_create_hook_ptr(
+        quitPtr,
+        reinterpret_cast<void*>(&hooked_application_quit),
+        reinterpret_cast<void**>(&g_original_quit)
+    );
+
+    if (hookResult < 0) {
+        LOG_WARN("[Shutdown] mdb_create_hook_ptr for Application.Quit failed: %lld", hookResult);
+        return false;
+    }
+
+    LOG_INFO("[Shutdown] Application.Quit hook installed successfully");
+    return true;
+}
+
+// atexit fallback — called if the CRT tears down normally
+static void mdb_atexit_handler() {
+    mdb_log_detail::console_suppressed() = true;
+    mdb_imgui_shutdown(); // idempotent
+}
+
 // Background thread for initialization
 // We delay initialization to ensure the game has loaded IL2CPP
 static DWORD WINAPI initialization_thread(LPVOID lpParam) {
@@ -411,6 +491,12 @@ static DWORD WINAPI initialization_thread(LPVOID lpParam) {
         LOG_ERROR("Failed to load managed assemblies");
         return 1;
     }
+
+    // Register atexit fallback for clean shutdown
+    atexit(mdb_atexit_handler);
+
+    // Hook Application.Quit so we detect when the game exits
+    install_quit_hook();
     
     return 0;
 }
@@ -441,14 +527,31 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
                 break;
             }
             
-            // Create initialization thread
-            CreateThread(nullptr, 0, initialization_thread, nullptr, 0, nullptr);
+            // Create initialization thread (close handle — we don't join it)
+            {
+                HANDLE hThread = CreateThread(nullptr, 0, initialization_thread, nullptr, 0, nullptr);
+                if (hThread) CloseHandle(hThread);
+            }
             break;
             
         case DLL_PROCESS_DETACH:
-            shutdown_clr();
-            il2cpp::cleanup();
-            VersionProxy_Cleanup();
+            // Suppress console — if we're here the process is going away.
+            mdb_log_detail::console_suppressed() = true;
+
+            if (lpReserved == nullptr) {
+                // Dynamic FreeLibrary — full cleanup is safe
+                shutdown_clr();
+                il2cpp::cleanup();
+                VersionProxy_Cleanup();
+            } else {
+                // Process termination — minimal cleanup
+                mdb_imgui_shutdown(); // idempotent
+
+                if (g_pRuntimeHost) {
+                    g_pRuntimeHost->Stop();
+                }
+            }
+            if (g_init_event) { CloseHandle(g_init_event); g_init_event = nullptr; }
             break;
             
         case DLL_THREAD_ATTACH:

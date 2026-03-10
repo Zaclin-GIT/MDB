@@ -35,9 +35,12 @@ namespace mdb_log_detail {
 
 inline FILE*& log_file() { static FILE* f = nullptr; return f; }
 inline bool& console_allocated() { static bool v = false; return v; }
+// Once set, allocate_console() becomes a no-op — prevents the console
+// from being re-created after it has been intentionally freed.
+inline bool& console_suppressed() { static bool v = false; return v; }
 
 inline void allocate_console() {
-    if (console_allocated()) return;
+    if (console_suppressed() || console_allocated()) return;
 
     if (AllocConsole()) {
         FILE* fp;
@@ -47,12 +50,28 @@ inline void allocate_console() {
 
         SetConsoleTitleA("MDB Framework Console");
 
-        HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
+        // Prevent the console's close button from killing the process
+        // or blocking shutdown.  Disable the X button entirely.
+        HWND hConsole = GetConsoleWindow();
+        if (hConsole) {
+            HMENU hMenu = GetSystemMenu(hConsole, FALSE);
+            if (hMenu) DeleteMenu(hMenu, SC_CLOSE, MF_BYCOMMAND);
+        }
+
+        // Install a handler so CTRL_CLOSE_EVENT (console being
+        // destroyed during process exit) doesn't block.
+        SetConsoleCtrlHandler([](DWORD event) -> BOOL {
+            // Accept all close/shutdown events — prevents conhost from
+            // blocking ExitProcess.
+            return TRUE;
+        }, TRUE);
+
+        HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
         // Header in purple/magenta
-        SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
+        SetConsoleTextAttribute(hOut, FOREGROUND_RED | FOREGROUND_BLUE | FOREGROUND_INTENSITY);
         printf("=== MDB Framework Console ===\n\n");
         // Reset to default gray
-        SetConsoleTextAttribute(hConsole, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
+        SetConsoleTextAttribute(hOut, FOREGROUND_RED | FOREGROUND_GREEN | FOREGROUND_BLUE);
 
         console_allocated() = true;
     }
