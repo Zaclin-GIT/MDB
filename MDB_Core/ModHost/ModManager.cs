@@ -9,6 +9,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
+using GameSDK.Injection;
 using GameSDK.ModHost.Patching;
 
 namespace GameSDK.ModHost
@@ -81,8 +82,23 @@ namespace GameSDK.ModHost
                 // Discover and load mods
                 DiscoverAndLoadMods();
 
-                // Start update loop
-                StartUpdateLoop();
+                // Try injecting MDBRunner MonoBehaviour for main-thread dispatch
+                // Falls back to threaded update loop if injection fails
+                bool injected = false;
+                try
+                {
+                    injected = MDBRunner.Install();
+                }
+                catch (Exception injEx)
+                {
+                    _logger.Warning($"MDBRunner injection failed: {injEx.Message}");
+                }
+
+                if (!injected)
+                {
+                    _logger.Info("Falling back to threaded update loop");
+                    StartUpdateLoop();
+                }
 
                 _initialized = true;
                 
@@ -262,11 +278,70 @@ namespace GameSDK.ModHost
             return info;
         }
 
+        // ==============================
+        // Main-thread dispatch (called by MDBRunner trampolines)
+        // ==============================
+
+        /// <summary>
+        /// Dispatch Update to all loaded mods. Called from Unity's main thread
+        /// via the injected MDBRunner MonoBehaviour.
+        /// </summary>
+        internal static void DispatchUpdate()
+        {
+            foreach (ModBase mod in _loadedMods)
+            {
+                try
+                {
+                    mod.OnUpdate();
+                }
+                catch (Exception ex)
+                {
+                    mod.Logger?.Error($"OnUpdate exception: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Dispatch FixedUpdate to all loaded mods.
+        /// </summary>
+        internal static void DispatchFixedUpdate()
+        {
+            foreach (ModBase mod in _loadedMods)
+            {
+                try
+                {
+                    mod.OnFixedUpdate();
+                }
+                catch (Exception ex)
+                {
+                    mod.Logger?.Error($"OnFixedUpdate exception: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Dispatch LateUpdate to all loaded mods.
+        /// </summary>
+        internal static void DispatchLateUpdate()
+        {
+            foreach (ModBase mod in _loadedMods)
+            {
+                try
+                {
+                    mod.OnLateUpdate();
+                }
+                catch (Exception ex)
+                {
+                    mod.Logger?.Error($"OnLateUpdate exception: {ex.Message}");
+                }
+            }
+        }
+
         // Note: IMGUI OnGUI hook code removed - game uses Canvas UI, not IMGUI
         // The OnGUI method in mods will not be called, use OnUpdate instead
 
         /// <summary>
-        /// Start the update loop thread.
+        /// Start the update loop thread (fallback when MDBRunner injection fails).
         /// </summary>
         private static void StartUpdateLoop()
         {

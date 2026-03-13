@@ -72,3 +72,6 @@ Archive/
 /ref/
 /ModDev/
 /.vscode/
+/.agents
+/skills-lock.json
+/.github/copilot-instructions.md

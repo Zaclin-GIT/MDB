@@ -13,10 +13,10 @@ Encrypted `global-metadata.dat`? Don't care.
 
 ## Quick Links
 
-- [Getting Started](getting-started) - Install and create your first mod
-- [API Reference](api) - Complete API documentation
-- [Guides](guides) - Tutorials and how-to guides
-- [Examples](examples) - Working mod examples with explanations
+- [Getting Started]({{ '/getting-started' | relative_url }}) - Install and create your first mod
+- [API Reference]({{ '/api' | relative_url }}) - Complete API documentation
+- [Guides]({{ '/guides' | relative_url }}) - Architecture deep-dives and technical internals
+- [Examples]({{ '/examples' | relative_url }}) - Working mod examples with explanations
 
 ---
 
@@ -24,13 +24,15 @@ Encrypted `global-metadata.dat`? Don't care.
 
 MDB Framework is a powerful runtime modding solution for Unity IL2CPP games. It eliminates the complexity of traditional IL2CPP modding by automating the entire workflow:
 
-1. **Automatic Metadata Dumping** - Extracts all classes, methods, and fields from the IL2CPP runtime
-2. **C# Wrapper Generation** - Creates type-safe C# wrappers for all game types
-3. **SDK Auto-Building** - Compiles a complete modding SDK using MSBuild
-4. **CLR Hosting** - Hosts .NET Framework 4.0 for managed mod execution
-5. **Mod Loading** - Auto-discovers and loads mods from the `Mods/` folder
-6. **Harmony-Style Patching** - Declarative method hooking with `[Patch]` attributes
-7. **ImGui Integration** - Built-in Dear ImGui overlay with input capture
+1. **Proxy DLL Injection** - Ships as a `version.dll` proxy — just drop it in the game folder, no external injector needed
+2. **Automatic Metadata Dumping** - Extracts all classes, methods, and fields from the IL2CPP runtime
+3. **C# Wrapper Generation** - Creates type-safe C# wrappers for all game types
+4. **SDK Auto-Building** - Compiles a complete modding SDK using MSBuild
+5. **CLR Hosting** - Hosts .NET Framework 4.7.2 via COM-based CLR hosting
+6. **MonoBehaviour Injection** - Fabricates an IL2CPP MonoBehaviour subclass in memory for main-thread callbacks
+7. **Mod Loading** - Auto-discovers and loads mods from the `Mods/` folder
+8. **Harmony-Style Patching** - Declarative method hooking with `[Patch]` attributes
+9. **ImGui Integration** - Built-in Dear ImGui overlay with input capture (DX11/DX12)
 
 All of this happens automatically on first injection. Subsequent launches are instant if nothing has changed.
 
@@ -39,7 +41,7 @@ All of this happens automatically on first injection. Subsequent launches are in
 ## Key Features
 
 ### 🚀 Zero-Configuration Setup
-Inject `MDB_Bridge.dll` into your game and you're done. No manual dumping, no external tools, no complex setup.
+Rename `MDB_Bridge.dll` to `version.dll`, drop it in the game folder, and launch the game — no injector required. MDB also supports direct DLL injection for development. No manual dumping, no external tools, no complex setup.
 
 ### 🎯 Harmony-Style Patching
 ```csharp
@@ -91,29 +93,37 @@ Unlike traditional dumpers that erase generics to `object`, MDB resolves actual 
 
 ## How It Works
 
+MDB supports two injection modes: **proxy mode** (recommended) and **direct injection** (for development).
+
+In proxy mode, `MDB_Bridge.dll` is renamed to `version.dll` and placed in the game folder. Windows loads it automatically at startup via DLL search order — no external injector needed.
+
 ```
-Inject MDB_Bridge.dll
-  → Wait for GameAssembly.dll
-  → Resolve IL2CPP API exports
-  → Dump all classes/methods/fields with generic type resolution
-  → Generate C# wrapper source files
-  → Invoke MSBuild to compile GameSDK.ModHost.dll
-  → Host .NET CLR (v4.0.30319)
-  → Auto-discover and apply [Patch] hooks
-  → Load mods from MDB/Mods/
-  → Start update loop (~60Hz)
+Game.exe launches
+  → Windows loads version.dll (our proxy) from game directory
+  → DllMain spawns background initialization thread
+  → Proxy forwards all 17 version API calls to the real System32 version.dll
+  → Background thread polls for GameAssembly.dll (up to 30s)
+  → Resolves 50+ IL2CPP function exports (with obfuscation fallback)
+  → Dumps all IL2CPP metadata (classes, methods, fields, properties)
+  → Generates C# wrapper source files with full generic type resolution
+  → Invokes MSBuild to compile GameSDK.ModHost.dll
+  → Hosts .NET Framework 4.7.2 CLR via COM (ICLRRuntimeHost)
+  → Calls ModManager.Initialize() → discovers and loads mods
+  → Fabricates MDBRunner MonoBehaviour in IL2CPP memory
+  → Attaches to Unity player loop for Update/FixedUpdate/LateUpdate callbacks
+  → Mods run on Unity's main thread via MDBRunner dispatch
 ```
 
-See the [Architecture](guides/architecture) guide for detailed explanation of each step.
+See the [Architecture Guide]({{ '/guides/architecture' | relative_url }}) for a detailed explanation of each step, the [Proxy DLL Injection Guide]({{ '/guides/proxy-injection' | relative_url }}) for the version.dll proxy system, and the [Class Injection Guide]({{ '/guides/class-injection' | relative_url }}) for the MonoBehaviour fabrication system.
 
 ---
 
 ## Supported Platforms
 
-- **Operating System:** Windows (x64 only)
-- **Unity Runtime:** IL2CPP
+- **Operating System:** Windows 10/11 (x64 only)
+- **Unity Runtime:** IL2CPP (Unity 2021+, metadata v29+)
 - **Graphics API:** DirectX 11 or DirectX 12 (for ImGui overlay)
-- **.NET Target:** Framework 4.7.2 or higher
+- **.NET Target:** Framework 4.7.2 or higher (hosted via COM CLR)
 
 ---
 
@@ -123,21 +133,33 @@ The framework includes four example mods demonstrating every major API:
 
 | Example | Difficulty | Description |
 |---------|-----------|-------------|
-| [HelloWorld](examples/helloworld) | 🟢 Simple | Lifecycle, Logger, basic ImGui |
-| [UnityDebugInterceptor](examples/unity-debug-interceptor) | 🟢 Simple | Declarative patching, hooking Debug.Log |
-| [GameStats](examples/gamestats) | 🟡 Medium | Advanced patching, IL2CPP Bridge |
-| [MDB_Explorer_ImGui](examples/mdb-explorer) | 🔴 Complex | Full IL2CPP reflection, scene traversal |
+| [HelloWorld]({{ '/examples' | relative_url }}#helloworld) | 🟢 Simple | Lifecycle, Logger, basic ImGui |
+| [UnityDebugInterceptor]({{ '/examples' | relative_url }}#unity-debug-interceptor) | 🟢 Simple | Declarative patching, hooking Debug.Log |
+| [GameStats]({{ '/examples' | relative_url }}#gamestats) | 🟡 Medium | Advanced patching, IL2CPP Bridge |
+| [MDB_Explorer_ImGui]({{ '/examples' | relative_url }}#mdb-explorer) | 🔴 Complex | Full IL2CPP reflection, scene traversal |
 
 All examples target universal Unity types and work across any Unity IL2CPP game.
 
 ---
 
+## Guides
+
+In-depth technical guides covering MDB's internal architecture and design:
+
+| Guide | Description |
+|-------|-------------|
+| [Architecture]({{ '/guides/architecture' | relative_url }}) | Full injection chain, initialization sequence, and component overview |
+| [Proxy DLL Injection]({{ '/guides/proxy-injection' | relative_url }}) | How the version.dll proxy works — DLL search order, forwarding, loader lock safety |
+| [Class Injection]({{ '/guides/class-injection' | relative_url }}) | MonoBehaviour fabrication — IL2CPP memory layouts, hooks, negative tokens |
+
+---
+
 ## Get Started
 
-Ready to start modding? Head to the [Getting Started](getting-started) guide to:
+Ready to start modding? Head to the [Getting Started]({{ '/getting-started' | relative_url }}) guide to:
 
 1. Prepare your environment
-2. Inject MDB into a Unity game
+2. Deploy MDB to a Unity game (proxy or direct injection)
 3. Create and load your first mod
 4. Learn the mod lifecycle and APIs
 

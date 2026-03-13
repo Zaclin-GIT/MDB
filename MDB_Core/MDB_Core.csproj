@@ -20,6 +20,7 @@
     <Compile Include="Core\Types\*.cs" />
     <Compile Include="Core\ImGui\*.cs" />
     <Compile Include="Core\Unity\*.cs" />
+    <Compile Include="Core\Injection\*.cs" />
     <Compile Include="Deobfuscation\MappingDatabase.cs" />
     <Compile Include="Deobfuscation\SignatureGenerator.cs" />
     <Compile Include="ModHost\*.cs" />

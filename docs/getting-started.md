@@ -14,6 +14,8 @@ This guide will walk you through installing MDB Framework and creating your firs
 1. [Prerequisites](#prerequisites)
 2. [Building MDB Framework](#building-mdb)
 3. [Deploying to a Game](#deploying)
+   - [Proxy Mode (Recommended)](#proxy-mode)
+   - [Direct Injection Mode](#direct-injection-mode)
 4. [Creating Your First Mod](#first-mod)
 5. [Testing Your Mod](#testing)
 6. [Next Steps](#next-steps)
@@ -32,7 +34,7 @@ Before you begin, ensure you have:
 - **MSBuild** - Installed with Visual Studio
 - **.NET Framework 4.7.2 SDK or higher**
 - **A Unity IL2CPP game (x64)**
-- **DLL injector** - Such as [Extreme Injector](https://github.com/master131/ExtremeInjector)
+- **DLL injector** (optional) — Only needed for [direct injection mode](#direct-injection-mode). Proxy mode requires no external tools.
 
 ### Supported Games
 
@@ -87,22 +89,75 @@ Output: `MDB_Core/bin/Release/net48/MDB_Core.dll`
 <a name="deploying"></a>
 ## Deploying to a Game
 
-### Directory Structure
+MDB supports two deployment modes. **Proxy mode** is recommended for most users — it requires no external tools. Direct injection is available for development and debugging.
 
-MDB requires a specific folder layout in your game directory:
+<a name="proxy-mode"></a>
+### Proxy Mode (Recommended)
+
+Proxy mode exploits Windows' DLL search order. By renaming `MDB_Bridge.dll` to `version.dll` and placing it in the game folder, Windows loads our DLL automatically when the game starts. Our proxy transparently forwards all 17 version API calls to the real system DLL while bootstrapping the modding framework in the background.
+
+**No external injector required.** Just drop files and launch.
+
+#### Setup Steps
+
+1. **Copy MDB_Core folder** from the repository to the game folder:
+   ```powershell
+   xcopy /E /I MDB_Core <GameFolder>\MDB_Core
+   ```
+
+2. **Rename and deploy MDB_Bridge.dll:**
+   ```powershell
+   copy MDB_Bridge\bin\Release\MDB_Bridge.dll <GameFolder>\version.dll
+   ```
+
+3. **Launch the game normally** — no injector needed.
+
+#### Proxy Mode Directory Layout
 
 ```
 <GameFolder>/
-├── GameName.exe
+├── Game.exe                  ← Target application
+├── GameAssembly.dll          ← IL2CPP runtime (Unity ships this)
+├── version.dll               ← MDB_Bridge.dll renamed
+├── MDB_Core/                 ← C# project sources (you deploy this)
+│   ├── MDB_Core.csproj
+│   ├── Core/
+│   ├── ModHost/
+│   └── Generated/            ← Auto-populated on first run
+├── MDB/                      ← Auto-created by framework
+│   ├── Logs/
+│   │   └── MDB.log           ← Runtime log output
+│   ├── Managed/
+│   │   └── GameSDK.ModHost.dll  ← Auto-compiled SDK
+│   ├── Mods/                 ← Place your mod DLLs here
+│   └── MDB_Bridge.dll        ← Auto-copied for P/Invoke resolution
+```
+
+> **How it works:** The proxy DLL loads very early in process startup. It waits for `GameAssembly.dll` to load, then resolves IL2CPP exports, dumps metadata, generates C# wrappers, compiles the SDK via MSBuild, hosts the .NET CLR, and loads your mods. The `MDB_Bridge.dll` copy in `MDB/` is created automatically so that C# P/Invoke (`[DllImport("MDB_Bridge.dll")]`) can resolve the bridge — a named event guard prevents this second load from re-initializing.
+>
+> See the [Proxy DLL Injection Guide]({{ '/guides/proxy-injection' | relative_url }}) for the full technical deep-dive.
+
+---
+
+<a name="direct-injection-mode"></a>
+### Direct Injection Mode
+
+For development and debugging, you can inject `MDB_Bridge.dll` directly using an external injector.
+
+#### Directory Structure
+
+```
+<GameFolder>/
+├── Game.exe
 ├── MDB_Bridge.dll          ← Place the built bridge DLL here
 ├── MDB/
 │   ├── Logs/               ← Auto-created for logs
 │   ├── Managed/            ← Auto-created for SDK
 │   └── Mods/
-└── MDB_Core                ← Place the core project here
+└── MDB_Core/               ← Place the core project here
 ```
 
-### Setup Steps
+#### Setup Steps
 
 1. **Copy MDB_Bridge.dll** to the game's root folder (where the .exe is)
 
@@ -111,27 +166,45 @@ MDB requires a specific folder layout in your game directory:
    xcopy /E /I MDB_Core <GameFolder>\MDB_Core
    ```
 
-### First Launch
+3. **Launch the game**
 
-1. **Inject MDB_Bridge.dll** using your DLL injector of choice
-   - Target process: `GameName.exe`
+4. **Inject MDB_Bridge.dll** using your DLL injector of choice:
+   - Target process: `Game.exe`
    - DLL to inject: `<GameFolder>/MDB_Bridge.dll`
 
-2. **Wait for initialization** - First launch takes 30-60 seconds:
+> **Note:** The same `MDB_Bridge.dll` binary works in both modes without recompilation. In direct injection mode, the P/Invoke bridge name resolves automatically since the DLL is already loaded under its own name.
+
+### Comparing Injection Modes
+
+| Aspect | Proxy Mode (`version.dll`) | Direct Injection (`MDB_Bridge.dll`) |
+|--------|---------------------------|-------------------------------------|
+| **Setup** | Rename DLL, copy to game folder | Copy to game folder, use external injector |
+| **User experience** | Launch game normally | Launch game, then inject separately |
+| **External tools** | None required | DLL injector required |
+| **Timing** | Automatic — loaded at process start | Manual — user controls injection timing |
+| **Anti-cheat risk** | Lower (OS-level DLL loading) | Higher (uses `CreateRemoteThread` or similar) |
+| **Best for** | End users, distribution | Development, debugging |
+
+### First Launch
+
+Regardless of injection mode, the first launch takes 30–60 seconds:
+
+1. **Wait for initialization:**
    - Dumps IL2CPP metadata
    - Generates C# wrappers (~10,000+ files)
    - Compiles `GameSDK.ModHost.dll` via MSBuild
+   - Fabricates MDBRunner MonoBehaviour for main-thread callbacks
    - Loads any mods from `MDB/Mods/`
 
-3. **Check the logs:**
-   - `MDB/Logs/MDB.log` - Framework initialization and errors
-   - `MDB/Logs/Mods.log` - Mod loading and output
+2. **Check the logs:**
+   - `MDB/Logs/MDB.log` — Framework initialization (bridge, CLR hosting, shutdown)
+   - `MDB/Logs/Mods.log` — Managed operations (injection, mod loading, hooks)
 
 ### Subsequent Launches
 
-After the first successful injection, subsequent launches are instant. The framework detects that nothing has changed and skips the dump/build phase.
+After the first successful launch, subsequent launches are instant. The framework detects that nothing has changed and skips the dump/build phase.
 
-To force a full rebuild, delete `MDB/Managed/GameSDK.ModHost.dll` & all of the generated files in `MDB_Core/Managed/`.
+To force a full rebuild, delete `MDB/Managed/GameSDK.ModHost.dll` and all of the generated files in `MDB_Core/Generated/`.
 
 ---
 

@@ -12,6 +12,8 @@ nav:
     url: /getting-started
   - title: API Reference
     url: /api
+  - title: Guides
+    url: /guides
   - title: Examples
     url: /examples
 
