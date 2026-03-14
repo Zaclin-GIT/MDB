@@ -61,12 +61,14 @@ This implementation is informed by [Il2CppInterop's ClassInjector](https://githu
 ```mermaid
 graph LR
     subgraph Injection["Core/Injection/ Files"]
+        direction LR
         NI["NativeImports.cs<br/>P/Invoke · IL2CPP export resolver"]
         IS["Il2CppStructs.cs<br/>Memory layout structs"]
         XS["XrefScanner.cs<br/>E8/E9 instruction scanner"]
         IH["InjectorHelpers.cs<br/>Hooks · fake image · token registry"]
         CI["ClassInjector.cs<br/>Class construction"]
         MR["MDBRunner.cs<br/>Instantiation + dispatch"]
+        NI ~~~ IS ~~~ XS ~~~ IH ~~~ CI ~~~ MR
     end
 ```
 
