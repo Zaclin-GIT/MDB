@@ -28,47 +28,34 @@ This guide covers MDB Framework's complete architecture — from the moment the 
 
 MDB Framework consists of three layers:
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                    MDB_Bridge.dll                         │
-│              (C++ native, loaded as version.dll)          │
-│                                                          │
-│  ┌─────────────┐  ┌──────────────┐  ┌─────────────────┐ │
-│  │ MinHook      │  │ CLR Hosting  │  │ IL2CPP Bridge   │ │
-│  │ (hook mgmt)  │  │ (.NET 4.7.2) │  │ (export calls)  │ │
-│  └─────────────┘  └──────────────┘  └─────────────────┘ │
-│  ┌──────────────┐  ┌──────────────────────────────────┐  │
-│  │ Dear ImGui    │  │ Version Proxy (17 API forwards)  │  │
-│  │ (DX11/DX12)   │  │                                  │  │
-│  └──────────────┘  └──────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌──────────────────────────────────────────────────────────┐
-│                   GameSDK.ModHost.dll                     │
-│              (.NET Framework 4.7.2, built at runtime)     │
-│                                                          │
-│  ┌──────────────┐  ┌──────────────┐  ┌────────────────┐ │
-│  │ ModManager    │  │ HookManager  │  │ ClassInjector  │ │
-│  │ (mod loader)  │  │ (patch attrs)│  │ (MDBRunner)    │ │
-│  └──────────────┘  └──────────────┘  └────────────────┘ │
-│  ┌──────────────┐  ┌──────────────┐  ┌────────────────┐ │
-│  │ Il2CppBridge  │  │ ImGuiManager │  │ Deobfuscation  │ │
-│  │ (P/Invoke)    │  │ (UI mgmt)    │  │ (name mapping) │ │
-│  └──────────────┘  └──────────────┘  └────────────────┘ │
-└──────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-┌──────────────────────────────────────────────────────────┐
-│                   GameAssembly.dll                        │
-│              (IL2CPP compiled, Unity 2021+, v29+)         │
-│                                                          │
-│  50+ exported IL2CPP functions (some obfuscated)          │
-│  Internal functions (resolved via xref scanning):         │
-│  ├── Class::FromIl2CppType    — HOOKED                   │
-│  ├── Class::FromName          — HOOKED                   │
-│  └── GetTypeInfoFromTypeDef…  — resolved but NOT hooked  │
-└──────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+    subgraph Bridge["MDB_Bridge.dll — C++ native, loaded as version.dll"]
+        direction LR
+        MinHook["MinHook<br/>(hook mgmt)"]
+        CLRHost["CLR Hosting<br/>(.NET 4.7.2)"]
+        IL2CPPBr["IL2CPP Bridge<br/>(export calls)"]
+        ImGui["Dear ImGui<br/>(DX11/DX12)"]
+        VersionProxy["Version Proxy<br/>(17 API forwards)"]
+    end
+
+    subgraph ModHost["GameSDK.ModHost.dll — .NET Framework 4.7.2, built at runtime"]
+        direction LR
+        ModMgr["ModManager<br/>(mod loader)"]
+        HookMgr["HookManager<br/>(patch attrs)"]
+        ClassInj["ClassInjector<br/>(MDBRunner)"]
+        Il2CppCS["Il2CppBridge<br/>(P/Invoke)"]
+        ImGuiMgr["ImGuiManager<br/>(UI mgmt)"]
+        Deobfusc["Deobfuscation<br/>(name mapping)"]
+    end
+
+    subgraph GameAsm["GameAssembly.dll — IL2CPP compiled, Unity 2021+, v29+"]
+        Exports["50+ exported IL2CPP functions (some obfuscated)"]
+        Internal["Internal functions resolved via xref scanning:<br/>Class::FromIl2CppType — HOOKED<br/>Class::FromName — HOOKED<br/>GetTypeInfoFromTypeDef… — resolved, not hooked"]
+    end
+
+    Bridge --> ModHost
+    ModHost --> GameAsm
 ```
 
 ### MDB_Bridge.dll (Native C++)
@@ -100,78 +87,27 @@ The game's compiled C# code, ahead-of-time compiled to native code by Unity's IL
 
 ## The Full Injection Chain
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      Game.exe Launches                       │
-└──────────────────────────────┬──────────────────────────────┘
-                               │
-                               ▼
-┌─────────────────────────────────────────────────────────────┐
-│  Windows Loader resolves imports                             │
-│  Finds version.dll in game directory (our proxy)             │
-│  Calls DllMain(DLL_PROCESS_ATTACH)                           │
-│    ├─ DisableThreadLibraryCalls()                            │
-│    ├─ CreateEventW("Local\MDB_Bridge_InitGuard")             │
-│    │  → first instance: proceeds with init                   │
-│    │  → second instance: skips (double-load guard)           │
-│    └─ CreateThread() → initialization_thread                 │
-└──────────────────────────────┬──────────────────────────────┘
-                               │
-         ┌─────────────────────┼─────────────────────┐
-         │                     │                     │
-         ▼                     ▼                     ▼
-┌────────────────┐  ┌──────────────────┐  ┌──────────────────────┐
-│ Game calls      │  │ DllMain returns   │  │ initialization_thread │
-│ version.dll     │  │ Loader lock       │  │ (background)          │
-│ APIs normally   │  │ released          │  │                       │
-│ → forwarded to  │  └──────────────────┘  │ 1. Wait for            │
-│ real System32   │                        │    GameAssembly.dll    │
-│ version.dll     │                        │    (poll 100ms × 300)  │
-│ (lazy-loaded    │                        │                       │
-│ on first call)  │                        │ 2. ensure_bridge_      │
-└────────────────┘                        │    searchable()        │
-                                          │    (P/Invoke fix)      │
-                                          │                       │
-                                          │ 3. Create dirs         │
-                                          │    MDB/, Logs/,        │
-                                          │    Managed/, Mods/     │
-                                          │                       │
-                                          │ 4. mdb_init()          │
-                                          │    Resolve 50+ IL2CPP  │
-                                          │    exports             │
-                                          │                       │
-                                          │ 5. Attach thread to    │
-                                          │    IL2CPP domain       │
-                                          │                       │
-                                          │ 6. prepare_game_sdk()  │
-                                          │    ├─ Dump metadata    │
-                                          │    ├─ Detect obfusc.   │
-                                          │    ├─ Generate C#      │
-                                          │    └─ MSBuild          │
-                                          │                       │
-                                          │ 7. initialize_clr()    │
-                                          │    COM-host .NET 4.7.2 │
-                                          │                       │
-                                          │ 8. load_managed_       │
-                                          │    assemblies()        │
-                                          │    → ModManager.Init() │
-                                          │    ├─ Init logging     │
-                                          │    ├─ Assembly resolver │
-                                          │    ├─ Discover mods    │
-                                          │    ├─ Load mods        │
-                                          │    └─ Inject MDBRunner │
-                                          │                       │
-                                          │ 9. install_quit_hook() │
-                                          └──────────────────────┘
-                                                     │
-                                                     ▼
-                                          ┌──────────────────────┐
-                                          │ Mods running inside   │
-                                          │ game process          │
-                                          │ MDBRunner pumps       │
-                                          │ Update/FixedUpdate/   │
-                                          │ LateUpdate callbacks  │
-                                          └──────────────────────┘
+```mermaid
+flowchart TD
+    A["Game.exe Launches"] --> B["Windows Loader resolves imports<br/>Finds version.dll in game directory — our proxy<br/>Calls DllMain(DLL_PROCESS_ATTACH)<br/>  • DisableThreadLibraryCalls()<br/>  • CreateEventW init guard<br/>  • CreateThread() → initialization_thread"]
+
+    B --> C["Game calls version.dll APIs<br/>→ Forwarded to real System32 version.dll<br/>(lazy-loaded on first call)"]
+    B --> E1
+
+    subgraph bg["initialization_thread — background"]
+        E1["1. Wait for GameAssembly.dll<br/>poll 100ms × 300"]
+        E2["2. ensure_bridge_searchable()<br/>P/Invoke name fix"]
+        E3["3. Create directories<br/>MDB/ · Logs/ · Managed/ · Mods/"]
+        E4["4. mdb_init()<br/>Resolve 50+ IL2CPP exports"]
+        E5["5. Attach thread to IL2CPP domain"]
+        E6["6. prepare_game_sdk()<br/>Dump metadata · Detect obfuscation<br/>Generate C# wrappers · MSBuild"]
+        E7["7. initialize_clr()<br/>COM-host .NET 4.7.2"]
+        E8["8. load_managed_assemblies()<br/>→ ModManager.Init()<br/>  • Init logging · Assembly resolver<br/>  • Discover mods · Load mods<br/>  • Inject MDBRunner"]
+        E9["9. install_quit_hook()"]
+        E1 --> E2 --> E3 --> E4 --> E5 --> E6 --> E7 --> E8 --> E9
+    end
+
+    E9 --> F["Mods running inside game process<br/>MDBRunner pumps<br/>Update · FixedUpdate · LateUpdate callbacks"]
 ```
 
 ---
@@ -381,11 +317,17 @@ Unity's Update/FixedUpdate/LateUpdate callbacks only fire on MonoBehaviour subcl
 
 Once instantiated and attached to a `DontDestroyOnLoad` GameObject, Unity's player loop automatically calls our trampoline methods every frame:
 
-```
-Unity Player Loop
-  → Update()        → Trampoline_Update        → ModManager.DispatchUpdate()        → mod.OnUpdate()
-  → FixedUpdate()   → Trampoline_FixedUpdate   → ModManager.DispatchFixedUpdate()   → mod.OnFixedUpdate()
-  → LateUpdate()    → Trampoline_LateUpdate    → ModManager.DispatchLateUpdate()    → mod.OnLateUpdate()
+```mermaid
+flowchart LR
+    UPL["Unity Player Loop"] -->|"Update()"| TU["Trampoline_Update"]
+    UPL -->|"FixedUpdate()"| TFU["Trampoline_FixedUpdate"]
+    UPL -->|"LateUpdate()"| TLU["Trampoline_LateUpdate"]
+    TU --> DU["ModManager.DispatchUpdate()"]
+    TFU --> DFU["ModManager.DispatchFixedUpdate()"]
+    TLU --> DLU["ModManager.DispatchLateUpdate()"]
+    DU --> MU["mod.OnUpdate()"]
+    DFU --> MFU["mod.OnFixedUpdate()"]
+    DLU --> MLU["mod.OnLateUpdate()"]
 ```
 
 The trampolines are managed C# delegates (`Marshal.GetFunctionPointerForDelegate`) pinned via `GCHandle.Alloc()` to prevent garbage collection. They bridge from native IL2CPP callbacks into managed C# code.

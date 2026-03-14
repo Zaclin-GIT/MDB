@@ -19,6 +19,19 @@
       });
     }
   </script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+    document.addEventListener('DOMContentLoaded', function () {
+      document.querySelectorAll('code.language-mermaid').forEach(function (el) {
+        var pre = document.createElement('pre');
+        pre.className = 'mermaid';
+        pre.textContent = el.textContent;
+        el.parentElement.replaceWith(pre);
+      });
+      mermaid.run();
+    });
+  </script>
 </head>
 <body>
   <nav class="site-nav">
