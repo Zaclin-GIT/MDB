@@ -485,12 +485,24 @@ namespace GameSDK
 
         /// <summary>
         /// Get an element from an IL2CPP array.
+        /// For reference-type arrays, returns the object pointer at the given index.
+        /// For value-type arrays, returns a pointer to the element data at the correct
+        /// offset (accounting for actual element size, not pointer size).
         /// </summary>
         /// <param name="array">Pointer to the IL2CPP array</param>
         /// <param name="index">Index of the element</param>
         /// <returns>Pointer to the element, or IntPtr.Zero if out of bounds</returns>
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr mdb_array_get_element(IntPtr array, int index);
+
+        /// <summary>
+        /// Get the size in bytes of each element in an IL2CPP array.
+        /// For value-type arrays this is the struct size; for reference-type arrays this is pointer size.
+        /// </summary>
+        /// <param name="array">Pointer to the IL2CPP array</param>
+        /// <returns>Element size in bytes, or -1 on error</returns>
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int mdb_array_get_element_size(IntPtr array);
 
         /// <summary>
         /// Get the element class of an IL2CPP array.

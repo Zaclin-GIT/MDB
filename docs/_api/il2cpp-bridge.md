@@ -887,24 +887,82 @@ Logger.Info($"Array has {length} elements");
 public static extern IntPtr mdb_array_get_element(IntPtr array, int index);
 ```
 
-Get an element from an IL2CPP array.
+Get an element from an IL2CPP array. Handles both reference-type and value-type arrays automatically.
+
+- **Reference-type arrays** — returns the object pointer stored at the given index (use directly as an IL2CPP object handle).
+- **Value-type arrays** — returns a pointer to the element's raw data at the correct memory offset, accounting for the actual element size (not pointer size). Use `Marshal.PtrToStructure` or field-offset reads to extract the value.
 
 **Parameters:**
 - `array` - Pointer to IL2CPP array
 - `index` - Element index (0-based)
 
-**Returns:** Pointer to the element, or `IntPtr.Zero` if out of bounds.
+**Returns:** Pointer to the element (object pointer for reference types, data pointer for value types), or `IntPtr.Zero` if out of bounds.
 
-**Example:**
+**Example — Reference-type array (e.g., `GameObject[]`):**
 ```csharp
-IntPtr itemsArray = /* ... */;
-int length = Il2CppBridge.mdb_array_length(itemsArray);
+IntPtr objectsArray = /* ... */;
+int length = Il2CppBridge.mdb_array_length(objectsArray);
 
 for (int i = 0; i < length; i++)
 {
-    IntPtr element = Il2CppBridge.mdb_array_get_element(itemsArray, i);
-    // Process element...
+    IntPtr element = Il2CppBridge.mdb_array_get_element(objectsArray, i);
+    IntPtr objClass = Il2CppBridge.mdb_object_get_class(element);
+    string objType = Il2CppBridge.GetClassName(objClass);
+    Logger.Info($"  [{i}]: {objType}");
 }
+```
+
+**Example — Value-type array (e.g., `int[]`, `Vector3[]`):**
+```csharp
+// Reading an int[] array
+IntPtr intArray = /* ... */;
+int length = Il2CppBridge.mdb_array_length(intArray);
+
+for (int i = 0; i < length; i++)
+{
+    IntPtr elementPtr = Il2CppBridge.mdb_array_get_element(intArray, i);
+    int value = Marshal.ReadInt32(elementPtr);
+    Logger.Info($"  [{i}]: {value}");
+}
+
+// Reading a struct array (e.g., Vector3[])
+IntPtr vectorArray = /* ... */;
+int vecLength = Il2CppBridge.mdb_array_length(vectorArray);
+
+for (int i = 0; i < vecLength; i++)
+{
+    IntPtr elemPtr = Il2CppBridge.mdb_array_get_element(vectorArray, i);
+    float x = Marshal.PtrToStructure<float>(elemPtr);
+    float y = Marshal.PtrToStructure<float>(elemPtr + 4);
+    float z = Marshal.PtrToStructure<float>(elemPtr + 8);
+    Logger.Info($"  [{i}]: ({x}, {y}, {z})");
+}
+```
+
+---
+
+### mdb_array_get_element_size
+
+```csharp
+[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
+public static extern int mdb_array_get_element_size(IntPtr array);
+```
+
+Get the size in bytes of each element in an IL2CPP array.
+
+- For value-type arrays, returns the struct/primitive size (e.g., 4 for `int`, 12 for `Vector3`).
+- For reference-type arrays, returns pointer size (8 on x64).
+
+**Parameters:**
+- `array` - Pointer to IL2CPP array
+
+**Returns:** Element size in bytes, or `-1` on error.
+
+**Example:**
+```csharp
+IntPtr array = /* ... */;
+int elemSize = Il2CppBridge.mdb_array_get_element_size(array);
+Logger.Info($"Each element is {elemSize} bytes");
 ```
 
 ---

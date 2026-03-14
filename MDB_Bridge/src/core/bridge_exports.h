@@ -311,11 +311,22 @@ extern "C" {
     
     /// <summary>
     /// Get an element from an IL2CPP array.
+    /// For reference-type arrays, returns the object pointer at the given index.
+    /// For value-type arrays, returns a pointer to the element data at the correct offset
+    /// (accounting for actual element size, not pointer size).
     /// </summary>
     /// <param name="array">Pointer to IL2CPP array</param>
     /// <param name="index">Element index</param>
     /// <returns>Pointer to element, or nullptr on error</returns>
     MDB_API void* mdb_array_get_element(void* array, int index);
+    
+    /// <summary>
+    /// Get the size in bytes of each element in an IL2CPP array.
+    /// For value-type arrays this is the struct size; for reference-type arrays this is pointer size.
+    /// </summary>
+    /// <param name="array">Pointer to IL2CPP array</param>
+    /// <returns>Element size in bytes, or -1 on error</returns>
+    MDB_API int mdb_array_get_element_size(void* array);
     
     /// <summary>
     /// Get the element class of an array.

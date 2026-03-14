@@ -747,7 +747,86 @@ MDB_API void* mdb_array_get_element(void* array, int index) {
         return nullptr;
     }
     
+    // Determine if this is a value-type array to use correct element addressing
+    auto* obj = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppObject*>(array);
+    if (obj->m_pClass) {
+        // Resolve IL2CPP API functions
+        static auto il2cpp_class_get_element_class_fn = reinterpret_cast<void*(*)(void*)>(
+            GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_class_get_element_class")
+        );
+        static auto il2cpp_class_is_valuetype_fn = reinterpret_cast<bool(*)(void*)>(
+            GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_class_is_valuetype")
+        );
+        static auto il2cpp_class_array_element_size_fn = reinterpret_cast<int(*)(void*)>(
+            GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_class_array_element_size")
+        );
+        
+        void* elementClass = nullptr;
+        if (il2cpp_class_get_element_class_fn) {
+            elementClass = il2cpp_class_get_element_class_fn(obj->m_pClass);
+        } else {
+            elementClass = obj->m_pClass->m_pElementClass;
+        }
+        
+        if (elementClass && il2cpp_class_is_valuetype_fn && il2cpp_class_is_valuetype_fn(elementClass)) {
+            // Value-type array: elements are stored inline at their actual size,
+            // NOT as pointer-sized slots. Compute address as base + index * element_size.
+            int elemSize = 0;
+            if (il2cpp_class_array_element_size_fn) {
+                elemSize = il2cpp_class_array_element_size_fn(elementClass);
+            }
+            if (elemSize > 0) {
+                return reinterpret_cast<char*>(arr->vector) + static_cast<size_t>(index) * elemSize;
+            }
+            // Fallback: can't determine element size, log warning and use pointer indexing
+        }
+    }
+    
+    // Reference-type array (or fallback): each slot is a pointer
     return arr->vector[index];
+}
+
+MDB_API int mdb_array_get_element_size(void* array) {
+    clear_error();
+    if (!array) {
+        set_error(MdbErrorCode::NullPointer, "Invalid argument: array is null");
+        return -1;
+    }
+    
+    auto* obj = reinterpret_cast<il2cpp::_internal::unity_structs::il2cppObject*>(array);
+    if (!obj->m_pClass) {
+        set_error(MdbErrorCode::InvalidClass, "Array has no class");
+        return -1;
+    }
+    
+    // Get element class
+    static auto il2cpp_class_get_element_class_fn = reinterpret_cast<void*(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_class_get_element_class")
+    );
+    
+    void* elementClass = nullptr;
+    if (il2cpp_class_get_element_class_fn) {
+        elementClass = il2cpp_class_get_element_class_fn(obj->m_pClass);
+    } else {
+        elementClass = obj->m_pClass->m_pElementClass;
+    }
+    
+    if (!elementClass) {
+        set_error(MdbErrorCode::InvalidClass, "Could not determine element class");
+        return -1;
+    }
+    
+    // Get element size via IL2CPP API
+    static auto il2cpp_class_array_element_size_fn = reinterpret_cast<int(*)(void*)>(
+        GetProcAddress(il2cpp::_internal::p_game_assembly, "il2cpp_class_array_element_size")
+    );
+    
+    if (il2cpp_class_array_element_size_fn) {
+        return il2cpp_class_array_element_size_fn(elementClass);
+    }
+    
+    set_error(MdbErrorCode::ExportNotFound, "il2cpp_class_array_element_size API not found");
+    return -1;
 }
 
 MDB_API void* mdb_array_get_element_class(void* array) {
