@@ -337,7 +337,7 @@ static bool TryCreateDummySwapChain(HWND hWnd, const char* label, void*& outPres
         );
 
         if (SUCCEEDED(hr)) {
-            LOG_INFO("[ImGui] [%s] Dummy swapchain created (attempt %d, feature level 0x%x)",
+            LOG_VERBOSE("[ImGui] [%s] Dummy swapchain created (attempt %d, feature level 0x%x)",
                       label, attempt + 1, (unsigned)achievedLevel);
 
             void** vTable = *reinterpret_cast<void***>(pSwap);
@@ -363,17 +363,17 @@ static bool TryCreateDummySwapChain(HWND hWnd, const char* label, void*& outPres
 }
 
 bool HookDX11Present() {
-    LOG_INFO("[ImGui] HookDX11Present: starting DX11 Present hook sequence");
+    LOG_VERBOSE("[ImGui] HookDX11Present: starting DX11 Present hook sequence");
 
     void* pPresent = nullptr;
 
     // ---- Attempt 1: Desktop Window (fast, works on most systems) ----
     {
         HWND hDesktop = GetDesktopWindow();
-        LOG_INFO("[ImGui] Attempt 1: Using GetDesktopWindow() -> HWND 0x%p", (void*)hDesktop);
+        LOG_VERBOSE("[ImGui] Attempt 1: Using GetDesktopWindow() -> HWND 0x%p", (void*)hDesktop);
 
         if (TryCreateDummySwapChain(hDesktop, "DesktopWnd", pPresent)) {
-            LOG_INFO("[ImGui] Attempt 1 succeeded, Present @ 0x%p", pPresent);
+            LOG_VERBOSE("[ImGui] Attempt 1 succeeded, Present @ 0x%p", pPresent);
         }
     }
 
@@ -405,10 +405,10 @@ bool HookDX11Present() {
         if (!hHidden) {
             LOG_ERROR("[ImGui] Attempt 2: CreateWindowExW failed, GetLastError=%lu", GetLastError());
         } else {
-            LOG_INFO("[ImGui] Attempt 2: Using hidden window -> HWND 0x%p", (void*)hHidden);
+            LOG_VERBOSE("[ImGui] Attempt 2: Using hidden window -> HWND 0x%p", (void*)hHidden);
 
             if (TryCreateDummySwapChain(hHidden, "HiddenWnd", pPresent)) {
-                LOG_INFO("[ImGui] Attempt 2 succeeded, Present @ 0x%p", pPresent);
+                LOG_VERBOSE("[ImGui] Attempt 2 succeeded, Present @ 0x%p", pPresent);
             } else {
                 LOG_ERROR("[ImGui] Attempt 2 also failed");
             }
@@ -456,7 +456,7 @@ bool HookDX11Present() {
     }
 
     // ---- Install MinHook ----
-    LOG_INFO("[ImGui] Installing MinHook on Present @ 0x%p", pPresent);
+    LOG_VERBOSE("[ImGui] Installing MinHook on Present @ 0x%p", pPresent);
 
     MH_STATUS mhStatus = MH_CreateHook(pPresent, &HookedPresent11, reinterpret_cast<void**>(&g_originalPresent));
     if (mhStatus != MH_OK) {
@@ -496,10 +496,10 @@ MDB_IMGUI_API MdbDxVersion mdb_imgui_get_dx_version() {
 }
 
 MDB_IMGUI_API bool mdb_imgui_init() {
-    LOG_INFO("[ImGui] mdb_imgui_init called");
+    LOG_VERBOSE("[ImGui] mdb_imgui_init called");
 
     if (g_initialized.load()) {
-        LOG_INFO("[ImGui] Already initialized, returning true");
+        LOG_VERBOSE("[ImGui] Already initialized, returning true");
         return true;
     }
 
@@ -512,7 +512,7 @@ MDB_IMGUI_API bool mdb_imgui_init() {
                       MH_StatusToString(status), (int)status);
             return false;
         }
-        LOG_INFO("[ImGui] MinHook initialized (status: %s)", MH_StatusToString(status));
+        LOG_VERBOSE("[ImGui] MinHook initialized (status: %s)", MH_StatusToString(status));
         s_mhInitialized = true;
     }
 
@@ -520,12 +520,12 @@ MDB_IMGUI_API bool mdb_imgui_init() {
     HMODULE hD3D11 = GetModuleHandleW(L"d3d11.dll");
     HMODULE hD3D12 = GetModuleHandleW(L"d3d12.dll");
     HMODULE hDXGI  = GetModuleHandleW(L"dxgi.dll");
-    LOG_INFO("[ImGui] Module check: d3d11.dll=0x%p, d3d12.dll=0x%p, dxgi.dll=0x%p",
+    LOG_VERBOSE("[ImGui] Module check: d3d11.dll=0x%p, d3d12.dll=0x%p, dxgi.dll=0x%p",
               (void*)hD3D11, (void*)hD3D12, (void*)hDXGI);
 
     // Detect DirectX version
     g_dxVersion.store(DetectDxVersion());
-    LOG_INFO("[ImGui] Initial DX detection: %d", (int)g_dxVersion.load());
+    LOG_VERBOSE("[ImGui] Initial DX detection: %d", (int)g_dxVersion.load());
 
     if (g_dxVersion.load() == MDB_DX_UNKNOWN) {
         LOG_WARN("[ImGui] DX version unknown, polling up to 10 times (100ms each)...");
@@ -533,7 +533,7 @@ MDB_IMGUI_API bool mdb_imgui_init() {
             Sleep(100);
             g_dxVersion.store(DetectDxVersion());
             if (g_dxVersion.load() != MDB_DX_UNKNOWN) {
-                LOG_INFO("[ImGui] DX detected after %d polls: %d", i + 1, (int)g_dxVersion.load());
+                LOG_VERBOSE("[ImGui] DX detected after %d polls: %d", i + 1, (int)g_dxVersion.load());
                 break;
             }
         }
@@ -541,7 +541,7 @@ MDB_IMGUI_API bool mdb_imgui_init() {
 
     switch (g_dxVersion.load()) {
     case MDB_DX_11: {
-        LOG_INFO("[ImGui] Proceeding with DX11 Present hook");
+        LOG_VERBOSE("[ImGui] Proceeding with DX11 Present hook");
         bool result = HookDX11Present();
         if (!result) {
             LOG_ERROR("[ImGui] DX11 Present hook FAILED - ImGui will not be available");
@@ -567,7 +567,7 @@ MDB_IMGUI_API void mdb_imgui_shutdown() {
         return; // already cleaned up
     }
 
-    LOG_INFO("[Shutdown] mdb_imgui_shutdown() running");
+    LOG_VERBOSE("[Shutdown] mdb_imgui_shutdown() running");
 
     // Stop the Present hook from touching ImGui/DX resources.
     g_shutting_down.store(true);
@@ -600,7 +600,7 @@ MDB_IMGUI_API void mdb_imgui_shutdown() {
         CleanupRenderTarget11();
     }
 
-    LOG_INFO("[Shutdown] mdb_imgui_shutdown() complete");
+    LOG_VERBOSE("[Shutdown] mdb_imgui_shutdown() complete");
 }
 
 MDB_IMGUI_API bool mdb_imgui_is_initialized() {

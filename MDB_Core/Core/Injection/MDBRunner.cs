@@ -24,6 +24,13 @@ namespace GameSDK.Injection
     {
         private static readonly ModLogger _logger = new ModLogger("INJECT");
 
+        /// <summary>Log a message only when ClassInjector.VerboseLogging is enabled.</summary>
+        private static void LogVerbose(string message)
+        {
+            if (ClassInjector.VerboseLogging)
+                _logger.Info(message);
+        }
+
         private static IntPtr s_injectedClass = IntPtr.Zero;
         private static IntPtr s_gameObject = IntPtr.Zero;
         private static IntPtr s_component = IntPtr.Zero;
@@ -150,7 +157,7 @@ namespace GameSDK.Injection
             s_vehDelegateHandle = GCHandle.Alloc(s_vehDelegate);
             IntPtr fnPtr = Marshal.GetFunctionPointerForDelegate(s_vehDelegate);
             s_vehHandle = Kernel32.AddVectoredExceptionHandler(1, fnPtr); // 1 = call first
-            _logger.Info($"[INJECT] VEH installed, handle=0x{s_vehHandle.ToInt64():X}");
+            LogVerbose($"[INJECT] VEH installed, handle=0x{s_vehHandle.ToInt64():X}");
         }
 
         private static void RemoveVeh()
@@ -159,7 +166,7 @@ namespace GameSDK.Injection
             {
                 Kernel32.RemoveVectoredExceptionHandler(s_vehHandle);
                 s_vehHandle = IntPtr.Zero;
-                _logger.Info("[INJECT] VEH removed");
+                LogVerbose("[INJECT] VEH removed");
             }
         }
 
@@ -172,7 +179,7 @@ namespace GameSDK.Injection
         {
             if (s_installed) return true;
 
-            _logger.Info("[INJECT] MDBRunner.Install() starting...");
+            LogVerbose("[INJECT] MDBRunner.Install() starting...");
 
             try
             {
@@ -183,7 +190,7 @@ namespace GameSDK.Injection
                     _logger.Error("[INJECT] Phase 1 FAILED — class registration returned null");
                     return false;
                 }
-                _logger.Info($"[INJECT] Phase 1 complete — class @ 0x{s_injectedClass.ToInt64():X}");
+                LogVerbose($"[INJECT] Phase 1 complete — class @ 0x{s_injectedClass.ToInt64():X}");
 
                 // Wire up callbacks
                 ClassInjector.OnUpdateCallback = OnUpdate;
@@ -195,13 +202,13 @@ namespace GameSDK.Injection
                 {
                     Instantiate();
                     s_installed = true;
-                    _logger.Info("[INJECT] Phase 2 complete — MDBRunner active on main thread");
+                    LogVerbose("[INJECT] Phase 2 complete — MDBRunner active on main thread");
                     return true;
                 }
                 catch (Exception ex)
                 {
                     _logger.Warning($"[INJECT] Phase 2 failed from bg thread (expected): {ex.Message}");
-                    _logger.Info("[INJECT] Will retry instantiation on first main-thread tick");
+                    LogVerbose("[INJECT] Will retry instantiation on first main-thread tick");
                     s_deferredInstall = true;
                     s_installed = true; // Class is registered, instantiation pending
                     return true;
@@ -220,7 +227,7 @@ namespace GameSDK.Injection
         /// </summary>
         private static void Instantiate()
         {
-            _logger.Info("[INJECT] Phase 2: Instantiating MDBRunner...");
+            LogVerbose("[INJECT] Phase 2: Instantiating MDBRunner...");
 
             // Step 1: Create a new GameObject
             IntPtr gameObjectClass = Il2CppBridge.mdb_find_class("UnityEngine.CoreModule", "UnityEngine", "GameObject");
@@ -245,20 +252,20 @@ namespace GameSDK.Injection
                 throw new InvalidOperationException($"GameObject..ctor threw exception @ 0x{exception.ToInt64():X}");
 
             s_gameObject = gameObj;
-            _logger.Info($"[INJECT] GameObject created @ 0x{gameObj.ToInt64():X}");
+            LogVerbose($"[INJECT] GameObject created @ 0x{gameObj.ToInt64():X}");
 
             // Step 2: AddComponent with our injected type
             IntPtr injectedType = Il2CppBridge.mdb_class_get_type(s_injectedClass);
             if (injectedType == IntPtr.Zero)
                 throw new InvalidOperationException("Failed to get Il2CppType from injected class");
 
-            _logger.Info($"[INJECT] mdb_class_get_type OK → 0x{injectedType.ToInt64():X}");
+            LogVerbose($"[INJECT] mdb_class_get_type OK → 0x{injectedType.ToInt64():X}");
 
             IntPtr typeObj = Il2CppBridge.mdb_type_get_object(injectedType);
             if (typeObj == IntPtr.Zero)
                 throw new InvalidOperationException("Failed to get System.Type from Il2CppType");
 
-            _logger.Info($"[INJECT] mdb_type_get_object OK → 0x{typeObj.ToInt64():X}");
+            LogVerbose($"[INJECT] mdb_type_get_object OK → 0x{typeObj.ToInt64():X}");
 
             IntPtr addComponentMethod = Il2CppBridge.mdb_get_method(gameObjectClass, "AddComponent", 1);
             if (addComponentMethod == IntPtr.Zero)
@@ -270,18 +277,18 @@ namespace GameSDK.Injection
             string acName = (acNamePtr != IntPtr.Zero) ? Marshal.PtrToStringAnsi(acNamePtr) : "(null)";
             IntPtr acKlass = Marshal.ReadIntPtr(addComponentMethod, 0x20);     // klass
             byte acArgCount = Marshal.ReadByte(addComponentMethod, 0x52);      // argsCount
-            _logger.Info($"[INJECT] AddComponent method: name='{acName}' klass=0x{acKlass.ToInt64():X} args={acArgCount} ptr=0x{acMethodPtr.ToInt64():X}");
+            LogVerbose($"[INJECT] AddComponent method: name='{acName}' klass=0x{acKlass.ToInt64():X} args={acArgCount} ptr=0x{acMethodPtr.ToInt64():X}");
 
             // DIAGNOSTIC: Test object creation independently before AddComponent
             try
             {
                 IntPtr testObj = Il2CppBridge.mdb_object_new(s_injectedClass);
-                _logger.Info($"[INJECT] DIAG: il2cpp_object_new(injectedClass) → {(testObj != IntPtr.Zero ? $"OK 0x{testObj.ToInt64():X}" : "FAILED (null)")}");
+                LogVerbose($"[INJECT] DIAG: il2cpp_object_new(injectedClass) → {(testObj != IntPtr.Zero ? $"OK 0x{testObj.ToInt64():X}" : "FAILED (null)")}");
                 if (testObj != IntPtr.Zero)
                 {
                     // Check the klass pointer of the created object (first 8 bytes of Il2CppObject)
                     IntPtr objKlass = Marshal.ReadIntPtr(testObj);
-                    _logger.Info($"[INJECT] DIAG: test object klass = 0x{objKlass.ToInt64():X} (expected 0x{s_injectedClass.ToInt64():X})");
+                    LogVerbose($"[INJECT] DIAG: test object klass = 0x{objKlass.ToInt64():X} (expected 0x{s_injectedClass.ToInt64():X})");
                 }
             }
             catch (Exception testEx)
@@ -298,27 +305,27 @@ namespace GameSDK.Injection
                 byte goBf2 = Marshal.ReadByte(gameObjectClass, bf2Off);
                 byte injBf1 = Marshal.ReadByte(s_injectedClass, bf1Off);
                 byte injBf2 = Marshal.ReadByte(s_injectedClass, bf2Off);
-                _logger.Info($"[INJECT] DIAG: GameObject  bf1=0x{goBf1:X2} bf2=0x{goBf2:X2}");
-                _logger.Info($"[INJECT] DIAG: Injected    bf1=0x{injBf1:X2} bf2=0x{injBf2:X2}");
+                LogVerbose($"[INJECT] DIAG: GameObject  bf1=0x{goBf1:X2} bf2=0x{goBf2:X2}");
+                LogVerbose($"[INJECT] DIAG: Injected    bf1=0x{injBf1:X2} bf2=0x{injBf2:X2}");
 
                 // Verify parent field
                 IntPtr injParent = Marshal.ReadIntPtr(s_injectedClass, 0x58);
                 string injParentName = "(?)";
                 try { injParentName = Il2CppMemory.ReadCString(Marshal.ReadIntPtr(injParent, 0x10)) ?? "(?)"; } catch {}
-                _logger.Info($"[INJECT] DIAG: Injected.parent = 0x{injParent.ToInt64():X} ({injParentName})");
+                LogVerbose($"[INJECT] DIAG: Injected.parent = 0x{injParent.ToInt64():X} ({injParentName})");
             }
             catch (Exception diagEx)
             {
                 _logger.Error($"[INJECT] DIAG: bitflags read failed: {diagEx.Message}");
             }
 
-            _logger.Info($"[INJECT] Calling AddComponent...");
-            _logger.Info($"[INJECT]   gameObj      @ 0x{gameObj.ToInt64():X}");
-            _logger.Info($"[INJECT]   injectedType @ 0x{injectedType.ToInt64():X}");
-            _logger.Info($"[INJECT]   typeObj      @ 0x{typeObj.ToInt64():X}");
-            _logger.Info($"[INJECT]   addComponent @ 0x{addComponentMethod.ToInt64():X}");
-            _logger.Info($"[INJECT]   GameAssembly @ 0x{Il2CppExports.GameAssemblyBase.ToInt64():X}");
-            _logger.Info($"[INJECT]   flushing log before AddComponent invoke...");
+            LogVerbose($"[INJECT] Calling AddComponent...");
+            LogVerbose($"[INJECT]   gameObj      @ 0x{gameObj.ToInt64():X}");
+            LogVerbose($"[INJECT]   injectedType @ 0x{injectedType.ToInt64():X}");
+            LogVerbose($"[INJECT]   typeObj      @ 0x{typeObj.ToInt64():X}");
+            LogVerbose($"[INJECT]   addComponent @ 0x{addComponentMethod.ToInt64():X}");
+            LogVerbose($"[INJECT]   GameAssembly @ 0x{Il2CppExports.GameAssemblyBase.ToInt64():X}");
+            LogVerbose($"[INJECT]   flushing log before AddComponent invoke...");
 
             // Force log flush before the call that might crash
             System.IO.File.AppendAllText(
@@ -348,7 +355,7 @@ namespace GameSDK.Injection
                 throw new InvalidOperationException("AddComponent returned null");
 
             s_component = component;
-            _logger.Info($"[INJECT] AddComponent result: 0x{component.ToInt64():X}");
+            LogVerbose($"[INJECT] AddComponent result: 0x{component.ToInt64():X}");
 
             // Step 3: DontDestroyOnLoad
             IntPtr objectClass = Il2CppBridge.mdb_find_class("UnityEngine.CoreModule", "UnityEngine", "Object");
@@ -364,7 +371,7 @@ namespace GameSDK.Injection
                     }
                     else
                     {
-                        _logger.Info("[INJECT] DontDestroyOnLoad applied");
+                        LogVerbose("[INJECT] DontDestroyOnLoad applied");
                     }
                 }
                 else
@@ -378,7 +385,7 @@ namespace GameSDK.Injection
             }
 
             s_mainThreadActive = true;
-            _logger.Info("[INJECT] Main thread dispatch active");
+            LogVerbose("[INJECT] Main thread dispatch active");
         }
 
         /// <summary>
@@ -393,7 +400,7 @@ namespace GameSDK.Injection
             try
             {
                 IntPtr result = Il2CppBridge.mdb_invoke_method(method, gameObj, new IntPtr[] { typeObj }, out exception);
-                _logger.Info($"[INJECT] AddComponent returned: 0x{result.ToInt64():X}");
+                LogVerbose($"[INJECT] AddComponent returned: 0x{result.ToInt64():X}");
                 return result;
             }
             catch (AccessViolationException avEx)
@@ -420,11 +427,11 @@ namespace GameSDK.Injection
             if (s_deferredInstall)
             {
                 s_deferredInstall = false;
-                _logger.Info("[INJECT] Deferred install — retrying Phase 2 from main thread...");
+                LogVerbose("[INJECT] Deferred install — retrying Phase 2 from main thread...");
                 try
                 {
                     Instantiate();
-                    _logger.Info("[INJECT] Deferred Phase 2 complete!");
+                    LogVerbose("[INJECT] Deferred Phase 2 complete!");
                 }
                 catch (Exception ex)
                 {

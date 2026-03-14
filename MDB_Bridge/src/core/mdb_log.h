@@ -29,6 +29,31 @@
 #define LOG_WARN(fmt, ...)  mdb_log_message("[WARN] " fmt, ##__VA_ARGS__)
 #define LOG_INFO(fmt, ...)  mdb_log_message("[INFO] " fmt, ##__VA_ARGS__)
 
+// ========== Runtime Verbose Logging Toggle ==========
+// Set g_verbose_logging = true in code to enable detailed diagnostic output.
+// Disabled by default to keep logs clean in production.
+
+namespace mdb_log_detail {
+    inline bool& verbose_logging() { static bool v = false; return v; }
+} // namespace mdb_log_detail
+
+/// <summary>
+/// Enable or disable verbose diagnostic logging at runtime.
+/// When false (default), LOG_VERBOSE messages are suppressed.
+/// When true, LOG_VERBOSE messages appear as [INFO] entries.
+/// Toggle this in code to diagnose issues.
+/// </summary>
+inline void mdb_set_verbose_logging(bool enabled) {
+    mdb_log_detail::verbose_logging() = enabled;
+}
+
+inline bool mdb_get_verbose_logging() {
+    return mdb_log_detail::verbose_logging();
+}
+
+#define LOG_VERBOSE(fmt, ...) \
+    do { if (mdb_log_detail::verbose_logging()) mdb_log_message("[INFO] " fmt, ##__VA_ARGS__); } while(0)
+
 // ========== Implementation ==========
 
 namespace mdb_log_detail {

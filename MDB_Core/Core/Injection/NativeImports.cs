@@ -45,6 +45,13 @@ namespace GameSDK.Injection
     {
         private static readonly ModLogger _logger = new ModLogger("INJECT");
 
+        /// <summary>Log a message only when ClassInjector.VerboseLogging is enabled.</summary>
+        private static void LogVerbose(string message)
+        {
+            if (ClassInjector.VerboseLogging)
+                _logger.Info(message);
+        }
+
         private static IntPtr _gameAssemblyHandle;
         private static bool _resolved;
 
@@ -117,7 +124,7 @@ namespace GameSDK.Injection
                 _logger.Error("[INJECT] GameAssembly.dll not found!");
                 return false;
             }
-            _logger.Info($"[INJECT] GameAssembly.dll @ 0x{_gameAssemblyHandle.ToInt64():X}");
+            LogVerbose($"[INJECT] GameAssembly.dll @ 0x{_gameAssemblyHandle.ToInt64():X}");
 
             // Resolve each export
             il2cpp_class_from_il2cpp_type = ResolveExport("il2cpp_class_from_il2cpp_type");
@@ -151,7 +158,7 @@ namespace GameSDK.Injection
             IntPtr addr = Kernel32.GetProcAddress(_gameAssemblyHandle, name);
             if (addr != IntPtr.Zero)
             {
-                _logger.Info($"[INJECT] Resolved {name} @ 0x{addr.ToInt64():X}");
+                LogVerbose($"[INJECT] Resolved {name} @ 0x{addr.ToInt64():X}");
                 return addr;
             }
 
@@ -159,7 +166,7 @@ namespace GameSDK.Injection
             addr = FindObfuscatedExport(name);
             if (addr != IntPtr.Zero)
             {
-                _logger.Info($"[INJECT] Resolved {name} (obfuscated) @ 0x{addr.ToInt64():X}");
+                LogVerbose($"[INJECT] Resolved {name} (obfuscated) @ 0x{addr.ToInt64():X}");
                 return addr;
             }
 

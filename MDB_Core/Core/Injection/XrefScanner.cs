@@ -21,6 +21,13 @@ namespace GameSDK.Injection
     {
         private static readonly ModLogger _logger = new ModLogger("INJECT");
 
+        /// <summary>Log a message only when ClassInjector.VerboseLogging is enabled.</summary>
+        private static void LogVerbose(string message)
+        {
+            if (ClassInjector.VerboseLogging)
+                _logger.Info(message);
+        }
+
         /// <summary>
         /// Enumerate all CALL/JMP rel32 targets from a function start.
         /// </summary>
@@ -92,7 +99,7 @@ namespace GameSDK.Injection
                 if (next == IntPtr.Zero)
                     return current; // End of chain — return last valid address
                 
-                _logger.Info($"[INJECT] Xref level {i}: 0x{current.ToInt64():X} → 0x{next.ToInt64():X}");
+                LogVerbose($"[INJECT] Xref level {i}: 0x{current.ToInt64():X} → 0x{next.ToInt64():X}");
                 current = next;
             }
             return current;
@@ -106,7 +113,7 @@ namespace GameSDK.Injection
         /// <returns>Address of GetTypeInfoFromTypeDefinitionIndex, or IntPtr.Zero.</returns>
         public static IntPtr ResolveGetTypeInfoFromTypeDefinitionIndex(IntPtr imageGetClass)
         {
-            _logger.Info($"[INJECT] Resolving GetTypeInfoFromTypeDefinitionIndex from il2cpp_image_get_class @ 0x{imageGetClass.ToInt64():X}");
+            LogVerbose($"[INJECT] Resolving GetTypeInfoFromTypeDefinitionIndex from il2cpp_image_get_class @ 0x{imageGetClass.ToInt64():X}");
 
             // Level 0: il2cpp_image_get_class → first target = Image::GetType
             IntPtr imageGetType = GetFirstTarget(imageGetClass);
@@ -115,14 +122,14 @@ namespace GameSDK.Injection
                 _logger.Error("[INJECT] Failed: no call target from il2cpp_image_get_class");
                 return IntPtr.Zero;
             }
-            _logger.Info($"[INJECT] Image::GetType @ 0x{imageGetType.ToInt64():X}");
+            LogVerbose($"[INJECT] Image::GetType @ 0x{imageGetType.ToInt64():X}");
 
             // Level 1: Image::GetType has multiple call targets.
             // We need GetTypeInfoFromHandle — typically the last of 2 xrefs,
             // or the one that itself has a single call target leading to
             // GetTypeInfoFromTypeDefinitionIndex.
             var level1Targets = new List<IntPtr>(GetCallTargets(imageGetType));
-            _logger.Info($"[INJECT] Image::GetType has {level1Targets.Count} call targets");
+            LogVerbose($"[INJECT] Image::GetType has {level1Targets.Count} call targets");
 
             // Try each target — look for one that leads to the final function.
             // GetTypeInfoFromTypeDefinitionIndex is typically a leaf function (no E8 calls).
@@ -132,9 +139,9 @@ namespace GameSDK.Injection
 
             foreach (var target in level1Targets)
             {
-                _logger.Info($"[INJECT]   Checking target @ 0x{target.ToInt64():X}");
+                LogVerbose($"[INJECT]   Checking target @ 0x{target.ToInt64():X}");
                 var subTargets = new List<IntPtr>(GetCallTargets(target));
-                _logger.Info($"[INJECT]     Sub-targets: {subTargets.Count}");
+                LogVerbose($"[INJECT]     Sub-targets: {subTargets.Count}");
 
                 foreach (var sub in subTargets)
                 {
@@ -146,14 +153,14 @@ namespace GameSDK.Injection
                         // that typically has no outgoing calls (uses table lookup).
                         if (leafCandidate == IntPtr.Zero)
                             leafCandidate = sub;
-                        _logger.Info($"[INJECT]     Sub @ 0x{sub.ToInt64():X} is LEAF (0 targets) — strong candidate");
+                        LogVerbose($"[INJECT]     Sub @ 0x{sub.ToInt64():X} is LEAF (0 targets) — strong candidate");
                     }
                     else
                     {
                         // This sub is a wrapper, follow the chain
                         if (chainCandidate == IntPtr.Zero)
                             chainCandidate = finalTargets[finalTargets.Count - 1];
-                        _logger.Info($"[INJECT]     Sub @ 0x{sub.ToInt64():X} has {finalTargets.Count} targets → chain to 0x{finalTargets[finalTargets.Count - 1].ToInt64():X}");
+                        LogVerbose($"[INJECT]     Sub @ 0x{sub.ToInt64():X} has {finalTargets.Count} targets → chain to 0x{finalTargets[finalTargets.Count - 1].ToInt64():X}");
                     }
                 }
             }
@@ -161,12 +168,12 @@ namespace GameSDK.Injection
             // Prefer leaf candidate (GetTypeInfoFromTypeDefinitionIndex is a leaf function)
             if (leafCandidate != IntPtr.Zero)
             {
-                _logger.Info($"[INJECT] Selected LEAF candidate GetTypeInfoFromTypeDefinitionIndex @ 0x{leafCandidate.ToInt64():X}");
+                LogVerbose($"[INJECT] Selected LEAF candidate GetTypeInfoFromTypeDefinitionIndex @ 0x{leafCandidate.ToInt64():X}");
                 return leafCandidate;
             }
             if (chainCandidate != IntPtr.Zero)
             {
-                _logger.Info($"[INJECT] Selected chain candidate GetTypeInfoFromTypeDefinitionIndex @ 0x{chainCandidate.ToInt64():X}");
+                LogVerbose($"[INJECT] Selected chain candidate GetTypeInfoFromTypeDefinitionIndex @ 0x{chainCandidate.ToInt64():X}");
                 return chainCandidate;
             }
 
@@ -177,7 +184,7 @@ namespace GameSDK.Injection
                 IntPtr resolved = FollowSingleXref(lastTarget, 2);
                 if (resolved != IntPtr.Zero && resolved != lastTarget)
                 {
-                    _logger.Info($"[INJECT] Fallback resolved GetTypeInfoFromTypeDefinitionIndex @ 0x{resolved.ToInt64():X}");
+                    LogVerbose($"[INJECT] Fallback resolved GetTypeInfoFromTypeDefinitionIndex @ 0x{resolved.ToInt64():X}");
                     return resolved;
                 }
             }

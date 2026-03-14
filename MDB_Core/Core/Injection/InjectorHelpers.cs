@@ -26,6 +26,13 @@ namespace GameSDK.Injection
     {
         private static readonly ModLogger _logger = new ModLogger("INJECT");
 
+        /// <summary>Log a message only when ClassInjector.VerboseLogging is enabled.</summary>
+        private static void LogVerbose(string message)
+        {
+            if (ClassInjector.VerboseLogging)
+                _logger.Info(message);
+        }
+
         // ==============================
         // Token tracking
         // ==============================
@@ -121,7 +128,7 @@ namespace GameSDK.Injection
         {
             if (s_initialized) return true;
 
-            _logger.Info("[INJECT] InjectorHelpers.Setup() starting...");
+            LogVerbose("[INJECT] InjectorHelpers.Setup() starting...");
 
             // Step 1: Resolve IL2CPP exports
             if (!Il2CppExports.Resolve())
@@ -148,7 +155,7 @@ namespace GameSDK.Injection
             }
 
             s_initialized = true;
-            _logger.Info("[INJECT] InjectorHelpers.Setup() complete");
+            LogVerbose("[INJECT] InjectorHelpers.Setup() complete");
             return true;
         }
 
@@ -190,7 +197,7 @@ namespace GameSDK.Injection
             Marshal.WriteIntPtr(s_FakeAssembly, 0x00, s_ImageNamePtr); // aname.name
             Marshal.WriteIntPtr(s_FakeAssembly, 0x48, s_FakeImage);    // image (typical offset)
 
-            _logger.Info($"[INJECT] Fake image @ 0x{s_FakeImage.ToInt64():X}, assembly @ 0x{s_FakeAssembly.ToInt64():X}");
+            LogVerbose($"[INJECT] Fake image @ 0x{s_FakeImage.ToInt64():X}, assembly @ 0x{s_FakeAssembly.ToInt64():X}");
         }
 
         // ==============================
@@ -206,7 +213,7 @@ namespace GameSDK.Injection
                 _logger.Error("[INJECT] Failed to resolve internal Class::FromIl2CppType via xref");
                 return false;
             }
-            _logger.Info($"[INJECT] Internal FromIl2CppType @ 0x{s_internalFromIl2CppType.ToInt64():X}");
+            LogVerbose($"[INJECT] Internal FromIl2CppType @ 0x{s_internalFromIl2CppType.ToInt64():X}");
 
             // FromName: export → single call/jmp → internal function
             s_internalFromName = XrefScanner.GetFirstTarget(Il2CppExports.il2cpp_class_from_name);
@@ -215,7 +222,7 @@ namespace GameSDK.Injection
                 _logger.Error("[INJECT] Failed to resolve internal Class::FromName via xref");
                 return false;
             }
-            _logger.Info($"[INJECT] Internal FromName @ 0x{s_internalFromName.ToInt64():X}");
+            LogVerbose($"[INJECT] Internal FromName @ 0x{s_internalFromName.ToInt64():X}");
 
             // GetTypeInfoFromTypeDefinitionIndex: multi-level xref from il2cpp_image_get_class
             s_internalGetTypeInfo = XrefScanner.ResolveGetTypeInfoFromTypeDefinitionIndex(Il2CppExports.il2cpp_image_get_class);
@@ -224,7 +231,7 @@ namespace GameSDK.Injection
                 _logger.Error("[INJECT] Failed to resolve GetTypeInfoFromTypeDefinitionIndex via xref");
                 return false;
             }
-            _logger.Info($"[INJECT] Internal GetTypeInfoFromTypeDefinitionIndex @ 0x{s_internalGetTypeInfo.ToInt64():X}");
+            LogVerbose($"[INJECT] Internal GetTypeInfoFromTypeDefinitionIndex @ 0x{s_internalGetTypeInfo.ToInt64():X}");
 
             return true;
         }
@@ -235,7 +242,7 @@ namespace GameSDK.Injection
 
         private static bool InstallHooks()
         {
-            _logger.Info("[INJECT] Installing hooks...");
+            LogVerbose("[INJECT] Installing hooks...");
 
             // Hook 1: FromIl2CppType
             var fromTypeDelegate = new FromIl2CppTypeDelegate(Hook_FromIl2CppType);
@@ -253,7 +260,7 @@ namespace GameSDK.Injection
                 return false;
             }
             s_cachedOriginalFromType = Marshal.GetDelegateForFunctionPointer<FromIl2CppTypeDelegate>(s_originalFromIl2CppType);
-            _logger.Info($"[INJECT] Hook installed: FromIl2CppType (handle={s_hookFromIl2CppType})");
+            LogVerbose($"[INJECT] Hook installed: FromIl2CppType (handle={s_hookFromIl2CppType})");
 
             // Hook 2: FromName
             var fromNameDelegate = new FromNameDelegate(Hook_FromName);
@@ -271,7 +278,7 @@ namespace GameSDK.Injection
                 return false;
             }
             s_cachedOriginalFromName = Marshal.GetDelegateForFunctionPointer<FromNameDelegate>(s_originalFromName);
-            _logger.Info($"[INJECT] Hook installed: FromName (handle={s_hookFromName})");
+            LogVerbose($"[INJECT] Hook installed: FromName (handle={s_hookFromName})");
 
             // Hook 3: GetTypeInfoFromTypeDefinitionIndex — SKIPPED
             // This hook is NOT installed because:
@@ -282,7 +289,7 @@ namespace GameSDK.Injection
             //      AccessViolationExceptions in hosted .NET Framework 4.7.2 CLR
             //   4. Confirmed via testing: GetTypeInfo hook never fires for our injected class
             // If needed in the future, this hook should be implemented in native C++ (MDB_Bridge).
-            _logger.Info($"[INJECT] GetTypeInfo hook SKIPPED (not needed — FromIl2CppType handles all token lookups)");
+            LogVerbose($"[INJECT] GetTypeInfo hook SKIPPED (not needed — FromIl2CppType handles all token lookups)");
 
             return true;
         }
@@ -319,7 +326,7 @@ namespace GameSDK.Injection
                             int count = Interlocked.Increment(ref s_fromTypeLogCount);
                             if (count <= 10) // Log first 10 interceptions
                             {
-                                _logger.Info($"[INJECT] Hook_FromIl2CppType INTERCEPTED #{count}: type=0x{typePtr.ToInt64():X} data=0x{data.ToInt64():X} token={dataValue} → class=0x{classPtr.ToInt64():X}");
+                                LogVerbose($"[INJECT] Hook_FromIl2CppType INTERCEPTED #{count}: type=0x{typePtr.ToInt64():X} data=0x{data.ToInt64():X} token={dataValue} → class=0x{classPtr.ToInt64():X}");
                             }
                             return classPtr;
                         }
@@ -385,7 +392,7 @@ namespace GameSDK.Injection
                 IntPtr classPtr;
                 if (s_InjectedClasses.TryGetValue((long)index, out classPtr))
                 {
-                    _logger.Info($"[INJECT] Hook_GetTypeInfo INTERCEPTED: index={index} → class=0x{classPtr.ToInt64():X}");
+                    LogVerbose($"[INJECT] Hook_GetTypeInfo INTERCEPTED: index={index} → class=0x{classPtr.ToInt64():X}");
                     return classPtr;
                 }
 
@@ -410,7 +417,7 @@ namespace GameSDK.Injection
         {
             long token = Interlocked.Decrement(ref s_tokenCounter);
             s_InjectedClasses[token] = classPtr;
-            _logger.Info($"[INJECT] Created class token {token} → 0x{classPtr.ToInt64():X}");
+            LogVerbose($"[INJECT] Created class token {token} → 0x{classPtr.ToInt64():X}");
             return token;
         }
 
@@ -426,7 +433,7 @@ namespace GameSDK.Injection
         public static void AddTypeToLookup(IntPtr classPtr, string ns, string name)
         {
             int assemblyCount = Il2CppBridge.mdb_get_assembly_count();
-            _logger.Info($"[INJECT] Registering {ns}.{name} in {assemblyCount} assembly images");
+            LogVerbose($"[INJECT] Registering {ns}.{name} in {assemblyCount} assembly images");
 
             lock (s_ClassNameLookup)
             {
