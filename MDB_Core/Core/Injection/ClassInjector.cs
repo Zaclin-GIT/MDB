@@ -190,6 +190,7 @@ namespace GameSDK.Injection
             LogVerbose($"[INJECT]   FixedUpdate   @ 0x{s_fixedUpdateFnPtr.ToInt64():X}");
             LogVerbose($"[INJECT]   LateUpdate    @ 0x{s_lateUpdateFnPtr.ToInt64():X}");
             LogVerbose($"[INJECT]   Invoker(v29)  @ 0x{s_invokerFnPtr.ToInt64():X}");
+        }
 
         // ==============================
         // Core injection
