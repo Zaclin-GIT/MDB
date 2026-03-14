@@ -37,6 +37,7 @@ graph TB
         IL2CPPBr["IL2CPP Bridge<br/>(export calls)"]
         ImGui["Dear ImGui<br/>(DX11/DX12)"]
         VersionProxy["Version Proxy<br/>(17 API forwards)"]
+        MinHook ~~~ CLRHost ~~~ IL2CPPBr ~~~ ImGui ~~~ VersionProxy
     end
 
     subgraph ModHost["GameSDK.ModHost.dll — .NET Framework 4.7.2, built at runtime"]
@@ -47,6 +48,7 @@ graph TB
         Il2CppCS["Il2CppBridge<br/>(P/Invoke)"]
         ImGuiMgr["ImGuiManager<br/>(UI mgmt)"]
         Deobfusc["Deobfuscation<br/>(name mapping)"]
+        ModMgr ~~~ HookMgr ~~~ ClassInj ~~~ Il2CppCS ~~~ ImGuiMgr ~~~ Deobfusc
     end
 
     subgraph GameAsm["GameAssembly.dll — IL2CPP compiled, Unity 2021+, v29+"]
