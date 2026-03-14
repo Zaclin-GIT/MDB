@@ -48,6 +48,13 @@ namespace GameSDK
     {
         private const string DllName = "MDB_Bridge.dll";
 
+        /// <summary>
+        /// Enable verbose diagnostic logging for ImGui callback management.
+        /// Set to true to see callback registration/unregistration details in the log.
+        /// Disabled by default to keep Mods.log clean in production.
+        /// </summary>
+        public static bool VerboseLogging = false;
+
         #region Native P/Invoke
 
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
@@ -261,7 +268,8 @@ namespace GameSDK
 
                     _callbacks[managedId] = info;
 
-                    ModHost.ModLogger.LogInternal("ImGuiManager", $"[INFO] Registered callback '{info.Name}' (id={managedId}, priority={priority})");
+                    if (VerboseLogging)
+                        ModHost.ModLogger.LogInternal("ImGuiManager", $"[INFO] Registered callback '{info.Name}' (id={managedId}, priority={priority})");
                     return managedId;
                 }
                 catch (Exception ex)
@@ -295,7 +303,8 @@ namespace GameSDK
 
                     _callbacks.Remove(callbackId);
 
-                    ModHost.ModLogger.LogInternal("ImGuiManager", $"[INFO] Unregistered callback '{info.Name}'");
+                    if (VerboseLogging)
+                        ModHost.ModLogger.LogInternal("ImGuiManager", $"[INFO] Unregistered callback '{info.Name}'");
                     return true;
                 }
                 catch (Exception ex)

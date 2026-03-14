@@ -25,6 +25,20 @@ namespace GameSDK.Injection
     {
         private static readonly ModLogger _logger = new ModLogger("INJECT");
 
+        /// <summary>
+        /// Enable verbose diagnostic logging for the injection subsystem.
+        /// Set to true to see detailed output during class registration and hook installation.
+        /// Disabled by default to keep Mods.log clean in production.
+        /// </summary>
+        internal static bool VerboseLogging = false;
+
+        /// <summary>Log a message only when VerboseLogging is enabled.</summary>
+        private static void LogVerbose(string message)
+        {
+            if (VerboseLogging)
+                _logger.Info(message);
+        }
+
         // Size of fake TypeDefinition copy (generous to cover all fields)
         private const int TYPE_DEF_COPY_SIZE = 256;
 
@@ -169,14 +183,13 @@ namespace GameSDK.Injection
             s_lateUpdateFnPtr = Marshal.GetFunctionPointerForDelegate(s_trampoline_lateUpdate);
             s_invokerFnPtr = Marshal.GetFunctionPointerForDelegate(s_invoker);
 
-            _logger.Info($"[INJECT] Trampolines initialized:");
-            _logger.Info($"[INJECT]   .ctor         @ 0x{s_ctorFnPtr.ToInt64():X}");
-            _logger.Info($"[INJECT]   Finalize      @ 0x{s_finalizeFnPtr.ToInt64():X}");
-            _logger.Info($"[INJECT]   Update        @ 0x{s_updateFnPtr.ToInt64():X}");
-            _logger.Info($"[INJECT]   FixedUpdate   @ 0x{s_fixedUpdateFnPtr.ToInt64():X}");
-            _logger.Info($"[INJECT]   LateUpdate    @ 0x{s_lateUpdateFnPtr.ToInt64():X}");
-            _logger.Info($"[INJECT]   Invoker(v29)  @ 0x{s_invokerFnPtr.ToInt64():X}");
-        }
+            LogVerbose($"[INJECT] Trampolines initialized:");
+            LogVerbose($"[INJECT]   .ctor         @ 0x{s_ctorFnPtr.ToInt64():X}");
+            LogVerbose($"[INJECT]   Finalize      @ 0x{s_finalizeFnPtr.ToInt64():X}");
+            LogVerbose($"[INJECT]   Update        @ 0x{s_updateFnPtr.ToInt64():X}");
+            LogVerbose($"[INJECT]   FixedUpdate   @ 0x{s_fixedUpdateFnPtr.ToInt64():X}");
+            LogVerbose($"[INJECT]   LateUpdate    @ 0x{s_lateUpdateFnPtr.ToInt64():X}");
+            LogVerbose($"[INJECT]   Invoker(v29)  @ 0x{s_invokerFnPtr.ToInt64():X}");
 
         // ==============================
         // Core injection
@@ -191,7 +204,7 @@ namespace GameSDK.Injection
         /// <returns>Pointer to the new Il2CppClass, or IntPtr.Zero on failure.</returns>
         public static IntPtr RegisterMonoBehaviourSubclass(string name, string ns)
         {
-            _logger.Info($"[INJECT] RegisterMonoBehaviourSubclass({ns}.{name})");
+            LogVerbose($"[INJECT] RegisterMonoBehaviourSubclass({ns}.{name})");
 
             try
             {
@@ -205,7 +218,7 @@ namespace GameSDK.Injection
                     _logger.Error("[INJECT] Failed to find MonoBehaviour class!");
                     return IntPtr.Zero;
                 }
-                _logger.Info($"[INJECT] MonoBehaviour @ 0x{monoBehaviour.ToInt64():X}");
+                LogVerbose($"[INJECT] MonoBehaviour @ 0x{monoBehaviour.ToInt64():X}");
 
                 // Step 2: Install hooks (idempotent)
                 if (!InjectorHelpers.Setup())
@@ -242,7 +255,7 @@ namespace GameSDK.Injection
             ushort vtableCount = parentPart2.vtable_count;
             int totalClassSize = Il2CppConstants.VTABLE_OFFSET + vtableCount * 16;
 
-            _logger.Info($"[INJECT] Parent layout: instance_size={parentPart2.instance_size}, vtable_count={vtableCount}, total={totalClassSize}");
+            LogVerbose($"[INJECT] Parent layout: instance_size={parentPart2.instance_size}, vtable_count={vtableCount}, total={totalClassSize}");
 
             // Step 5: Allocate new class — full copy of parent including vtable
             IntPtr newClass = Marshal.AllocHGlobal(totalClassSize);
@@ -256,7 +269,7 @@ namespace GameSDK.Injection
                 byte* src = (byte*)parentClass.ToPointer();
                 for (int i = 0; i < totalClassSize; i++) p[i] = src[i];
             }
-            _logger.Info($"[INJECT] New class allocated @ 0x{newClass.ToInt64():X} (size={totalClassSize})");
+            LogVerbose($"[INJECT] New class allocated @ 0x{newClass.ToInt64():X} (size={totalClassSize})");
 
             // Step 5b: Populate fake image with parent's internal metadata
             // The fake image was created with only name/assembly/dynamic set.
@@ -279,8 +292,8 @@ namespace GameSDK.Injection
                     // Skip 0x44+ (dynamic flag — already set to 1)
                     for (int i = 0x18; i < 0x44; i++) dst[i] = src[i];
                 }
-                _logger.Info($"[INJECT] Copied image internals from parent image @ 0x{parentImage.ToInt64():X}");
-                _logger.Info($"[INJECT]   codeGenModule = 0x{Marshal.ReadIntPtr(InjectorHelpers.FakeImage, 0x28).ToInt64():X}");
+                LogVerbose($"[INJECT] Copied image internals from parent image @ 0x{parentImage.ToInt64():X}");
+                LogVerbose($"[INJECT]   codeGenModule = 0x{Marshal.ReadIntPtr(InjectorHelpers.FakeImage, 0x28).ToInt64():X}");
             }
             else
             {
@@ -303,8 +316,8 @@ namespace GameSDK.Injection
             IntPtr parentParent = Marshal.ReadIntPtr(parentClass, 0x58);
             string parentParentName = "(?)";
             try { parentParentName = Il2CppMemory.ReadCString(Marshal.ReadIntPtr(parentParent, 0x10)) ?? "(?)"; } catch {}
-            _logger.Info($"[INJECT] Identity set: name={name}, ns={ns}");
-            _logger.Info($"[INJECT] parent → 0x{parentClass.ToInt64():X} (MonoBehaviour), parent.parent → 0x{parentParent.ToInt64():X} ({parentParentName})");
+            LogVerbose($"[INJECT] Identity set: name={name}, ns={ns}");
+            LogVerbose($"[INJECT] parent → 0x{parentClass.ToInt64():X} (MonoBehaviour), parent.parent → 0x{parentParent.ToInt64():X} ({parentParentName})");
 
             // Step 7: Set type identity — negative token approach (matching Il2CppInterop)
             // Instead of a fake TypeDefinition pointer, use a negative integer token
@@ -313,7 +326,7 @@ namespace GameSDK.Injection
             // both of which we hook to intercept negative tokens.
             long token = InjectorHelpers.CreateClassToken(newClass);
             IntPtr tokenAsPtr = new IntPtr(token); // e.g. -2 → 0xFFFFFFFFFFFFFFFE
-            _logger.Info($"[INJECT] Class token: {token} (0x{tokenAsPtr.ToInt64():X})");
+            LogVerbose($"[INJECT] Class token: {token} (0x{tokenAsPtr.ToInt64():X})");
 
             // Write byval_arg (offset 0x20, 16 bytes)
             // Il2CppType: Data (8 bytes) + Attrs packed (4 bytes)
@@ -332,7 +345,7 @@ namespace GameSDK.Injection
             // Keep typeMetadataHandle as parent's original value (from memcpy)
             // Don't override offset 0x68 — it points to MonoBehaviour's real TypeDefinition
             IntPtr parentTypeMetadataHandle = Marshal.ReadIntPtr(newClass, 0x68);
-            _logger.Info($"[INJECT] typeMetadataHandle (inherited) @ 0x{parentTypeMetadataHandle.ToInt64():X}");
+            LogVerbose($"[INJECT] typeMetadataHandle (inherited) @ 0x{parentTypeMetadataHandle.ToInt64():X}");
 
             // DO NOT write negative token to Il2CppClass_2.token (offset 0xC8 + 0x54 = 0x11C)
             // Unity's AddComponent reads klass->token as a metadata index. Writing -2 here
@@ -340,7 +353,7 @@ namespace GameSDK.Injection
             // Keep MonoBehaviour's original token value (from memcpy) — it's valid and
             // the classloader code that uses it goes through our FromIl2CppType hook.
             uint inheritedToken = (uint)Marshal.ReadInt32(newClass, Il2CppConstants.CLASS_2_OFFSET + 0x54);
-            _logger.Info($"[INJECT] Keeping inherited token: 0x{inheritedToken:X}");
+            LogVerbose($"[INJECT] Keeping inherited token: 0x{inheritedToken:X}");
 
             // Step 8: Create method infos (was step 9)
             IntPtr voidReturnType = GetVoidType(parentClass);
@@ -363,7 +376,7 @@ namespace GameSDK.Injection
             // Read parent bitflags (inherited via memcpy) — OR in needed bits, don't overwrite
             byte bitflags1 = Marshal.ReadByte(newClass, class2Base + 0x6E);
             byte bitflags2 = Marshal.ReadByte(newClass, class2Base + 0x6F);
-            _logger.Info($"[INJECT] Parent bitflags: bf1=0x{bitflags1:X2} bf2=0x{bitflags2:X2}");
+            LogVerbose($"[INJECT] Parent bitflags: bf1=0x{bitflags1:X2} bf2=0x{bitflags2:X2}");
 
             // Standard IL2CPP bit layout (C compiler LSB-first packing):
             // bf1: bit0=initialized, bit1=enumtype, bit2=is_generic, bit3=has_references,
@@ -379,12 +392,12 @@ namespace GameSDK.Injection
             Marshal.WriteByte(newClass, class2Base + 0x6E, bitflags1);
             Marshal.WriteByte(newClass, class2Base + 0x6F, bitflags2);
 
-            _logger.Info($"[INJECT] Flags set: flags=0x{flags:X}, bitflags1=0x{bitflags1:X2}, bitflags2=0x{bitflags2:X2}");
+            LogVerbose($"[INJECT] Flags set: flags=0x{flags:X}, bitflags1=0x{bitflags1:X2}, bitflags2=0x{bitflags2:X2}");
 
             // Step 15: Register
             InjectorHelpers.AddTypeToLookup(newClass, ns, name);
 
-            _logger.Info($"[INJECT] Class allocated: {ns}.{name} @ 0x{newClass.ToInt64():X} (size={totalClassSize} vtable={vtableCount})");
+            LogVerbose($"[INJECT] Class allocated: {ns}.{name} @ 0x{newClass.ToInt64():X} (size={totalClassSize} vtable={vtableCount})");
 
             return newClass;
         }
@@ -441,7 +454,7 @@ namespace GameSDK.Injection
 
                 methods[i] = mi;
 
-                _logger.Info($"[INJECT] MethodInfo[{i}] '{methodNames[i]}' @ 0x{mi.ToInt64():X} ptr=0x{methodFnPtrs[i].ToInt64():X}");
+                LogVerbose($"[INJECT] MethodInfo[{i}] '{methodNames[i]}' @ 0x{mi.ToInt64():X} ptr=0x{methodFnPtrs[i].ToInt64():X}");
             }
 
             // Step 10: Build methods array (pointer array)
@@ -470,7 +483,7 @@ namespace GameSDK.Injection
             Marshal.WriteIntPtr(newClass, 0x90, IntPtr.Zero); // properties
             Marshal.WriteIntPtr(newClass, 0xA0, IntPtr.Zero); // nestedTypes
 
-            _logger.Info($"[INJECT] Methods array @ 0x{methodsArray.ToInt64():X}, count=5");
+            LogVerbose($"[INJECT] Methods array @ 0x{methodsArray.ToInt64():X}, count=5");
         }
 
         // ==============================
@@ -479,7 +492,7 @@ namespace GameSDK.Injection
 
         private static void OverrideVtableEntries(IntPtr newClass, IntPtr parentClass, ushort vtableCount)
         {
-            _logger.Info($"[INJECT] Scanning vtable ({vtableCount} entries) for override targets...");
+            LogVerbose($"[INJECT] Scanning vtable ({vtableCount} entries) for override targets...");
 
             // Diagnostic: dump ALL vtable entries to understand what's there
             // First, probe vtable[0] at every 8-byte offset to find the name field
@@ -488,7 +501,7 @@ namespace GameSDK.Injection
                 VirtualInvokeData probe = Il2CppMemory.ReadVtableEntry(newClass, 0);
                 if (probe.method != IntPtr.Zero)
                 {
-                    _logger.Info($"[INJECT] Probing vtable[0] method @ 0x{probe.method.ToInt64():X} for name field:");
+                    LogVerbose($"[INJECT] Probing vtable[0] method @ 0x{probe.method.ToInt64():X} for name field:");
                     for (int off = 0; off <= 0x48; off += 0x08)
                     {
                         IntPtr val = Marshal.ReadIntPtr(probe.method, off);
@@ -510,7 +523,7 @@ namespace GameSDK.Injection
                         {
                             attempt = "(code addr)";
                         }
-                        _logger.Info($"[INJECT]   [0x{off:X2}] = 0x{val.ToInt64():X} → {attempt}");
+                        LogVerbose($"[INJECT]   [0x{off:X2}] = 0x{val.ToInt64():X} → {attempt}");
                     }
                 }
             }
@@ -526,7 +539,7 @@ namespace GameSDK.Injection
                     diagName = Il2CppMemory.ReadCString(namePtr) ?? "(null name)";
                     diagKlass = Marshal.ReadIntPtr(vid.method, 0x20); // klass at 0x20
                 }
-                _logger.Info($"[INJECT]   vtable[{slot}]: method=0x{vid.method.ToInt64():X} ptr=0x{vid.methodPtr.ToInt64():X} klass=0x{diagKlass.ToInt64():X} name='{diagName}'");
+                LogVerbose($"[INJECT]   vtable[{slot}]: method=0x{vid.method.ToInt64():X} ptr=0x{vid.methodPtr.ToInt64():X} klass=0x{diagKlass.ToInt64():X} name='{diagName}'");
             }
 
             // Only Finalize needs vtable override — Update/FixedUpdate/LateUpdate
@@ -554,7 +567,7 @@ namespace GameSDK.Injection
                     newVid.method = ourFinalizeMethodInfo;
                     Il2CppMemory.WriteVtableEntry(newClass, slot, newVid);
 
-                    _logger.Info($"[INJECT] Vtable[{slot}] overridden: Finalize → 0x{s_finalizeFnPtr.ToInt64():X}");
+                    LogVerbose($"[INJECT] Vtable[{slot}] overridden: Finalize → 0x{s_finalizeFnPtr.ToInt64():X}");
                     finalizeOverridden = true;
                     break;
                 }
@@ -573,11 +586,11 @@ namespace GameSDK.Injection
                         IntPtr np = Marshal.ReadIntPtr(vid.method, 0x18); // name at 0x18 (Unity 2021+)
                         pName = Il2CppMemory.ReadCString(np) ?? "(null name)";
                     }
-                    _logger.Info($"[INJECT]   parent vtable[{slot}]: method=0x{vid.method.ToInt64():X} name='{pName}'");
+                    LogVerbose($"[INJECT]   parent vtable[{slot}]: method=0x{vid.method.ToInt64():X} name='{pName}'");
                 }
             }
 
-            _logger.Info($"[INJECT] Update/FixedUpdate/LateUpdate are Unity messages, not virtual — registered via methods array only");
+            LogVerbose($"[INJECT] Update/FixedUpdate/LateUpdate are Unity messages, not virtual — registered via methods array only");
         }
 
         // ==============================
@@ -613,7 +626,7 @@ namespace GameSDK.Injection
             Marshal.WriteIntPtr(newClass, class2Offset, newHierarchy);          // typeHierarchy
             Marshal.WriteByte(newClass, class2Offset + 0x68, newDepth);          // typeHierarchyDepth
 
-            _logger.Info($"[INJECT] TypeHierarchy built: depth {parentDepth} → {newDepth}");
+            LogVerbose($"[INJECT] TypeHierarchy built: depth {parentDepth} → {newDepth}");
         }
 
         // ==============================
@@ -633,7 +646,7 @@ namespace GameSDK.Injection
                 IntPtr returnType = Il2CppBridge.mdb_method_get_return_type(ctorMethod);
                 if (returnType != IntPtr.Zero)
                 {
-                    _logger.Info($"[INJECT] Void type found via .ctor return type @ 0x{returnType.ToInt64():X}");
+                    LogVerbose($"[INJECT] Void type found via .ctor return type @ 0x{returnType.ToInt64():X}");
                     return returnType;
                 }
             }
@@ -645,7 +658,7 @@ namespace GameSDK.Injection
                 IntPtr returnType = Il2CppBridge.mdb_method_get_return_type(finalizeMethod);
                 if (returnType != IntPtr.Zero)
                 {
-                    _logger.Info($"[INJECT] Void type found via Finalize return type @ 0x{returnType.ToInt64():X}");
+                    LogVerbose($"[INJECT] Void type found via Finalize return type @ 0x{returnType.ToInt64():X}");
                     return returnType;
                 }
             }

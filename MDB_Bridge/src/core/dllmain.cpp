@@ -196,7 +196,7 @@ static bool ensure_directory_structure() {
         try {
             if (!std::filesystem::exists(dir)) {
                 std::filesystem::create_directories(dir);
-                LOG_INFO("Created directory: %ls", dir.c_str());
+                LOG_VERBOSE("Created directory: %ls", dir.c_str());
             }
         } catch (const std::exception& e) {
             LOG_ERROR("Failed to create directory %ls: %s", dir.c_str(), e.what());
@@ -254,16 +254,16 @@ static bool prepare_game_sdk() {
         
         LOG_INFO("  Dumped %zu classes from %zu assemblies", 
                  dump_result.total_classes, dump_result.total_assemblies);
-        LOG_INFO("  Generated %zu wrapper files (%zu classes)",
+        LOG_VERBOSE("  Generated %zu wrapper files (%zu classes)",
                  dump_result.generated_files.size(), dump_result.total_wrappers_generated);
         if (dump_result.fake_methods_detected > 0 || dump_result.fake_classes_detected > 0) {
-            LOG_INFO("  Obfuscation: filtered %zu fake methods, %zu fake classes",
-                     dump_result.fake_methods_detected, dump_result.fake_classes_detected);
-            LOG_INFO("  Obfuscation report: %s", dump_result.fake_report_path.c_str());
+            LOG_VERBOSE("  Obfuscation: filtered %zu fake methods, %zu fake classes",
+                      dump_result.fake_methods_detected, dump_result.fake_classes_detected);
+            LOG_VERBOSE("  Obfuscation report: %s", dump_result.fake_report_path.c_str());
         }
         if (dump_result.mappings_loaded > 0) {
-            LOG_INFO("  Deobfuscation: applied %zu friendly name mappings to SDK",
-                     dump_result.mappings_loaded);
+            LOG_VERBOSE("  Deobfuscation: applied %zu friendly name mappings to SDK",
+                      dump_result.mappings_loaded);
         }
     } else {
         LOG_INFO("Step 1/2: Wrappers up to date, skipping dump");
@@ -337,14 +337,14 @@ static void ensure_bridge_searchable() {
         if (ec) {
             LOG_ERROR("Failed to copy self to %ls: %s", bridgePath.wstring().c_str(), ec.message().c_str());
         } else {
-            LOG_INFO("Copied self to %ls for P/Invoke resolution", bridgePath.wstring().c_str());
+            LOG_VERBOSE("Copied self to %ls for P/Invoke resolution", bridgePath.wstring().c_str());
         }
     }
 
     if (std::filesystem::exists(bridgePath)) {
         HMODULE h = LoadLibraryW(bridgePath.wstring().c_str());
         if (h) {
-            LOG_INFO("Pre-loaded %ls for P/Invoke resolution", bridgePath.wstring().c_str());
+            LOG_VERBOSE("Pre-loaded %ls for P/Invoke resolution", bridgePath.wstring().c_str());
         } else {
             LOG_ERROR("Failed to pre-load %ls (error %lu)", bridgePath.wstring().c_str(), GetLastError());
         }

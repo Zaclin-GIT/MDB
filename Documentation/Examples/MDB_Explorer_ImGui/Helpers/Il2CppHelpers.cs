@@ -18,6 +18,12 @@ namespace MDB.Explorer.ImGui
     {
         private const string LOG_TAG = "Il2CppHelpers";
 
+        /// <summary>
+        /// Enable verbose diagnostic logging for IL2CPP helper operations.
+        /// Disabled by default to keep Mods.log clean in production.
+        /// </summary>
+        public static bool VerboseLogging = false;
+
         // Cached class pointers (resolved once)
         private static IntPtr _gameObjectClass;
         private static IntPtr _transformClass;
@@ -62,7 +68,10 @@ namespace MDB.Explorer.ImGui
                             _componentClass != IntPtr.Zero;
 
                 if (_resolved)
-                    ModLogger.LogInternal(LOG_TAG, "[INFO] Core Unity classes resolved");
+                {
+                    if (VerboseLogging)
+                        ModLogger.LogInternal(LOG_TAG, "[INFO] Core Unity classes resolved");
+                }
                 else
                     ModLogger.LogInternal(LOG_TAG, "[WARN] Some core Unity classes failed to resolve");
 

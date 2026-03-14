@@ -830,6 +830,12 @@ namespace MDB.Explorer.ImGui
     {
         private const string LOG_TAG = "ImGuiController";
 
+        /// <summary>
+        /// Enable verbose diagnostic logging for ImGui controller lifecycle events.
+        /// Disabled by default to keep Mods.log clean in production.
+        /// </summary>
+        public bool VerboseLogging { get; set; } = false;
+
         private ImGuiDrawCallback _drawCallback;
         private IntPtr _drawCallbackPtr;
         private bool _initialized;
@@ -870,7 +876,8 @@ namespace MDB.Explorer.ImGui
                 return true;
             }
 
-            ModLogger.LogInternal(LOG_TAG, "[INFO] Initializing ImGui...");
+            if (VerboseLogging)
+                ModLogger.LogInternal(LOG_TAG, "[INFO] Initializing ImGui...");
 
             try
             {
@@ -923,7 +930,8 @@ namespace MDB.Explorer.ImGui
         {
             if (!_initialized) return;
 
-            ModLogger.LogInternal(LOG_TAG, "[INFO] Shutting down ImGui...");
+            if (VerboseLogging)
+                ModLogger.LogInternal(LOG_TAG, "[INFO] Shutting down ImGui...");
 
             try
             {
@@ -934,7 +942,8 @@ namespace MDB.Explorer.ImGui
                 _drawCallback = null;
                 _drawCallbackPtr = IntPtr.Zero;
 
-                ModLogger.LogInternal(LOG_TAG, "[INFO] ImGui shutdown complete");
+                if (VerboseLogging)
+                    ModLogger.LogInternal(LOG_TAG, "[INFO] ImGui shutdown complete");
             }
             catch (Exception ex)
             {
