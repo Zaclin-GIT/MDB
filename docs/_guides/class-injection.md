@@ -58,31 +58,30 @@ This implementation is informed by [Il2CppInterop's ClassInjector](https://githu
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────┐
-│  Core/Injection/ Files                                    │
-│                                                          │
-│  NativeImports.cs    — P/Invoke, IL2CPP export resolver  │
-│  Il2CppStructs.cs    — Memory layout structs              │
-│  XrefScanner.cs      — E8/E9 instruction scanner          │
-│  InjectorHelpers.cs  — Hooks, fake image, token registry  │
-│  ClassInjector.cs    — Class construction                  │
-│  MDBRunner.cs        — Instantiation + dispatch            │
-└──────────────────────────────────────────────────────────┘
+```mermaid
+graph LR
+    subgraph Injection["Core/Injection/ Files"]
+        NI["NativeImports.cs<br/>P/Invoke · IL2CPP export resolver"]
+        IS["Il2CppStructs.cs<br/>Memory layout structs"]
+        XS["XrefScanner.cs<br/>E8/E9 instruction scanner"]
+        IH["InjectorHelpers.cs<br/>Hooks · fake image · token registry"]
+        CI["ClassInjector.cs<br/>Class construction"]
+        MR["MDBRunner.cs<br/>Instantiation + dispatch"]
+    end
 ```
 
 ### Bootstrap Flow
 
-```
-ModManager.Initialize()
-  → MDBRunner.Install()
-    → Phase 1 (bg thread): ClassInjector.RegisterMonoBehaviourSubclass()
-      → InjectorHelpers.Setup() → resolve exports, xref scan, install hooks
-      → CreateClass() → allocate Il2CppClass, set all fields
-    → Phase 2 (bg thread): Instantiate()
-      → Create GameObject, AddComponent(MDBRunner type), DontDestroyOnLoad
-  → Unity player loop calls Update/FixedUpdate/LateUpdate trampolines
-    → trampolines dispatch to ModManager.DispatchUpdate() etc.
+```mermaid
+flowchart TD
+    A["ModManager.Initialize()"] --> B["MDBRunner.Install()"]
+    B --> C["Phase 1 — background thread<br/>ClassInjector.RegisterMonoBehaviourSubclass()"]
+    C --> D["InjectorHelpers.Setup()<br/>Resolve exports · xref scan · install hooks"]
+    C --> E["CreateClass()<br/>Allocate Il2CppClass, set all fields"]
+    B --> F["Phase 2 — background thread<br/>Instantiate()"]
+    F --> G["Create GameObject<br/>AddComponent(MDBRunner type)<br/>DontDestroyOnLoad"]
+    G --> H["Unity player loop calls<br/>Update / FixedUpdate / LateUpdate trampolines"]
+    H --> I["Trampolines dispatch to<br/>ModManager.DispatchUpdate() etc."]
 ```
 
 ---
@@ -286,14 +285,17 @@ Extremely hot path — called thousands of times per frame. **We do not install 
 
 This function isn't directly exported. We find it via a multi-level xref chain:
 
-```
-il2cpp_image_get_class              (export)
-  → Image::GetType                  (level 0: first E8 target)
-    → [2 call targets]              (level 1)
-      → target_A
-        → GetTypeInfoFromTypeDef…   (level 2: LEAF — 0 outgoing calls)
-      → target_B
-        → some_other_function       (level 2: has 4+ outgoing calls)
+```mermaid
+graph TD
+    A["il2cpp_image_get_class<br/>(export)"] --> B["Image::GetType<br/>(level 0: first E8 target)"]
+    B --> C["2 call targets<br/>(level 1)"]
+    C --> D["target_A"]
+    C --> E["target_B"]
+    D --> F["GetTypeInfoFromTypeDefinitionIndex<br/>(level 2: LEAF — 0 outgoing calls ✓ PREFERRED)"]
+    E --> G["some_other_function<br/>(level 2: 4+ outgoing calls — skipped)"]
+
+    style F fill:#238636,color:#ffffff
+    style G fill:#6e7681,color:#ffffff
 ```
 
 **Critical insight**: `GetTypeInfoFromTypeDefinitionIndex` is a **leaf function** — it does table lookups with no outgoing calls. We prefer leaf candidates over chain candidates. An earlier bug selected a non-leaf candidate at a different RVA, which was the wrong function entirely.

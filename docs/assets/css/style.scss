@@ -418,3 +418,20 @@ body.embedded {
     grid-template-columns: 1fr;
   }
 }
+
+// --- Mermaid Diagrams ---
+.mermaid-diagram,
+pre.mermaid {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 1.5rem;
+  margin: 1.5rem 0;
+  overflow-x: auto;
+  text-align: center;
+
+  svg {
+    max-width: 100%;
+    height: auto;
+  }
+}
