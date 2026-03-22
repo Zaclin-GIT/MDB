@@ -703,6 +703,90 @@ namespace GameSDK
         [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_AddText")]
         private static extern void ImDrawList_AddText(IntPtr drawList, Vector2 pos, uint col, [MarshalAs(UnmanagedType.LPStr)] string text, IntPtr textEnd);
 
+        // ===== DrawList: Polyline/Polygon =====
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_AddPolyline")]
+        private static extern void ImDrawList_AddPolyline(IntPtr drawList, Vector2[] points, int numPoints, uint col, int flags, float thickness);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_AddConvexPolyFilled")]
+        private static extern void ImDrawList_AddConvexPolyFilled(IntPtr drawList, Vector2[] points, int numPoints, uint col);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_AddConcavePolyFilled")]
+        private static extern void ImDrawList_AddConcavePolyFilled(IntPtr drawList, Vector2[] points, int numPoints, uint col);
+
+        // ===== DrawList: Triangles/Quads =====
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_AddTriangle")]
+        private static extern void ImDrawList_AddTriangle(IntPtr drawList, Vector2 p1, Vector2 p2, Vector2 p3, uint col, float thickness);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_AddTriangleFilled")]
+        private static extern void ImDrawList_AddTriangleFilled(IntPtr drawList, Vector2 p1, Vector2 p2, Vector2 p3, uint col);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_AddQuad")]
+        private static extern void ImDrawList_AddQuad(IntPtr drawList, Vector2 p1, Vector2 p2, Vector2 p3, Vector2 p4, uint col, float thickness);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_AddQuadFilled")]
+        private static extern void ImDrawList_AddQuadFilled(IntPtr drawList, Vector2 p1, Vector2 p2, Vector2 p3, Vector2 p4, uint col);
+
+        // ===== DrawList: N-gons/Ellipses =====
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_AddNgon")]
+        private static extern void ImDrawList_AddNgon(IntPtr drawList, Vector2 center, float radius, uint col, int numSegments, float thickness);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_AddNgonFilled")]
+        private static extern void ImDrawList_AddNgonFilled(IntPtr drawList, Vector2 center, float radius, uint col, int numSegments);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_AddEllipse")]
+        private static extern void ImDrawList_AddEllipse(IntPtr drawList, Vector2 center, Vector2 radius, uint col, float rot, int numSegments, float thickness);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_AddEllipseFilled")]
+        private static extern void ImDrawList_AddEllipseFilled(IntPtr drawList, Vector2 center, Vector2 radius, uint col, float rot, int numSegments);
+
+        // ===== DrawList: Multi-Color =====
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_AddRectFilledMultiColor")]
+        private static extern void ImDrawList_AddRectFilledMultiColor(IntPtr drawList, Vector2 pMin, Vector2 pMax, uint colUprLeft, uint colUprRight, uint colBotRight, uint colBotLeft);
+
+        // ===== DrawList: Bezier Curves =====
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_AddBezierCubic")]
+        private static extern void ImDrawList_AddBezierCubic(IntPtr drawList, Vector2 p1, Vector2 p2, Vector2 p3, Vector2 p4, uint col, float thickness, int numSegments);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_AddBezierQuadratic")]
+        private static extern void ImDrawList_AddBezierQuadratic(IntPtr drawList, Vector2 p1, Vector2 p2, Vector2 p3, uint col, float thickness, int numSegments);
+
+        // ===== DrawList: Path Operations =====
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_PathClear")]
+        private static extern void ImDrawList_PathClear(IntPtr drawList);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_PathLineTo")]
+        private static extern void ImDrawList_PathLineTo(IntPtr drawList, Vector2 pos);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_PathArcTo")]
+        private static extern void ImDrawList_PathArcTo(IntPtr drawList, Vector2 center, float radius, float aMin, float aMax, int numSegments);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_PathArcToFast")]
+        private static extern void ImDrawList_PathArcToFast(IntPtr drawList, Vector2 center, float radius, int aMinOf12, int aMaxOf12);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_PathBezierCubicCurveTo")]
+        private static extern void ImDrawList_PathBezierCubicCurveTo(IntPtr drawList, Vector2 p2, Vector2 p3, Vector2 p4, int numSegments);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_PathBezierQuadraticCurveTo")]
+        private static extern void ImDrawList_PathBezierQuadraticCurveTo(IntPtr drawList, Vector2 p2, Vector2 p3, int numSegments);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_PathRect")]
+        private static extern void ImDrawList_PathRect(IntPtr drawList, Vector2 rectMin, Vector2 rectMax, float rounding, int flags);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_PathStroke")]
+        private static extern void ImDrawList_PathStroke(IntPtr drawList, uint col, int flags, float thickness);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_PathFillConvex")]
+        private static extern void ImDrawList_PathFillConvex(IntPtr drawList, uint col);
+
+        [DllImport(DllName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "ImDrawList_PathFillConcave")]
+        private static extern void ImDrawList_PathFillConcave(IntPtr drawList, uint col);
+
         /// <summary>
         /// Convert RGBA color to ImGui packed color (ABGR format).
         /// </summary>
@@ -778,6 +862,258 @@ namespace GameSDK
             var drawList = GetForegroundDrawList();
             if (drawList != IntPtr.Zero)
                 ImDrawList_AddText(drawList, pos, color, text, IntPtr.Zero);
+        }
+
+        // ===== Polyline/Polygon =====
+
+        /// <summary>
+        /// Draw a polyline on the foreground overlay.
+        /// </summary>
+        public static void DrawPolyline(Vector2[] points, uint color, float thickness = 1f, int flags = 0)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero && points != null && points.Length >= 2)
+                ImDrawList_AddPolyline(drawList, points, points.Length, color, flags, thickness);
+        }
+
+        /// <summary>
+        /// Draw a filled convex polygon on the foreground overlay.
+        /// </summary>
+        public static void DrawConvexPolyFilled(Vector2[] points, uint color)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero && points != null && points.Length >= 3)
+                ImDrawList_AddConvexPolyFilled(drawList, points, points.Length, color);
+        }
+
+        /// <summary>
+        /// Draw a filled concave polygon on the foreground overlay.
+        /// </summary>
+        public static void DrawConcavePolyFilled(Vector2[] points, uint color)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero && points != null && points.Length >= 3)
+                ImDrawList_AddConcavePolyFilled(drawList, points, points.Length, color);
+        }
+
+        // ===== Triangles/Quads =====
+
+        /// <summary>
+        /// Draw a triangle outline on the foreground overlay.
+        /// </summary>
+        public static void DrawTriangle(Vector2 p1, Vector2 p2, Vector2 p3, uint color, float thickness = 1f)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_AddTriangle(drawList, p1, p2, p3, color, thickness);
+        }
+
+        /// <summary>
+        /// Draw a filled triangle on the foreground overlay.
+        /// </summary>
+        public static void DrawTriangleFilled(Vector2 p1, Vector2 p2, Vector2 p3, uint color)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_AddTriangleFilled(drawList, p1, p2, p3, color);
+        }
+
+        /// <summary>
+        /// Draw a quad outline on the foreground overlay.
+        /// </summary>
+        public static void DrawQuad(Vector2 p1, Vector2 p2, Vector2 p3, Vector2 p4, uint color, float thickness = 1f)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_AddQuad(drawList, p1, p2, p3, p4, color, thickness);
+        }
+
+        /// <summary>
+        /// Draw a filled quad on the foreground overlay.
+        /// </summary>
+        public static void DrawQuadFilled(Vector2 p1, Vector2 p2, Vector2 p3, Vector2 p4, uint color)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_AddQuadFilled(drawList, p1, p2, p3, p4, color);
+        }
+
+        // ===== N-gons/Ellipses =====
+
+        /// <summary>
+        /// Draw a regular N-gon outline on the foreground overlay.
+        /// </summary>
+        public static void DrawNgon(Vector2 center, float radius, uint color, int numSegments, float thickness = 1f)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_AddNgon(drawList, center, radius, color, numSegments, thickness);
+        }
+
+        /// <summary>
+        /// Draw a filled regular N-gon on the foreground overlay.
+        /// </summary>
+        public static void DrawNgonFilled(Vector2 center, float radius, uint color, int numSegments)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_AddNgonFilled(drawList, center, radius, color, numSegments);
+        }
+
+        /// <summary>
+        /// Draw an ellipse outline on the foreground overlay.
+        /// </summary>
+        public static void DrawEllipse(Vector2 center, Vector2 radius, uint color, float rotation = 0f, int numSegments = 0, float thickness = 1f)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_AddEllipse(drawList, center, radius, color, rotation, numSegments, thickness);
+        }
+
+        /// <summary>
+        /// Draw a filled ellipse on the foreground overlay.
+        /// </summary>
+        public static void DrawEllipseFilled(Vector2 center, Vector2 radius, uint color, float rotation = 0f, int numSegments = 0)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_AddEllipseFilled(drawList, center, radius, color, rotation, numSegments);
+        }
+
+        // ===== Multi-Color =====
+
+        /// <summary>
+        /// Draw a gradient-filled rectangle on the foreground overlay.
+        /// </summary>
+        public static void DrawRectFilledMultiColor(Vector2 min, Vector2 max, uint colUpperLeft, uint colUpperRight, uint colBottomRight, uint colBottomLeft)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_AddRectFilledMultiColor(drawList, min, max, colUpperLeft, colUpperRight, colBottomRight, colBottomLeft);
+        }
+
+        // ===== Bezier Curves =====
+
+        /// <summary>
+        /// Draw a cubic bezier curve on the foreground overlay.
+        /// </summary>
+        public static void DrawBezierCubic(Vector2 p1, Vector2 p2, Vector2 p3, Vector2 p4, uint color, float thickness = 1f, int numSegments = 0)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_AddBezierCubic(drawList, p1, p2, p3, p4, color, thickness, numSegments);
+        }
+
+        /// <summary>
+        /// Draw a quadratic bezier curve on the foreground overlay.
+        /// </summary>
+        public static void DrawBezierQuadratic(Vector2 p1, Vector2 p2, Vector2 p3, uint color, float thickness = 1f, int numSegments = 0)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_AddBezierQuadratic(drawList, p1, p2, p3, color, thickness, numSegments);
+        }
+
+        // ===== Path Operations =====
+
+        /// <summary>
+        /// Clear the current path on the foreground draw list.
+        /// </summary>
+        public static void PathClear()
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_PathClear(drawList);
+        }
+
+        /// <summary>
+        /// Add a point to the current path.
+        /// </summary>
+        public static void PathLineTo(Vector2 pos)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_PathLineTo(drawList, pos);
+        }
+
+        /// <summary>
+        /// Add an arc to the current path.
+        /// </summary>
+        public static void PathArcTo(Vector2 center, float radius, float aMin, float aMax, int numSegments = 0)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_PathArcTo(drawList, center, radius, aMin, aMax, numSegments);
+        }
+
+        /// <summary>
+        /// Add an arc to the current path using 12-segment precomputed angles.
+        /// </summary>
+        public static void PathArcToFast(Vector2 center, float radius, int aMinOf12, int aMaxOf12)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_PathArcToFast(drawList, center, radius, aMinOf12, aMaxOf12);
+        }
+
+        /// <summary>
+        /// Add a cubic bezier curve to the current path.
+        /// </summary>
+        public static void PathBezierCubicCurveTo(Vector2 p2, Vector2 p3, Vector2 p4, int numSegments = 0)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_PathBezierCubicCurveTo(drawList, p2, p3, p4, numSegments);
+        }
+
+        /// <summary>
+        /// Add a quadratic bezier curve to the current path.
+        /// </summary>
+        public static void PathBezierQuadraticCurveTo(Vector2 p2, Vector2 p3, int numSegments = 0)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_PathBezierQuadraticCurveTo(drawList, p2, p3, numSegments);
+        }
+
+        /// <summary>
+        /// Add a rectangle to the current path.
+        /// </summary>
+        public static void PathRect(Vector2 rectMin, Vector2 rectMax, float rounding = 0f, int flags = 0)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_PathRect(drawList, rectMin, rectMax, rounding, flags);
+        }
+
+        /// <summary>
+        /// Stroke the current path with color.
+        /// </summary>
+        public static void PathStroke(uint color, int flags = 0, float thickness = 1f)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_PathStroke(drawList, color, flags, thickness);
+        }
+
+        /// <summary>
+        /// Fill the current convex path.
+        /// </summary>
+        public static void PathFillConvex(uint color)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_PathFillConvex(drawList, color);
+        }
+
+        /// <summary>
+        /// Fill the current concave path.
+        /// </summary>
+        public static void PathFillConcave(uint color)
+        {
+            var drawList = GetForegroundDrawList();
+            if (drawList != IntPtr.Zero)
+                ImDrawList_PathFillConcave(drawList, color);
         }
 
         #endregion

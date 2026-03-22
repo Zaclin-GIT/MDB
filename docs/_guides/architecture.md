@@ -227,8 +227,9 @@ Every IL2CPP game has a unique type system. MDB generates a per-game SDK at runt
 4. Run **obfuscation detection** — BeeByte-style fake method/class filtering
 5. Apply **deobfuscation name mappings** if available
 6. Resolve **generic type arguments** at runtime (`List<string>` stays `List<string>`)
-7. Generate compilable C# source files into `MDB_Core/Generated/`
-8. Write a **freshness marker** so subsequent launches skip this step
+7. Emit **dnSpy-style metadata comments** — Token, RID, RVA, file offset, and VA for every type, method, field, and property (PE section headers are parsed to convert RVA → file offset)
+8. Generate compilable C# source files into `MDB_Core/Generated/`
+9. Write a **freshness marker** so subsequent launches skip this step
 
 ### MSBuild Invocation
 

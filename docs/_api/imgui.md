@@ -39,6 +39,12 @@ Dear ImGui is an immediate-mode GUI library perfect for debugging tools, in-game
 11. [Tooltips](#tooltips)
 12. [Popups](#popups)
 13. [Drawing](#drawing-overlay)
+    - [Basic Drawing](#basic-drawing)
+    - [Triangles & Quads](#triangles--quads)
+    - [Polylines & Polygons](#polylines--polygons)
+    - [N-gons & Ellipses](#n-gons--ellipses)
+    - [Gradients & Bezier Curves](#gradients--bezier-curves)
+    - [Path Operations](#path-operations)
 14. [Utilities](#utilities)
 15. [Complete Examples](#complete-examples)
 
@@ -1149,7 +1155,7 @@ uint blue = ImGui.ColorToU32(new Vector4(0, 0, 1, 1));
 
 ---
 
-### Drawing Functions
+### Basic Drawing
 
 ```csharp
 public static void DrawLine(Vector2 p1, Vector2 p2, uint color, float thickness = 1f)
@@ -1160,6 +1166,67 @@ public static void DrawCircleFilled(Vector2 center, float radius, uint color, in
 public static void DrawText(Vector2 pos, uint color, string text)
 ```
 
+---
+
+### Triangles & Quads
+
+```csharp
+public static void DrawTriangle(Vector2 p1, Vector2 p2, Vector2 p3, uint color, float thickness = 1f)
+public static void DrawTriangleFilled(Vector2 p1, Vector2 p2, Vector2 p3, uint color)
+public static void DrawQuad(Vector2 p1, Vector2 p2, Vector2 p3, Vector2 p4, uint color, float thickness = 1f)
+public static void DrawQuadFilled(Vector2 p1, Vector2 p2, Vector2 p3, Vector2 p4, uint color)
+```
+
+---
+
+### Polylines & Polygons
+
+```csharp
+public static void DrawPolyline(Vector2[] points, uint color, float thickness = 1f, int flags = 0)
+public static void DrawConvexPolyFilled(Vector2[] points, uint color)
+public static void DrawConcavePolyFilled(Vector2[] points, uint color)
+```
+
+---
+
+### N-gons & Ellipses
+
+```csharp
+public static void DrawNgon(Vector2 center, float radius, uint color, int numSegments, float thickness = 1f)
+public static void DrawNgonFilled(Vector2 center, float radius, uint color, int numSegments)
+public static void DrawEllipse(Vector2 center, Vector2 radius, uint color, float rotation = 0f, int numSegments = 0, float thickness = 1f)
+public static void DrawEllipseFilled(Vector2 center, Vector2 radius, uint color, float rotation = 0f, int numSegments = 0)
+```
+
+---
+
+### Gradients & Bezier Curves
+
+```csharp
+public static void DrawRectFilledMultiColor(Vector2 min, Vector2 max, uint colUpperLeft, uint colUpperRight, uint colBottomRight, uint colBottomLeft)
+public static void DrawBezierCubic(Vector2 p1, Vector2 p2, Vector2 p3, Vector2 p4, uint color, float thickness = 1f, int numSegments = 0)
+public static void DrawBezierQuadratic(Vector2 p1, Vector2 p2, Vector2 p3, uint color, float thickness = 1f, int numSegments = 0)
+```
+
+---
+
+### Path Operations
+
+Path-based drawing for complex shapes. Build a path, then stroke or fill it.
+
+```csharp
+public static void PathClear()
+public static void PathLineTo(Vector2 pos)
+public static void PathArcTo(Vector2 center, float radius, float aMin, float aMax, int numSegments = 0)
+public static void PathArcToFast(Vector2 center, float radius, int aMinOf12, int aMaxOf12)
+public static void PathBezierCubicCurveTo(Vector2 p2, Vector2 p3, Vector2 p4, int numSegments = 0)
+public static void PathBezierQuadraticCurveTo(Vector2 p2, Vector2 p3, int numSegments = 0)
+public static void PathRect(Vector2 rectMin, Vector2 rectMax, float rounding = 0f, int flags = 0)
+public static void PathStroke(uint color, int flags = 0, float thickness = 1f)
+public static void PathFillConvex(uint color)
+public static void PathFillConcave(uint color)
+```
+
 **Example:**
 ```csharp
 void DrawOverlay()
@@ -1167,36 +1234,32 @@ void DrawOverlay()
     uint red = ImGui.ColorToU32(1, 0, 0, 1);
     uint green = ImGui.ColorToU32(0, 1, 0, 0.5f);
     uint white = ImGui.ColorToU32(1, 1, 1, 1);
+    uint blue = ImGui.ColorToU32(0, 0, 1, 1);
     
-    // Draw line
-    ImGui.DrawLine(
-        new Vector2(100, 100), 
-        new Vector2(200, 200), 
-        red, 
-        2f
-    );
+    // Basic shapes
+    ImGui.DrawLine(new Vector2(100, 100), new Vector2(200, 200), red, 2f);
+    ImGui.DrawRect(new Vector2(50, 50), new Vector2(150, 100), green);
+    ImGui.DrawCircleFilled(new Vector2(300, 300), 50, red);
+    ImGui.DrawText(new Vector2(10, 10), white, "Overlay Text");
     
-    // Draw rectangle
-    ImGui.DrawRect(
-        new Vector2(50, 50), 
-        new Vector2(150, 100), 
-        green, 
-        1f
-    );
+    // Triangle
+    ImGui.DrawTriangleFilled(
+        new Vector2(400, 100), new Vector2(350, 200), new Vector2(450, 200), blue);
     
-    // Draw filled circle
-    ImGui.DrawCircleFilled(
-        new Vector2(300, 300), 
-        50, 
-        red
-    );
+    // Gradient rectangle
+    ImGui.DrawRectFilledMultiColor(
+        new Vector2(500, 100), new Vector2(700, 200),
+        ImGui.ColorToU32(1, 0, 0, 1),  // top-left: red
+        ImGui.ColorToU32(0, 1, 0, 1),  // top-right: green
+        ImGui.ColorToU32(0, 0, 1, 1),  // bottom-right: blue
+        ImGui.ColorToU32(1, 1, 0, 1)); // bottom-left: yellow
     
-    // Draw text
-    ImGui.DrawText(
-        new Vector2(10, 10), 
-        white, 
-        "Overlay Text"
-    );
+    // Path-based custom shape
+    ImGui.PathClear();
+    ImGui.PathLineTo(new Vector2(100, 400));
+    ImGui.PathLineTo(new Vector2(150, 350));
+    ImGui.PathLineTo(new Vector2(200, 400));
+    ImGui.PathFillConvex(green);
 }
 ```
 

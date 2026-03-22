@@ -223,6 +223,14 @@ namespace GameSDK
                 return (T)(object)Il2CppBridge.Il2CppStringToManaged(strPtr);
             }
 
+            // Handle array types - the field stores a pointer to an IL2CPP array object
+            if (t.IsArray)
+            {
+                IntPtr arrayPtr = Marshal.ReadIntPtr(instance, offset);
+                if (arrayPtr == IntPtr.Zero) return default(T);
+                return Il2CppMarshaler.MarshalReturn<T>(arrayPtr);
+            }
+
             // Handle other reference types (IL2CPP objects)
             if (!t.IsValueType)
             {

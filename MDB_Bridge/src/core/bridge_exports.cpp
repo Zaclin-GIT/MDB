@@ -727,7 +727,7 @@ MDB_API int mdb_array_length(void* array) {
     clear_error();
     if (!array) {
         set_error(MdbErrorCode::NullPointer, "Invalid argument: array is null");
-        return 0;
+        return -1;
     }
     
     auto* arr = reinterpret_cast<Il2CppArraySize*>(array);

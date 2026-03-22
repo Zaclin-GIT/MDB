@@ -437,6 +437,138 @@ IMGUI_EXPORT void ImDrawList_AddText(ImDrawList* self, ImVec2 pos, ImU32 col, co
     if (self) self->AddText(pos, col, text_begin, text_end);
 }
 
+// ===== DrawList: Polyline/Polygon =====
+
+IMGUI_EXPORT void ImDrawList_AddPolyline(ImDrawList* self, const ImVec2* points, int num_points, ImU32 col, int flags, float thickness)
+{
+    if (self) self->AddPolyline(points, num_points, col, (ImDrawFlags)flags, thickness);
+}
+
+IMGUI_EXPORT void ImDrawList_AddConvexPolyFilled(ImDrawList* self, const ImVec2* points, int num_points, ImU32 col)
+{
+    if (self) self->AddConvexPolyFilled(points, num_points, col);
+}
+
+IMGUI_EXPORT void ImDrawList_AddConcavePolyFilled(ImDrawList* self, const ImVec2* points, int num_points, ImU32 col)
+{
+    if (self) self->AddConcavePolyFilled(points, num_points, col);
+}
+
+// ===== DrawList: Triangles/Quads =====
+
+IMGUI_EXPORT void ImDrawList_AddTriangle(ImDrawList* self, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImU32 col, float thickness)
+{
+    if (self) self->AddTriangle(p1, p2, p3, col, thickness);
+}
+
+IMGUI_EXPORT void ImDrawList_AddTriangleFilled(ImDrawList* self, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImU32 col)
+{
+    if (self) self->AddTriangleFilled(p1, p2, p3, col);
+}
+
+IMGUI_EXPORT void ImDrawList_AddQuad(ImDrawList* self, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImVec2 p4, ImU32 col, float thickness)
+{
+    if (self) self->AddQuad(p1, p2, p3, p4, col, thickness);
+}
+
+IMGUI_EXPORT void ImDrawList_AddQuadFilled(ImDrawList* self, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImVec2 p4, ImU32 col)
+{
+    if (self) self->AddQuadFilled(p1, p2, p3, p4, col);
+}
+
+// ===== DrawList: N-gons/Ellipses =====
+
+IMGUI_EXPORT void ImDrawList_AddNgon(ImDrawList* self, ImVec2 center, float radius, ImU32 col, int num_segments, float thickness)
+{
+    if (self) self->AddNgon(center, radius, col, num_segments, thickness);
+}
+
+IMGUI_EXPORT void ImDrawList_AddNgonFilled(ImDrawList* self, ImVec2 center, float radius, ImU32 col, int num_segments)
+{
+    if (self) self->AddNgonFilled(center, radius, col, num_segments);
+}
+
+IMGUI_EXPORT void ImDrawList_AddEllipse(ImDrawList* self, ImVec2 center, ImVec2 radius, ImU32 col, float rot, int num_segments, float thickness)
+{
+    if (self) self->AddEllipse(center, radius, col, rot, num_segments, thickness);
+}
+
+IMGUI_EXPORT void ImDrawList_AddEllipseFilled(ImDrawList* self, ImVec2 center, ImVec2 radius, ImU32 col, float rot, int num_segments)
+{
+    if (self) self->AddEllipseFilled(center, radius, col, rot, num_segments);
+}
+
+// ===== DrawList: Multi-Color =====
+
+IMGUI_EXPORT void ImDrawList_AddRectFilledMultiColor(ImDrawList* self, ImVec2 p_min, ImVec2 p_max, ImU32 col_upr_left, ImU32 col_upr_right, ImU32 col_bot_right, ImU32 col_bot_left)
+{
+    if (self) self->AddRectFilledMultiColor(p_min, p_max, col_upr_left, col_upr_right, col_bot_right, col_bot_left);
+}
+
+// ===== DrawList: Bezier Curves =====
+
+IMGUI_EXPORT void ImDrawList_AddBezierCubic(ImDrawList* self, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImVec2 p4, ImU32 col, float thickness, int num_segments)
+{
+    if (self) self->AddBezierCubic(p1, p2, p3, p4, col, thickness, num_segments);
+}
+
+IMGUI_EXPORT void ImDrawList_AddBezierQuadratic(ImDrawList* self, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImU32 col, float thickness, int num_segments)
+{
+    if (self) self->AddBezierQuadratic(p1, p2, p3, col, thickness, num_segments);
+}
+
+// ===== DrawList: Path Operations =====
+
+IMGUI_EXPORT void ImDrawList_PathClear(ImDrawList* self)
+{
+    if (self) self->PathClear();
+}
+
+IMGUI_EXPORT void ImDrawList_PathLineTo(ImDrawList* self, ImVec2 pos)
+{
+    if (self) self->PathLineTo(pos);
+}
+
+IMGUI_EXPORT void ImDrawList_PathArcTo(ImDrawList* self, ImVec2 center, float radius, float a_min, float a_max, int num_segments)
+{
+    if (self) self->PathArcTo(center, radius, a_min, a_max, num_segments);
+}
+
+IMGUI_EXPORT void ImDrawList_PathArcToFast(ImDrawList* self, ImVec2 center, float radius, int a_min_of_12, int a_max_of_12)
+{
+    if (self) self->PathArcToFast(center, radius, a_min_of_12, a_max_of_12);
+}
+
+IMGUI_EXPORT void ImDrawList_PathBezierCubicCurveTo(ImDrawList* self, ImVec2 p2, ImVec2 p3, ImVec2 p4, int num_segments)
+{
+    if (self) self->PathBezierCubicCurveTo(p2, p3, p4, num_segments);
+}
+
+IMGUI_EXPORT void ImDrawList_PathBezierQuadraticCurveTo(ImDrawList* self, ImVec2 p2, ImVec2 p3, int num_segments)
+{
+    if (self) self->PathBezierQuadraticCurveTo(p2, p3, num_segments);
+}
+
+IMGUI_EXPORT void ImDrawList_PathRect(ImDrawList* self, ImVec2 rect_min, ImVec2 rect_max, float rounding, int flags)
+{
+    if (self) self->PathRect(rect_min, rect_max, rounding, (ImDrawFlags)flags);
+}
+
+IMGUI_EXPORT void ImDrawList_PathStroke(ImDrawList* self, ImU32 col, int flags, float thickness)
+{
+    if (self) self->PathStroke(col, (ImDrawFlags)flags, thickness);
+}
+
+IMGUI_EXPORT void ImDrawList_PathFillConvex(ImDrawList* self, ImU32 col)
+{
+    if (self) self->PathFillConvex(col);
+}
+
+IMGUI_EXPORT void ImDrawList_PathFillConcave(ImDrawList* self, ImU32 col)
+{
+    if (self) self->PathFillConcave(col);
+}
+
 // ===== Layout Utilities =====
 
 IMGUI_EXPORT void igCalcTextSize(ImVec2* out, const char* text, const char* text_end, bool hide_text_after_double_hash, float wrap_width)

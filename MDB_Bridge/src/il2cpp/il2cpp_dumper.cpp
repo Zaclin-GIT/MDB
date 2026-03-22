@@ -78,6 +78,184 @@ static uintptr_t GetGameAssemblyBaseAddress() {
     return (uintptr_t)GetModuleHandleW(L"GameAssembly.dll");
 }
 
+// ============================================================================
+// PE Section Table (RVA → File Offset conversion)
+// ============================================================================
+
+struct PESectionInfo {
+    uint32_t virtualAddress;
+    uint32_t virtualSize;
+    uint32_t rawDataOffset;
+    uint32_t rawDataSize;
+};
+
+// Populated once per dump by InitPESections()
+static std::vector<PESectionInfo> g_peSections;
+static uintptr_t g_gaBase = 0;
+
+/// Parse PE section headers from GameAssembly.dll for RVA→file offset conversion
+static void InitPESections(uintptr_t baseAddress) {
+    g_peSections.clear();
+    g_gaBase = baseAddress;
+    if (!baseAddress) return;
+
+    auto dosHeader = reinterpret_cast<PIMAGE_DOS_HEADER>(baseAddress);
+    if (dosHeader->e_magic != IMAGE_DOS_SIGNATURE) return;
+
+    auto ntHeaders = reinterpret_cast<PIMAGE_NT_HEADERS>(
+        reinterpret_cast<BYTE*>(baseAddress) + dosHeader->e_lfanew);
+    if (ntHeaders->Signature != IMAGE_NT_SIGNATURE) return;
+
+    auto sections = IMAGE_FIRST_SECTION(ntHeaders);
+    for (WORD i = 0; i < ntHeaders->FileHeader.NumberOfSections; ++i) {
+        g_peSections.push_back({
+            sections[i].VirtualAddress,
+            sections[i].Misc.VirtualSize,
+            sections[i].PointerToRawData,
+            sections[i].SizeOfRawData
+        });
+    }
+}
+
+/// Convert an RVA to a file offset using the PE section table
+static uint32_t RvaToFileOffset(uint32_t rva) {
+    for (const auto& sec : g_peSections) {
+        if (rva >= sec.virtualAddress && rva < sec.virtualAddress + sec.virtualSize) {
+            return rva - sec.virtualAddress + sec.rawDataOffset;
+        }
+    }
+    return 0;
+}
+
+// ============================================================================
+// Metadata Comment Helpers (dnSpy-style)
+// ============================================================================
+
+/// Extract the type definition token from an il2cppClass* by reading at known
+/// memory offsets. Layout: Il2CppClass_1 (0xB8) + static_fields (8) +
+/// rgctx_data (8) = Il2CppClass_2 at 0xC8. Within Il2CppClass_2, token is
+/// at offset 0x54 (Unity 2021+ IL2CPP v29+ with stack_slot_size field).
+static uint32_t GetClassToken(il2cppClass* klass) {
+    if (!klass) return 0;
+    constexpr size_t TOKEN_OFFSET = 0xC8 + 0x54;  // Il2CppClass_2.token
+    return *reinterpret_cast<const uint32_t*>(
+        reinterpret_cast<const uint8_t*>(klass) + TOKEN_OFFSET);
+}
+
+/// Format a type definition comment: // Token: 0x02000045 RID: 69
+static std::string FormatTypeComment(il2cppClass* klass, const std::string& indent) {
+    uint32_t token = GetClassToken(klass);
+    if (token == 0) return "";
+    uint32_t rid = token & 0x00FFFFFF;
+    std::stringstream ss;
+    ss << indent << "// Token: 0x" << std::uppercase << std::hex << std::setfill('0')
+       << std::setw(8) << token << " RID: " << std::dec << rid << "\n";
+    return ss.str();
+}
+
+/// Format a method comment with RVA, file offset, and VA
+/// // Token: 0x06000145 RID: 325 RVA: 0x257880 Offset: 0x256480 VA: 0x180257880
+static std::string FormatMethodComment(const il2cppMethodInfo* method, const std::string& indent) {
+    if (!method) return "";
+    uint32_t token = method->m_uToken;
+    if (token == 0) return "";
+
+    uint32_t rid = token & 0x00FFFFFF;
+    uintptr_t methodPtr = reinterpret_cast<uintptr_t>(method->m_pMethodPointer);
+
+    std::stringstream ss;
+    ss << indent << "// Token: 0x" << std::uppercase << std::hex << std::setfill('0')
+       << std::setw(8) << token << " RID: " << std::dec << rid;
+
+    if (methodPtr && g_gaBase && methodPtr > g_gaBase) {
+        uint32_t rva = static_cast<uint32_t>(methodPtr - g_gaBase);
+        uint32_t fileOffset = RvaToFileOffset(rva);
+        ss << std::hex << " RVA: 0x" << rva
+           << " Offset: 0x" << fileOffset
+           << " VA: 0x" << methodPtr;
+    }
+
+    ss << "\n";
+    return ss.str();
+}
+
+/// Format a field comment with token and instance offset
+/// // Token: 0x04000032 RID: 50 Offset: 0x10
+static std::string FormatFieldComment(il2cppFieldInfo* field, const std::string& indent) {
+    if (!field) return "";
+    uint32_t token = field->m_uToken;
+    if (token == 0) return "";
+
+    uint32_t rid = token & 0x00FFFFFF;
+    int offset = field->m_iOffset;
+    // Use API if available, fall back to struct field
+    if (api::il2cpp_field_get_offset) {
+        offset = static_cast<int>(api::il2cpp_field_get_offset(field));
+    }
+
+    std::stringstream ss;
+    ss << indent << "// Token: 0x" << std::uppercase << std::hex << std::setfill('0')
+       << std::setw(8) << token << " RID: " << std::dec << rid;
+
+    auto attrs = api::il2cpp_field_get_flags(field);
+    if (!(attrs & FIELD_ATTRIBUTE_STATIC)) {
+        ss << " Offset: 0x" << std::hex << offset;
+    }
+
+    ss << "\n";
+    return ss.str();
+}
+
+/// Format a property comment with token, plus getter/setter RVA lines
+/// // Token: 0x17000015 RID: 21
+/// // get Token: 0x06000089 RID: 137 RVA: 0x25A100 Offset: 0x258D00 VA: 0x18025A100
+/// // set Token: 0x0600008A RID: 138 RVA: 0x25A200 Offset: 0x258E00 VA: 0x18025A200
+static std::string FormatPropertyComment(const il2cppPropertyInfo* prop,
+                                          const il2cppMethodInfo* get,
+                                          const il2cppMethodInfo* set,
+                                          const std::string& indent) {
+    if (!prop) return "";
+    uint32_t token = prop->m_uToken;
+    if (token == 0) return "";
+
+    uint32_t rid = token & 0x00FFFFFF;
+    std::stringstream ss;
+    ss << indent << "// Token: 0x" << std::uppercase << std::hex << std::setfill('0')
+       << std::setw(8) << token << " RID: " << std::dec << rid << "\n";
+
+    if (get && get->m_uToken) {
+        uint32_t getRid = get->m_uToken & 0x00FFFFFF;
+        uintptr_t getPtr = reinterpret_cast<uintptr_t>(get->m_pMethodPointer);
+        ss << indent << "// get Token: 0x" << std::hex << std::setfill('0')
+           << std::setw(8) << get->m_uToken << " RID: " << std::dec << getRid;
+        if (getPtr && g_gaBase && getPtr > g_gaBase) {
+            uint32_t rva = static_cast<uint32_t>(getPtr - g_gaBase);
+            uint32_t fileOffset = RvaToFileOffset(rva);
+            ss << std::hex << " RVA: 0x" << rva
+               << " Offset: 0x" << fileOffset
+               << " VA: 0x" << getPtr;
+        }
+        ss << "\n";
+    }
+
+    if (set && set->m_uToken) {
+        uint32_t setRid = set->m_uToken & 0x00FFFFFF;
+        uintptr_t setPtr = reinterpret_cast<uintptr_t>(set->m_pMethodPointer);
+        ss << indent << "// set Token: 0x" << std::hex << std::setfill('0')
+           << std::setw(8) << set->m_uToken << " RID: " << std::dec << setRid;
+        if (setPtr && g_gaBase && setPtr > g_gaBase) {
+            uint32_t rva = static_cast<uint32_t>(setPtr - g_gaBase);
+            uint32_t fileOffset = RvaToFileOffset(rva);
+            ss << std::hex << " RVA: 0x" << rva
+               << " Offset: 0x" << fileOffset
+               << " VA: 0x" << setPtr;
+        }
+        ss << "\n";
+    }
+
+    return ss.str();
+}
+
 static bool _il2cpp_type_is_byref(const il2cppType* type) {
     if (api::il2cpp_type_is_byref) {
         return api::il2cpp_type_is_byref(type);
@@ -578,6 +756,9 @@ static std::string GenerateDelegate(il2cppClass* klass, const std::string& curre
         }
     }
 
+    // Metadata comment
+    ss << FormatTypeComment(klass, "    ");
+
     if (isDeobfuscated) {
         ss << "    /// <summary>Deobfuscated delegate. IL2CPP name: '" << obfTypeName << "'</summary>\n";
     }
@@ -625,6 +806,9 @@ static std::string GenerateEnum(il2cppClass* klass, const std::string& obfTypeNa
             isDeobfuscated = true;
         }
     }
+
+    // Metadata comment
+    ss << FormatTypeComment(klass, "    ");
 
     if (isDeobfuscated) {
         ss << "    /// <summary>Deobfuscated enum. IL2CPP name: '" << obfTypeName << "'</summary>\n";
@@ -709,6 +893,9 @@ static std::string GenerateInterface(il2cppClass* klass, const std::string& obfT
         }
     }
 
+    // Metadata comment
+    ss << FormatTypeComment(klass, "    ");
+
     if (isDeobfuscated) {
         ss << "    /// <summary>Deobfuscated interface. IL2CPP name: '" << obfTypeName << "'</summary>\n";
     }
@@ -738,6 +925,9 @@ static std::string GenerateStruct(il2cppClass* klass, const std::string& current
             isDeobfuscated = true;
         }
     }
+
+    // Metadata comment
+    ss << FormatTypeComment(klass, "    ");
 
     if (isDeobfuscated) {
         ss << "    /// <summary>Deobfuscated struct. IL2CPP name: '" << obfTypeName << "'</summary>\n";
@@ -774,6 +964,8 @@ static std::string GenerateStruct(il2cppClass* klass, const std::string& current
             }
         }
 
+        // Field metadata comment
+        ss << FormatFieldComment(field, "        ");
         ss << "        public " << fieldTypeName << " " << displayFieldName << ";\n";
         hasFields = true;
     }
@@ -855,6 +1047,8 @@ static std::string GenerateClassFields(il2cppClass* klass, const std::string& cu
         if (fieldIsDeobfuscated) {
             ss << "        /// <summary>Deobfuscated field. IL2CPP name: '" << fieldNameStr << "'</summary>\n";
         }
+        // Field metadata comment
+        ss << FormatFieldComment(field, "        ");
         ss << "        " << vis << " " << typeName << " " << displayFieldName << "\n";
         ss << "        {\n";
         ss << "            get => Il2CppRuntime.GetField<" << typeName << ">(this, \"" << fieldNameStr << "\");\n";
@@ -963,6 +1157,8 @@ static std::string GenerateClassProperties(il2cppClass* klass, const std::string
         if (propIsDeobfuscated) {
             ss << "        /// <summary>Deobfuscated property. IL2CPP name: '" << propNameStr << "'</summary>\n";
         }
+        // Property metadata comment
+        ss << FormatPropertyComment(prop, get, set, "        ");
         ss << "        " << vis;
         if (isStatic) ss << " static";
         ss << " " << propTypeName << " " << displayPropName << "\n";
@@ -1187,6 +1383,8 @@ static std::string GenerateClassMethods(il2cppClass* klass, const std::string& c
         if (methodIsDeobfuscated) {
             ss << "        /// <summary>Deobfuscated method. IL2CPP name: '" << methodNameStr << "'</summary>\n";
         }
+        // Method metadata comment
+        ss << FormatMethodComment(method, "        ");
         ss << "        " << vis;
         if (isStatic) ss << " static";
         ss << " " << returnTypeName << " " << displayMethodName;
@@ -1303,6 +1501,9 @@ static std::string GenerateClass(const ClassInfo& info, const std::string& curre
     std::string displayName = info.name;
     bool isDeobfuscated = (info.name != SanitizeTypeName(info.rawName));
 
+    // Type metadata comment
+    ss << FormatTypeComment(info.klass, "    ");
+
     if (isDeobfuscated) {
         ss << "    /// <summary>Deobfuscated class. IL2CPP name: '" << info.rawName << "'</summary>\n";
     }
@@ -1398,6 +1599,9 @@ DumpResult DumpIL2CppRuntime(const std::string& output_directory) {
         result.error_message = "GameAssembly.dll not found";
         return result;
     }
+
+    // ---- Parse PE section headers for RVA→file offset conversion ----
+    InitPESections(gaBase);
 
     // ---- Resolve IL2CPP exports ----
     auto status = api::ensure_exports();

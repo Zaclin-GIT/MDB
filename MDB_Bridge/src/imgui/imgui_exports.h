@@ -156,6 +156,42 @@ IMGUI_EXPORT void igEndTabBar();
 IMGUI_EXPORT bool igBeginTabItem(const char* label, bool* p_open, int flags);
 IMGUI_EXPORT void igEndTabItem();
 
+// ===== DrawList: Polyline/Polygon =====
+IMGUI_EXPORT void ImDrawList_AddPolyline(ImDrawList* self, const ImVec2* points, int num_points, ImU32 col, int flags, float thickness);
+IMGUI_EXPORT void ImDrawList_AddConvexPolyFilled(ImDrawList* self, const ImVec2* points, int num_points, ImU32 col);
+IMGUI_EXPORT void ImDrawList_AddConcavePolyFilled(ImDrawList* self, const ImVec2* points, int num_points, ImU32 col);
+
+// ===== DrawList: Triangles/Quads =====
+IMGUI_EXPORT void ImDrawList_AddTriangle(ImDrawList* self, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImU32 col, float thickness);
+IMGUI_EXPORT void ImDrawList_AddTriangleFilled(ImDrawList* self, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImU32 col);
+IMGUI_EXPORT void ImDrawList_AddQuad(ImDrawList* self, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImVec2 p4, ImU32 col, float thickness);
+IMGUI_EXPORT void ImDrawList_AddQuadFilled(ImDrawList* self, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImVec2 p4, ImU32 col);
+
+// ===== DrawList: N-gons/Ellipses =====
+IMGUI_EXPORT void ImDrawList_AddNgon(ImDrawList* self, ImVec2 center, float radius, ImU32 col, int num_segments, float thickness);
+IMGUI_EXPORT void ImDrawList_AddNgonFilled(ImDrawList* self, ImVec2 center, float radius, ImU32 col, int num_segments);
+IMGUI_EXPORT void ImDrawList_AddEllipse(ImDrawList* self, ImVec2 center, ImVec2 radius, ImU32 col, float rot, int num_segments, float thickness);
+IMGUI_EXPORT void ImDrawList_AddEllipseFilled(ImDrawList* self, ImVec2 center, ImVec2 radius, ImU32 col, float rot, int num_segments);
+
+// ===== DrawList: Multi-Color =====
+IMGUI_EXPORT void ImDrawList_AddRectFilledMultiColor(ImDrawList* self, ImVec2 p_min, ImVec2 p_max, ImU32 col_upr_left, ImU32 col_upr_right, ImU32 col_bot_right, ImU32 col_bot_left);
+
+// ===== DrawList: Bezier Curves =====
+IMGUI_EXPORT void ImDrawList_AddBezierCubic(ImDrawList* self, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImVec2 p4, ImU32 col, float thickness, int num_segments);
+IMGUI_EXPORT void ImDrawList_AddBezierQuadratic(ImDrawList* self, ImVec2 p1, ImVec2 p2, ImVec2 p3, ImU32 col, float thickness, int num_segments);
+
+// ===== DrawList: Path Operations =====
+IMGUI_EXPORT void ImDrawList_PathClear(ImDrawList* self);
+IMGUI_EXPORT void ImDrawList_PathLineTo(ImDrawList* self, ImVec2 pos);
+IMGUI_EXPORT void ImDrawList_PathArcTo(ImDrawList* self, ImVec2 center, float radius, float a_min, float a_max, int num_segments);
+IMGUI_EXPORT void ImDrawList_PathArcToFast(ImDrawList* self, ImVec2 center, float radius, int a_min_of_12, int a_max_of_12);
+IMGUI_EXPORT void ImDrawList_PathBezierCubicCurveTo(ImDrawList* self, ImVec2 p2, ImVec2 p3, ImVec2 p4, int num_segments);
+IMGUI_EXPORT void ImDrawList_PathBezierQuadraticCurveTo(ImDrawList* self, ImVec2 p2, ImVec2 p3, int num_segments);
+IMGUI_EXPORT void ImDrawList_PathRect(ImDrawList* self, ImVec2 rect_min, ImVec2 rect_max, float rounding, int flags);
+IMGUI_EXPORT void ImDrawList_PathStroke(ImDrawList* self, ImU32 col, int flags, float thickness);
+IMGUI_EXPORT void ImDrawList_PathFillConvex(ImDrawList* self, ImU32 col);
+IMGUI_EXPORT void ImDrawList_PathFillConcave(ImDrawList* self, ImU32 col);
+
 #ifdef __cplusplus
 }
 #endif
